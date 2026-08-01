@@ -42,8 +42,6 @@ import ReceptionistReports from "../receptionist/Reports";
 import Login from "../app/login";
 
 export const router = createHashRouter([
-  { path: "*", element: <Navigate to="/login" replace /> },
-
   //login
   {
     path: "/login",
@@ -102,4 +100,6 @@ export const router = createHashRouter([
       { path: "reports", Component: ReceptionistReports },
     ],
   },
+
+  { path: "*", element: <Navigate to="/login" replace /> },
 ]);
