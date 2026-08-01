@@ -1,0 +1,277 @@
+import { Card } from "../app/components/ui/card";
+import { Calendar, CheckCircle, XCircle, Clock, Wrench } from "lucide-react";
+
+const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const dates = ["8", "9", "10", "11", "12", "13", "14"];
+
+const roomAvailability = [
+  {
+    room: "101",
+    type: "Standard",
+    status: [
+      "occupied",
+      "occupied",
+      "available",
+      "available",
+      "reserved",
+      "reserved",
+      "occupied",
+    ],
+  },
+  {
+    room: "102",
+    type: "Standard",
+    status: [
+      "available",
+      "available",
+      "reserved",
+      "occupied",
+      "occupied",
+      "occupied",
+      "available",
+    ],
+  },
+  {
+    room: "103",
+    type: "Standard",
+    status: [
+      "maintenance",
+      "maintenance",
+      "available",
+      "available",
+      "available",
+      "reserved",
+      "occupied",
+    ],
+  },
+  {
+    room: "201",
+    type: "Deluxe",
+    status: [
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+      "available",
+      "available",
+    ],
+  },
+  {
+    room: "202",
+    type: "Deluxe",
+    status: [
+      "available",
+      "reserved",
+      "occupied",
+      "occupied",
+      "available",
+      "available",
+      "reserved",
+    ],
+  },
+  {
+    room: "301",
+    type: "Ocean View",
+    status: [
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+    ],
+  },
+  {
+    room: "302",
+    type: "Ocean View",
+    status: [
+      "reserved",
+      "occupied",
+      "occupied",
+      "available",
+      "available",
+      "reserved",
+      "occupied",
+    ],
+  },
+  {
+    room: "401",
+    type: "Villa",
+    status: [
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+      "occupied",
+    ],
+  },
+];
+
+const statusColors = {
+  available: "bg-green-100 border-green-300 text-green-700",
+  occupied: "bg-blue-100 border-blue-300 text-blue-700",
+  reserved: "bg-yellow-100 border-yellow-300 text-yellow-700",
+  maintenance: "bg-red-100 border-red-300 text-red-700",
+};
+
+const statusIcons = {
+  available: CheckCircle,
+  occupied: XCircle,
+  reserved: Clock,
+  maintenance: Wrench,
+};
+
+export default function RoomAvailability() {
+  return (
+    <div className="p-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900">
+          Room Availability & Status
+        </h1>
+        <p className="text-gray-500 mt-2">
+          Monitor room occupancy and maintenance status
+        </p>
+      </div>
+
+      {/* Legend */}
+      <Card className="p-6 mb-6">
+        <h3 className="font-semibold text-gray-900 mb-4">Status Legend</h3>
+        <div className="flex flex-wrap gap-4">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 text-green-600" />
+            <span className="text-sm text-gray-700">Available</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <XCircle className="w-5 h-5 text-blue-600" />
+            <span className="text-sm text-gray-700">Occupied</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5 text-yellow-600" />
+            <span className="text-sm text-gray-700">Reserved</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Wrench className="w-5 h-5 text-red-600" />
+            <span className="text-sm text-gray-700">Maintenance</span>
+          </div>
+        </div>
+      </Card>
+
+      {/* Availability Calendar */}
+      <Card className="p-6">
+        <div className="flex items-center gap-2 mb-6">
+          <Calendar className="w-5 h-5 text-blue-600" />
+          <h2 className="text-lg font-semibold text-gray-900">
+            Weekly Availability - June 2026
+          </h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse">
+            <thead>
+              <tr className="border-b-2 border-gray-300">
+                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500 sticky left-0 bg-white">
+                  Room
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
+                  Type
+                </th>
+                {weekDays.map((day, index) => (
+                  <th
+                    key={day}
+                    className="text-center py-3 px-4 text-sm font-medium text-gray-500"
+                  >
+                    <div>{day}</div>
+                    <div className="text-xs text-gray-400">
+                      Jun {dates[index]}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {roomAvailability.map((room) => (
+                <tr
+                  key={room.room}
+                  className="border-b border-gray-200 hover:bg-gray-50"
+                >
+                  <td className="py-3 px-4 font-medium text-gray-900 sticky left-0 bg-white">
+                    #{room.room}
+                  </td>
+                  <td className="py-3 px-4 text-sm text-gray-700">
+                    {room.type}
+                  </td>
+                  {room.status.map((status, index) => {
+                    const Icon =
+                      statusIcons[status as keyof typeof statusIcons];
+                    return (
+                      <td key={index} className="py-3 px-4">
+                        <div
+                          className={`flex items-center justify-center p-2 rounded border ${
+                            statusColors[status as keyof typeof statusColors]
+                          }`}
+                        >
+                          <Icon className="w-4 h-4" />
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Available</p>
+              <p className="text-xl font-bold text-gray-900">12 rooms</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <XCircle className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Occupied</p>
+              <p className="text-xl font-bold text-gray-900">32 rooms</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+              <Clock className="w-5 h-5 text-yellow-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Reserved</p>
+              <p className="text-xl font-bold text-gray-900">8 rooms</p>
+            </div>
+          </div>
+        </Card>
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+              <Wrench className="w-5 h-5 text-red-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Maintenance</p>
+              <p className="text-xl font-bold text-gray-900">2 rooms</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+    </div>
+  );
+}
