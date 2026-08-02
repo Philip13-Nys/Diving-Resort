@@ -2,12 +2,13 @@
   "name": "my-file",
   "private": true,
   "version": "0.0.1",
+  "homepage": "https://philip13-nys.github.io/Diving-Resort/",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist --no-history"
+    "deploy": "gh-pages -d dist"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
