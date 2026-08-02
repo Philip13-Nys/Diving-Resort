@@ -17,7 +17,7 @@ import {
   Bell,
   Search,
 } from "lucide-react";
-import { Outlet, useLocation, useNavigate } from "react-router";
+import { Outlet, Link, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "../app/firebase";
 
