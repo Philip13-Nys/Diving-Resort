@@ -212,23 +212,24 @@ export default function Reports() {
             Generate and access operational and analytical reports
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="fixed bottom-4 right-4 z-40 flex flex-col gap-2 md:static md:flex-row">
           {/* Filter button + dropdown */}
           <div className="relative" ref={filterRef}>
             <Button
               variant="outline"
-              className="border-gray-300"
               onClick={() => setShowFilter((prev) => !prev)}
+              className=" bg-white border-gray-300 h-10 px-3 text-sm md:h-10 md:px-4"
             >
-              <Filter className="w-4 h-4 mr-2" />
-              Filter
+              <Filter className="w-4 h-4 md:mr-2" />
+              <span className="hidden sm:inline">Filter</span>
+
               {filterCategory !== "All" && (
-                <span className="ml-2 w-2 h-2 rounded-full bg-blue-600 inline-block" />
+                <span className="ml-2 w-2 h-2 rounded-full bg-blue-600" />
               )}
             </Button>
 
             {showFilter && (
-              <Card className="absolute right-0 top-full mt-2 w-52 p-3 shadow-lg z-50 bg-white">
+              <Card className=" absolute bottom-full mb-2 md:bottom-auto md:top-full md:mb-0 md:mt-2 right-0 w-52 p-3 bg-white shadow-lg rounded-lg z-50">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1">
                   Category
                 </p>
@@ -256,11 +257,11 @@ export default function Reports() {
           </div>
 
           <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-blue-600 hover:bg-blue-700 text-white h-9 px-3 text-sm md:h-10 md:px-4"
             onClick={() => setShowModal(true)}
           >
-            <Calendar className="w-4 h-4 mr-2" />
-            Custom Report
+            <Calendar className="w-4 h-4 md:mr-2" />
+            <span className="hidden sm:inline">Custom Report</span>
           </Button>
         </div>
       </div>
@@ -293,8 +294,18 @@ export default function Reports() {
                 </span>
                 <Button
                   variant="outline"
+                  size="icon"
+                  onClick={() => handleDownload(report)}
+                  className="sm:hidden"
+                >
+                  <Download className="w-4 h-4" />
+                </Button>
+
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => handleDownload(report)}
+                  className="hidden sm:flex"
                 >
                   <Download className="w-4 h-4 mr-2" />
                   Download

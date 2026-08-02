@@ -48,14 +48,6 @@ const navigation = [
 export default function ManagerLayout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  {
-    sidebarOpen && (
-      <div
-        className="fixed inset-0 bg-black/50 z-20 lg:hidden"
-        onClick={() => setSidebarOpen(false)}
-      />
-    );
-  }
   return (
     <>
       {sidebarOpen && (

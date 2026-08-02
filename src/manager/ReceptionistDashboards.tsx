@@ -79,18 +79,19 @@ export default function ReceptionistDashboard() {
   const navigate = useNavigate();
   return (
     <div className="p-8">
-      <div className="mb-8 flex justify-between items-center">
+      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
             Receptionist Dashboard
           </h1>
           <p className="text-gray-500 mt-2">
             Monitor receptionist activities and performance
           </p>
         </div>
+
         <Button
-          className="bg-blue-600 hover:bg-blue-700 text-white"
           onClick={() => navigate("/manager/activity-logs")}
+          className=" w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white"
         >
           View Full Activity Log
         </Button>

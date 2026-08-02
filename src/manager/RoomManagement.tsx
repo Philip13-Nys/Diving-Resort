@@ -124,8 +124,8 @@ export default function RoomManagement() {
   };
 
   return (
-    <div className="p-8">
-      <div className="mb-8 flex justify-between items-center">
+    <div className="p-4 md:p-6">
+      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Room Management</h1>
           <p className="text-gray-500 mt-2">
@@ -133,11 +133,18 @@ export default function RoomManagement() {
           </p>
         </div>
         <Button
-          className="bg-blue-600 hover:bg-blue-700 text-white"
+          className="hidden md:flex bg-blue-600 hover:bg-blue-700 text-white"
           onClick={() => setShowForm(true)}
         >
           <Plus className="w-4 h-4 mr-2" />
           Add New {activeTab === "types" ? "Room Type" : "Room"}
+        </Button>
+        <Button
+          onClick={() => setShowForm(true)}
+          className="fixed bottom-6 right-6 md:hidden z-40 rounded-full shadow-lg bg-blue-600 hover:bg-blue-700 text-white px-5 py-6 "
+        >
+          <Plus className="w-5 h-5 " />
+          Add {activeTab === "types" ? "Room Type" : "Room"}
         </Button>
       </div>
 
@@ -182,7 +189,7 @@ export default function RoomManagement() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
                       Base Price / Night
@@ -247,7 +254,7 @@ export default function RoomManagement() {
               </form>
             ) : (
               <form onSubmit={handleAddRoom} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
                       Room Number
@@ -348,7 +355,7 @@ export default function RoomManagement() {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Base Price / Night
@@ -419,114 +426,116 @@ export default function RoomManagement() {
 
       {/* Edit Room Modal */}
       {editingRoom && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6 m-4">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Edit Room #{editingRoom.id}
-              </h2>
-              <button
-                onClick={() => setEditingRoom(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleSaveRoom} className="space-y-4">
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">
-                  Room Number
-                </label>
-                <input
-                  type="number"
-                  value={editingRoom.id}
-                  readOnly
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">
-                  Room Type
-                </label>
-                <select
-                  name="type"
-                  defaultValue={editingRoom.type}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {roomTypes.map((rt) => (
-                    <option key={rt.id} value={rt.name}>
-                      {rt.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">
-                  Floor
-                </label>
-                <input
-                  name="floor"
-                  type="number"
-                  defaultValue={editingRoom.floor}
-                  required
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">
-                  Condition
-                </label>
-                <select
-                  name="condition"
-                  defaultValue={editingRoom.condition}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="excellent">Excellent</option>
-                  <option value="good">Good</option>
-                  <option value="fair">Fair</option>
-                </select>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">
-                  Status
-                </label>
-                <select
-                  name="status"
-                  defaultValue={editingRoom.status}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="available">Available</option>
-                  <option value="occupied">Occupied</option>
-                  <option value="reserved">Reserved</option>
-                  <option value="maintenance">Maintenance</option>
-                </select>
-              </div>
-              <div className="flex gap-3 mt-6">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1"
+        <div className="fixed inset-0 z-50 bg-black/40 overflow-y-auto">
+          <div className="flex min-h-full items-center justify-center p-4">
+            <Card className="w-full max-w-lg p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Edit Room #{editingRoom.id}
+                </h2>
+                <button
                   onClick={() => setEditingRoom(null)}
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Save Changes
-                </Button>
+                  <X className="w-5 h-5" />
+                </button>
               </div>
-            </form>
-          </Card>
+              <form onSubmit={handleSaveRoom} className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Room Number
+                  </label>
+                  <input
+                    type="number"
+                    value={editingRoom.id}
+                    readOnly
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Room Type
+                  </label>
+                  <select
+                    name="type"
+                    defaultValue={editingRoom.type}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {roomTypes.map((rt) => (
+                      <option key={rt.id} value={rt.name}>
+                        {rt.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Floor
+                  </label>
+                  <input
+                    name="floor"
+                    type="number"
+                    defaultValue={editingRoom.floor}
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Condition
+                  </label>
+                  <select
+                    name="condition"
+                    defaultValue={editingRoom.condition}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="excellent">Excellent</option>
+                    <option value="good">Good</option>
+                    <option value="fair">Fair</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Status
+                  </label>
+                  <select
+                    name="status"
+                    defaultValue={editingRoom.status}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="available">Available</option>
+                    <option value="occupied">Occupied</option>
+                    <option value="reserved">Reserved</option>
+                    <option value="maintenance">Maintenance</option>
+                  </select>
+                </div>
+                <div className="flex gap-3 mt-6">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => setEditingRoom(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          </div>
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex gap-4 mb-6 border-b border-gray-200">
+      <div className="mb-6 flex overflow-x-auto border-b border-gray-200">
         <button
           onClick={() => setActiveTab("types")}
-          className={`pb-3 px-4 font-medium transition-colors ${
+          className={`whitespace-nowrap px-4 py-3 font-medium transition-colors ${
             activeTab === "types"
               ? "text-blue-600 border-b-2 border-blue-600"
               : "text-gray-500 hover:text-gray-700"
@@ -536,7 +545,7 @@ export default function RoomManagement() {
         </button>
         <button
           onClick={() => setActiveTab("rooms")}
-          className={`pb-3 px-4 font-medium transition-colors ${
+          className={`whitespace-nowrap px-4 py-3 font-medium transition-colors ${
             activeTab === "rooms"
               ? "text-blue-600 border-b-2 border-blue-600"
               : "text-gray-500 hover:text-gray-700"
@@ -548,14 +557,14 @@ export default function RoomManagement() {
 
       {/* Room Types */}
       {activeTab === "types" && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {roomTypes.map((roomType) => (
             <Card key={roomType.id} className="p-6">
               {roomType.image && (
                 <img
                   src={roomType.image}
                   alt={roomType.name}
-                  className="w-full h-48 object-cover rounded-lg mb-4"
+                  className="w-full aspect-video object-cover rounded-lg mb-4"
                 />
               )}
 
@@ -568,7 +577,7 @@ export default function RoomManagement() {
                     {roomType.count} rooms available
                   </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center justify-end gap-2">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -623,8 +632,8 @@ export default function RoomManagement() {
       {/* All Rooms */}
       {activeTab === "rooms" && (
         <Card className="p-6">
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="w-full overflow-x-auto">
+            <table className="min-w-[700px] w-full">
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
@@ -693,7 +702,7 @@ export default function RoomManagement() {
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex gap-2">
+                      <div className="flex items-center justify-end gap-2">
                         <Button
                           variant="ghost"
                           size="sm"

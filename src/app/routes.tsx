@@ -1,4 +1,4 @@
-import { createHashRouter, Navigate } from "react-router";
+import { createHashRouter, Navigate } from "react-router-dom";
 
 //admin
 import AdminLayout from "./components/AdminLayout";
