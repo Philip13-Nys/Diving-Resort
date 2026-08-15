@@ -1,7 +1,10 @@
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { CheckCircle, XCircle, Clock, Eye, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+
+import { db } from "../app/firebase";
 
 type Booking = {
   id: string;
@@ -16,88 +19,114 @@ type Booking = {
   paymentStatus: "paid" | "partial" | "unpaid";
 };
 
-const initialBookings: Booking[] = [
-  {
-    id: "BK-2026-001",
-    guest: "John Martinez",
-    email: "john.m@email.com",
-    room: "Ocean View Suite 101",
-    checkIn: "Jun 8, 2026",
-    checkOut: "Jun 12, 2026",
-    guests: 2,
-    total: 1800,
-    status: "confirmed",
-    paymentStatus: "paid",
-  },
-  {
-    id: "BK-2026-002",
-    guest: "Sarah Chen",
-    email: "sarah.chen@email.com",
-    room: "Deluxe Room 205",
-    checkIn: "Jun 10, 2026",
-    checkOut: "Jun 15, 2026",
-    guests: 2,
-    total: 2250,
-    status: "pending",
-    paymentStatus: "partial",
-  },
-  {
-    id: "BK-2026-003",
-    guest: "Michael Johnson",
-    email: "mike.j@email.com",
-    room: "Beach Front Villa 3",
-    checkIn: "Jun 9, 2026",
-    checkOut: "Jun 16, 2026",
-    guests: 4,
-    total: 4900,
-    status: "confirmed",
-    paymentStatus: "paid",
-  },
-  {
-    id: "BK-2026-004",
-    guest: "Emma Wilson",
-    email: "emma.w@email.com",
-    room: "Standard Room 102",
-    checkIn: "Jun 12, 2026",
-    checkOut: "Jun 14, 2026",
-    guests: 1,
-    total: 360,
-    status: "pending",
-    paymentStatus: "unpaid",
-  },
-];
-
 export default function BookingOverview() {
   const [filter, setFilter] = useState<
     "all" | "pending" | "confirmed" | "cancelled"
   >("all");
-  const [bookings, setBookings] = useState<Booking[]>(initialBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
   const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
 
+  useEffect(() => {
+    const fetchBookings = async () => {
+      try {
+        setLoading(true);
+
+        const snapshot = await getDocs(collection(db, "bookings"));
+
+        const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
+          const data = bookingDoc.data();
+
+          return {
+            id: bookingDoc.id,
+            guest: data.guest || data.guestName || "Unknown Guest",
+            email: data.email || "",
+            room: data.room || data.roomName || "Unknown Room",
+            checkIn: data.checkIn || "",
+            checkOut: data.checkOut || "",
+            guests: Number(data.guests || 0),
+            total: Number(data.total || 0),
+            status: data.status || "pending",
+            paymentStatus: data.paymentStatus || "unpaid",
+          };
+        });
+
+        setBookings(bookingData);
+      } catch (error) {
+        console.error("Error loading bookings:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBookings();
+  }, []);
+  if (loading) {
+    return (
+      <div className="p-8">
+        <div className="flex items-center justify-center py-20">
+          <p className="text-gray-500">Loading bookings...</p>
+        </div>
+      </div>
+    );
+  }
   const filteredBookings = bookings.filter(
     (b) => filter === "all" || b.status === filter,
   );
 
-  const approve = (id: string) => {
-    setBookings((prev) =>
-      prev.map((b) =>
-        b.id === id
-          ? {
-              ...b,
-              status: "confirmed",
-              paymentStatus:
-                b.paymentStatus === "unpaid" ? "partial" : b.paymentStatus,
-            }
-          : b,
-      ),
-    );
-  };
+  const approve = async (id: string) => {
+    try {
+      const booking = bookings.find((b) => b.id === id);
 
-  const cancel = (id: string) => {
-    if (window.confirm("Cancel this booking? This action cannot be undone.")) {
+      if (!booking) return;
+
+      const newPaymentStatus =
+        booking.paymentStatus === "unpaid" ? "partial" : booking.paymentStatus;
+
+      await updateDoc(doc(db, "bookings", id), {
+        status: "confirmed",
+        paymentStatus: newPaymentStatus,
+      });
+
       setBookings((prev) =>
-        prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)),
+        prev.map((b) =>
+          b.id === id
+            ? {
+                ...b,
+                status: "confirmed",
+                paymentStatus: newPaymentStatus,
+              }
+            : b,
+        ),
       );
+    } catch (error) {
+      console.error("Error approving booking:", error);
+      alert("Failed to approve booking.");
+    }
+  };
+  const cancel = async (id: string) => {
+    if (!window.confirm("Cancel this booking? This action cannot be undone.")) {
+      return;
+    }
+
+    try {
+      await updateDoc(doc(db, "bookings", id), {
+        status: "cancelled",
+      });
+
+      setBookings((prev) =>
+        prev.map((b) =>
+          b.id === id
+            ? {
+                ...b,
+                status: "cancelled",
+              }
+            : b,
+        ),
+      );
+    } catch (error) {
+      console.error("Error cancelling booking:", error);
+      alert("Failed to cancel booking.");
     }
   };
 

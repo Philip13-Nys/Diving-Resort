@@ -25,24 +25,17 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router";
 
-const revenueData = [
-  { month: "Jan", revenue: 45000, bookings: 120 },
-  { month: "Feb", revenue: 52000, bookings: 145 },
-  { month: "Mar", revenue: 61000, bookings: 165 },
-  { month: "Apr", revenue: 58000, bookings: 155 },
-  { month: "May", revenue: 67000, bookings: 180 },
-  { month: "Jun", revenue: 73000, bookings: 195 },
-];
+const revenueData: {
+  month: string;
+  revenue: number;
+  bookings: number;
+}[] = [];
 
-const occupancyData = [
-  { day: "Mon", occupied: 85, available: 15 },
-  { day: "Tue", occupied: 92, available: 8 },
-  { day: "Wed", occupied: 88, available: 12 },
-  { day: "Thu", occupied: 95, available: 5 },
-  { day: "Fri", occupied: 98, available: 2 },
-  { day: "Sat", occupied: 100, available: 0 },
-  { day: "Sun", occupied: 97, available: 3 },
-];
+const occupancyData: {
+  day: string;
+  occupied: number;
+  available: number;
+}[] = [];
 
 const quickActions = [
   {
@@ -105,11 +98,10 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Total Revenue</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">$73,000</p>
-              <p className="text-sm text-green-600 mt-1">
-                +12% from last month
-              </p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">₱0</p>
+              <p className="text-sm text-gray-500 mt-1">No data yet</p>
             </div>
+
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
               <DollarSign className="w-6 h-6 text-green-600" />
             </div>
@@ -120,8 +112,8 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Occupancy Rate</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">94%</p>
-              <p className="text-sm text-green-600 mt-1">+5% from last week</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">0%</p>
+              <p className="text-sm text-green-600 mt-1">No data yet</p>
             </div>
             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
               <Hotel className="w-6 h-6 text-blue-600" />
@@ -133,8 +125,8 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Total Bookings</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">195</p>
-              <p className="text-sm text-green-600 mt-1">+8% from last month</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">0</p>
+              <p className="text-sm text-green-600 mt-1">No data yet</p>
             </div>
             <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
               <Users className="w-6 h-6 text-purple-600" />
@@ -146,8 +138,8 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Avg. Daily Rate</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">$374</p>
-              <p className="text-sm text-green-600 mt-1">+3% from last month</p>
+              <p className="text-2xl font-bold text-gray-900 mt-1">$0</p>
+              <p className="text-sm text-green-600 mt-1">No data eyt</p>
             </div>
             <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
               <TrendingUp className="w-6 h-6 text-orange-600" />
@@ -264,64 +256,12 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b border-gray-100">
-                <td className="py-3 px-4 text-sm text-gray-900">
-                  John Martinez
-                </td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  Ocean View Suite 101
-                </td>
-                <td className="py-3 px-4 text-sm text-gray-700">Jun 8, 2026</td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  Jun 12, 2026
-                </td>
-                <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                  $1,800
-                </td>
-                <td className="py-3 px-4">
-                  <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                    Confirmed
-                  </span>
-                </td>
-              </tr>
-              <tr className="border-b border-gray-100">
-                <td className="py-3 px-4 text-sm text-gray-900">Sarah Chen</td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  Deluxe Room 205
-                </td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  Jun 10, 2026
-                </td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  Jun 15, 2026
-                </td>
-                <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                  $2,250
-                </td>
-                <td className="py-3 px-4">
-                  <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs">
-                    Pending
-                  </span>
-                </td>
-              </tr>
-              <tr className="border-b border-gray-100">
-                <td className="py-3 px-4 text-sm text-gray-900">
-                  Michael Johnson
-                </td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  Beach Front Villa 3
-                </td>
-                <td className="py-3 px-4 text-sm text-gray-700">Jun 9, 2026</td>
-                <td className="py-3 px-4 text-sm text-gray-700">
-                  Jun 16, 2026
-                </td>
-                <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                  $4,900
-                </td>
-                <td className="py-3 px-4">
-                  <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                    Confirmed
-                  </span>
+              <tr>
+                <td
+                  colSpan={6}
+                  className="py-8 text-center text-sm text-gray-500"
+                >
+                  No reservations yet.
                 </td>
               </tr>
             </tbody>

@@ -2,55 +2,134 @@ import { Fragment } from "react";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Edit, TrendingUp, Calendar, X, Save } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import { db } from "../app/firebase";
 
-const pricingRules = [
-  {
-    id: 1,
-    name: "Peak Season Rate",
-    period: "Dec 15 - Jan 15",
-    multiplier: "1.5x",
-    status: "active",
-    affectedRooms: "All room types",
-  },
-  {
-    id: 2,
-    name: "Weekend Premium",
-    period: "Every Fri-Sun",
-    multiplier: "1.3x",
-    status: "active",
-    affectedRooms: "Ocean View & Villa",
-  },
-  {
-    id: 3,
-    name: "Low Season Discount",
-    period: "Sep 1 - Nov 30",
-    multiplier: "0.8x",
-    status: "scheduled",
-    affectedRooms: "Standard & Deluxe",
-  },
-];
+interface PricingRule {
+  id: string;
+  name: string;
+  period: string;
+  multiplier: string;
+  status: string;
+  affectedRooms: string;
+}
 
-const currentRates = [
-  { roomType: "Standard Room", baseRate: 150, weekendRate: 180, peakRate: 225 },
-  { roomType: "Deluxe Room", baseRate: 250, weekendRate: 300, peakRate: 375 },
-  {
-    roomType: "Ocean View Suite",
-    baseRate: 400,
-    weekendRate: 520,
-    peakRate: 600,
-  },
-  {
-    roomType: "Beach Front Villa",
-    baseRate: 800,
-    weekendRate: 1040,
-    peakRate: 1200,
-  },
-];
+interface RoomRate {
+  id: string;
+  roomType: string;
+  baseRate: number;
+  weekendRate: number;
+  peakRate: number;
+}
 
 export default function PricingManagement() {
+  const [currentRates, setCurrentRates] = useState<RoomRate[]>([]);
+  const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
+
   const [editingRate, setEditingRate] = useState<string | null>(null);
-  const [editingRule, setEditingRule] = useState<number | null>(null);
+  const [editingRule, setEditingRule] = useState<string | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [editValues, setEditValues] = useState({
+    baseRate: 0,
+    weekendRate: 0,
+    peakRate: 0,
+  });
+
+  useEffect(() => {
+    const fetchPricingData = async () => {
+      try {
+        setLoading(true);
+
+        // Get room rates
+        const roomTypesSnapshot = await getDocs(collection(db, "roomTypes"));
+
+        const rates: RoomRate[] = roomTypesSnapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+            roomType: data.name || "Unnamed Room",
+            baseRate: Number(data.baseRate || 0),
+            weekendRate: Number(data.weekendRate || 0),
+            peakRate: Number(data.peakRate || 0),
+          };
+        });
+
+        setCurrentRates(rates);
+
+        // Get pricing rules
+        const pricingRulesSnapshot = await getDocs(
+          collection(db, "pricingRules"),
+        );
+
+        const rules: PricingRule[] = pricingRulesSnapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          return {
+            id: doc.id,
+            name: data.name || "",
+            period: data.period || "",
+            multiplier: data.multiplier || "",
+            status: data.status || "scheduled",
+            affectedRooms: data.affectedRooms || "",
+          };
+        });
+
+        setPricingRules(rules);
+      } catch (error) {
+        console.error("Error loading pricing data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPricingData();
+  }, []);
+  if (loading) {
+    return (
+      <div className="p-8">
+        <div className="flex items-center justify-center py-20">
+          <p className="text-gray-500">Loading pricing data...</p>
+        </div>
+      </div>
+    );
+  }
+  const handleSaveRate = async (
+    rateId: string,
+    baseRate: number,
+    weekendRate: number,
+    peakRate: number,
+  ) => {
+    try {
+      await updateDoc(doc(db, "roomTypes", rateId), {
+        baseRate,
+        weekendRate,
+        peakRate,
+      });
+
+      setCurrentRates((prev) =>
+        prev.map((rate) =>
+          rate.id === rateId
+            ? {
+                ...rate,
+                baseRate,
+                weekendRate,
+                peakRate,
+              }
+            : rate,
+        ),
+      );
+
+      setEditingRate(null);
+
+      alert("Room rates updated successfully!");
+    } catch (error) {
+      console.error("Error updating room rate:", error);
+      alert("Failed to update room rate.");
+    }
+  };
 
   return (
     <div className="p-8">
@@ -103,53 +182,71 @@ export default function PricingManagement() {
             </thead>
             <tbody>
               {currentRates.map((rate) => (
-                <Fragment key={rate.roomType}>
+                <Fragment key={rate.id}>
                   <tr className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4 font-medium text-gray-900">
                       {rate.roomType}
                     </td>
+
                     <td className="py-3 px-4 text-gray-700">
                       ${rate.baseRate}/night
                     </td>
+
                     <td className="py-3 px-4 text-gray-700">
                       <span className="text-blue-600 font-medium">
                         ${rate.weekendRate}/night
                       </span>
+
                       <span className="text-xs text-gray-500 ml-2">
                         (+
-                        {Math.round(
-                          ((rate.weekendRate - rate.baseRate) / rate.baseRate) *
-                            100,
-                        )}
+                        {rate.baseRate > 0
+                          ? Math.round(
+                              ((rate.weekendRate - rate.baseRate) /
+                                rate.baseRate) *
+                                100,
+                            )
+                          : 0}
                         %)
                       </span>
                     </td>
+
                     <td className="py-3 px-4 text-gray-700">
                       <span className="text-orange-600 font-medium">
                         ${rate.peakRate}/night
                       </span>
+
                       <span className="text-xs text-gray-500 ml-2">
                         (+
-                        {Math.round(
-                          ((rate.peakRate - rate.baseRate) / rate.baseRate) *
-                            100,
-                        )}
+                        {rate.baseRate > 0
+                          ? Math.round(
+                              ((rate.peakRate - rate.baseRate) /
+                                rate.baseRate) *
+                                100,
+                            )
+                          : 0}
                         %)
                       </span>
                     </td>
+
                     <td className="py-3 px-4">
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() =>
-                          setEditingRate(
-                            editingRate === rate.roomType
-                              ? null
-                              : rate.roomType,
-                          )
-                        }
+                        onClick={() => {
+                          if (editingRate === rate.id) {
+                            setEditingRate(null);
+                          } else {
+                            setEditingRate(rate.id);
+
+                            setEditValues({
+                              baseRate: rate.baseRate,
+                              weekendRate: rate.weekendRate,
+                              peakRate: rate.peakRate,
+                            });
+                          }
+                        }}
                       >
-                        {editingRate === rate.roomType ? (
+                        {editingRate === rate.id ? (
                           <X className="w-4 h-4" />
                         ) : (
                           <Edit className="w-4 h-4" />
@@ -157,7 +254,7 @@ export default function PricingManagement() {
                       </Button>
                     </td>
                   </tr>
-                  {editingRate === rate.roomType && (
+                  {editingRate === rate.id && (
                     <tr className="bg-blue-50 border-b border-blue-100">
                       <td colSpan={5} className="px-4 py-4">
                         <div className="grid grid-cols-3 gap-4 mb-3">
@@ -167,8 +264,14 @@ export default function PricingManagement() {
                             </label>
                             <input
                               type="number"
-                              defaultValue={rate.baseRate}
-                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editValues.baseRate}
+                              onChange={(e) =>
+                                setEditValues({
+                                  ...editValues,
+                                  baseRate: Number(e.target.value),
+                                })
+                              }
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
                             />
                           </div>
                           <div>
@@ -177,8 +280,14 @@ export default function PricingManagement() {
                             </label>
                             <input
                               type="number"
-                              defaultValue={rate.weekendRate}
-                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editValues.weekendRate}
+                              onChange={(e) =>
+                                setEditValues({
+                                  ...editValues,
+                                  weekendRate: Number(e.target.value),
+                                })
+                              }
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
                             />
                           </div>
                           <div>
@@ -187,8 +296,14 @@ export default function PricingManagement() {
                             </label>
                             <input
                               type="number"
-                              defaultValue={rate.peakRate}
-                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              value={editValues.peakRate}
+                              onChange={(e) =>
+                                setEditValues({
+                                  ...editValues,
+                                  peakRate: Number(e.target.value),
+                                })
+                              }
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
                             />
                           </div>
                         </div>
@@ -196,7 +311,14 @@ export default function PricingManagement() {
                           <Button
                             size="sm"
                             className="bg-blue-600 hover:bg-blue-700 text-white"
-                            onClick={() => setEditingRate(null)}
+                            onClick={() =>
+                              handleSaveRate(
+                                rate.id,
+                                editValues.baseRate,
+                                editValues.weekendRate,
+                                editValues.peakRate,
+                              )
+                            }
                           >
                             <Save className="w-3 h-3 mr-1" /> Save Changes
                           </Button>

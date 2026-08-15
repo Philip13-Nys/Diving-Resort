@@ -2,8 +2,6 @@ import { Card } from "../app/components/ui/card";
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
   PieChart,
   Pie,
   Cell,
@@ -15,33 +13,76 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { TrendingUp, DollarSign, Users, Calendar } from "lucide-react";
+import { useEffect, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "../app/firebase";
 
-const monthlyRevenue = [
-  { month: "Jan", revenue: 45000, target: 50000 },
-  { month: "Feb", revenue: 52000, target: 50000 },
-  { month: "Mar", revenue: 61000, target: 55000 },
-  { month: "Apr", revenue: 58000, target: 55000 },
-  { month: "May", revenue: 67000, target: 60000 },
-  { month: "Jun", revenue: 73000, target: 60000 },
-];
+interface MonthlyRevenue {
+  month: string;
+  revenue: number;
+  target: number;
+}
 
-const roomTypeRevenue = [
-  { name: "Standard Room", value: 28000, bookings: 145 },
-  { name: "Deluxe Room", value: 35000, bookings: 98 },
-  { name: "Ocean View Suite", value: 42000, bookings: 73 },
-  { name: "Beach Front Villa", value: 56000, bookings: 45 },
-];
+interface RoomTypeRevenue {
+  name: string;
+  value: number;
+  bookings: number;
+}
 
-const bookingChannels = [
-  { name: "Direct Booking", value: 42 },
-  { name: "Online Travel Agency", value: 35 },
-  { name: "Walk-in", value: 15 },
-  { name: "Corporate", value: 8 },
-];
+interface BookingChannel {
+  name: string;
+  value: number;
+}
 
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6"];
 
 export default function SalesAnalytics() {
+  const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
+  const [roomTypeRevenue, setRoomTypeRevenue] = useState<RoomTypeRevenue[]>([]);
+  const [bookingChannels, setBookingChannels] = useState<BookingChannel[]>([]);
+
+  const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalBookings, setTotalBookings] = useState(0);
+  const [avgDailyRate, setAvgDailyRate] = useState(0);
+  const [avgStayDuration, setAvgStayDuration] = useState(0);
+
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSalesData = async () => {
+      try {
+        setLoading(true);
+
+        const snapshot = await getDocs(collection(db, "reservations"));
+
+        console.log(
+          "Reservations:",
+          snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          })),
+        );
+
+        // Analytics will be calculated here
+      } catch (error) {
+        console.error("Error loading sales analytics:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSalesData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="p-8">
+        <div className="flex items-center justify-center py-20">
+          <p className="text-gray-500">Loading sales analytics...</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="p-8">
       <div className="mb-8">
@@ -60,8 +101,12 @@ export default function SalesAnalytics() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Total Revenue</p>
-              <p className="text-xl font-bold text-gray-900">$356K</p>
-              <p className="text-xs text-green-600 mt-1">+18% YTD</p>
+              <p className="text-xl font-bold text-gray-900">
+                ${totalRevenue.toLocaleString()}
+              </p>
+              <p className="text-xs text-purple-600 mt-1">
+                Based on actual bookings
+              </p>
             </div>
           </div>
         </Card>
@@ -72,8 +117,12 @@ export default function SalesAnalytics() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Avg. Daily Rate</p>
-              <p className="text-xl font-bold text-gray-900">$374</p>
-              <p className="text-xs text-blue-600 mt-1">+5% vs target</p>
+              <p className="text-xl font-bold text-gray-900">
+                ${avgDailyRate.toLocaleString()}
+              </p>
+              <p className="text-xs text-purple-600 mt-1">
+                Based on actual bookings
+              </p>
             </div>
           </div>
         </Card>
@@ -84,8 +133,12 @@ export default function SalesAnalytics() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Total Bookings</p>
-              <p className="text-xl font-bold text-gray-900">1,038</p>
-              <p className="text-xs text-purple-600 mt-1">+12% YTD</p>
+              <p className="text-xl font-bold text-gray-900">
+                {totalBookings.toLocaleString()}
+              </p>
+              <p className="text-xs text-purple-600 mt-1">
+                Based on actual bookings
+              </p>
             </div>
           </div>
         </Card>
@@ -96,7 +149,9 @@ export default function SalesAnalytics() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Avg. Stay Duration</p>
-              <p className="text-xl font-bold text-gray-900">4.2 days</p>
+              <p className="text-xl font-bold text-gray-900">
+                {avgStayDuration.toFixed(1)} days
+              </p>
               <p className="text-xs text-orange-600 mt-1">Stable</p>
             </div>
           </div>

@@ -1,7 +1,10 @@
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Edit, Mail, Phone, Calendar, X, Save } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { collection, getDocs, updateDoc, doc } from "firebase/firestore";
+
+import { db } from "../app/firebase";
 
 type StaffMember = {
   id: string;
@@ -14,75 +17,6 @@ type StaffMember = {
   status: "active" | "inactive";
   shift: string;
 };
-
-const initialStaff: StaffMember[] = [
-  {
-    id: "S-001",
-    name: "Maria Santos",
-    role: "Receptionist",
-    email: "maria.s@resort.com",
-    phone: "+1 234-567-8901",
-    department: "Front Desk",
-    hireDate: "Jan 15, 2024",
-    status: "active",
-    shift: "Morning (7AM - 3PM)",
-  },
-  {
-    id: "S-002",
-    name: "Carlos Reyes",
-    role: "Receptionist",
-    email: "carlos.r@resort.com",
-    phone: "+1 234-567-8902",
-    department: "Front Desk",
-    hireDate: "Mar 20, 2024",
-    status: "active",
-    shift: "Afternoon (3PM - 11PM)",
-  },
-  {
-    id: "S-003",
-    name: "Lisa Garcia",
-    role: "Senior Receptionist",
-    email: "lisa.g@resort.com",
-    phone: "+1 234-567-8903",
-    department: "Front Desk",
-    hireDate: "Jun 10, 2023",
-    status: "active",
-    shift: "Morning (7AM - 3PM)",
-  },
-  {
-    id: "S-004",
-    name: "James Wilson",
-    role: "Diving Instructor",
-    email: "james.w@resort.com",
-    phone: "+1 234-567-8904",
-    department: "Activities",
-    hireDate: "Feb 5, 2024",
-    status: "active",
-    shift: "Full Day (8AM - 5PM)",
-  },
-  {
-    id: "S-005",
-    name: "Ana Rodriguez",
-    role: "Maintenance Staff",
-    email: "ana.r@resort.com",
-    phone: "+1 234-567-8905",
-    department: "Maintenance",
-    hireDate: "Apr 12, 2024",
-    status: "active",
-    shift: "Morning (7AM - 3PM)",
-  },
-  {
-    id: "S-006",
-    name: "David Lee",
-    role: "Housekeeping Supervisor",
-    email: "david.l@resort.com",
-    phone: "+1 234-567-8906",
-    department: "Housekeeping",
-    hireDate: "Aug 1, 2023",
-    status: "active",
-    shift: "Morning (6AM - 2PM)",
-  },
-];
 
 const departments = [
   "Front Desk",
@@ -101,7 +35,8 @@ const shifts = [
 ];
 
 export default function StaffProfiles() {
-  const [staff, setStaff] = useState<StaffMember[]>(initialStaff);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<StaffMember | null>(null);
   const [form, setForm] = useState<StaffMember | null>(null);
 
@@ -110,12 +45,67 @@ export default function StaffProfiles() {
     setForm({ ...member });
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!form) return;
-    setStaff((prev) => prev.map((s) => (s.id === form.id ? form : s)));
-    setEditing(null);
-    setForm(null);
+
+    try {
+      await updateDoc(doc(db, "staff", form.id), {
+        name: form.name,
+        role: form.role,
+        email: form.email,
+        phone: form.phone,
+        department: form.department,
+        shift: form.shift,
+        status: form.status,
+      });
+
+      setStaff((prev) => prev.map((s) => (s.id === form.id ? form : s)));
+
+      setEditing(null);
+      setForm(null);
+    } catch (error) {
+      console.error("Error updating staff:", error);
+      alert("Failed to update staff information.");
+    }
   };
+  useEffect(() => {
+    const loadStaff = async () => {
+      try {
+        console.log("Loading users from Firestore...");
+        const snapshot = await getDocs(collection(db, "Users"));
+
+        console.log("Users found:", snapshot.size);
+
+        const staffData: StaffMember[] = snapshot.docs.map((userDoc) => {
+          const data = userDoc.data();
+
+          console.log("User:", userDoc.id, data);
+
+          return {
+            id: userDoc.id,
+            name: data.name || "",
+            role: data.role || "",
+            email: data.email || "",
+            phone: data.phone || "",
+            department: data.department || "",
+            hireDate: data.hireDate || "",
+            status: data.status === "inactive" ? "inactive" : "active",
+            shift: data.shift || "",
+          };
+        });
+
+        console.log("Staff data:", staffData);
+
+        setStaff(staffData);
+      } catch (error) {
+        console.error("Error loading staff:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadStaff();
+  }, []);
 
   return (
     <div className="p-8">
@@ -138,12 +128,7 @@ export default function StaffProfiles() {
             {staff.length}
           </p>
         </Card>
-        <Card className="p-6">
-          <p className="text-sm text-gray-500">Front Desk</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">
-            {staff.filter((s) => s.department === "Front Desk").length}
-          </p>
-        </Card>
+
         <Card className="p-6">
           <p className="text-sm text-gray-500">Activities</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">

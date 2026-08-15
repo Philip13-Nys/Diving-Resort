@@ -1,115 +1,34 @@
 import { Card } from "../app/components/ui/card";
 import { Calendar, CheckCircle, XCircle, Clock, Wrench } from "lucide-react";
+import { useEffect, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "../app/firebase";
 
-const weekDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const dates = ["8", "9", "10", "11", "12", "13", "14"];
+const getWeekDates = () => {
+  const today = new Date();
 
-const roomAvailability = [
-  {
-    room: "101",
-    type: "Standard",
-    status: [
-      "occupied",
-      "occupied",
-      "available",
-      "available",
-      "reserved",
-      "reserved",
-      "occupied",
-    ],
-  },
-  {
-    room: "102",
-    type: "Standard",
-    status: [
-      "available",
-      "available",
-      "reserved",
-      "occupied",
-      "occupied",
-      "occupied",
-      "available",
-    ],
-  },
-  {
-    room: "103",
-    type: "Standard",
-    status: [
-      "maintenance",
-      "maintenance",
-      "available",
-      "available",
-      "available",
-      "reserved",
-      "occupied",
-    ],
-  },
-  {
-    room: "201",
-    type: "Deluxe",
-    status: [
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-      "available",
-      "available",
-    ],
-  },
-  {
-    room: "202",
-    type: "Deluxe",
-    status: [
-      "available",
-      "reserved",
-      "occupied",
-      "occupied",
-      "available",
-      "available",
-      "reserved",
-    ],
-  },
-  {
-    room: "301",
-    type: "Ocean View",
-    status: [
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-    ],
-  },
-  {
-    room: "302",
-    type: "Ocean View",
-    status: [
-      "reserved",
-      "occupied",
-      "occupied",
-      "available",
-      "available",
-      "reserved",
-      "occupied",
-    ],
-  },
-  {
-    room: "401",
-    type: "Villa",
-    status: [
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-      "occupied",
-    ],
-  },
-];
+  const day = today.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+
+  const monday = new Date(today);
+  monday.setDate(today.getDate() + diff);
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(monday);
+    date.setDate(monday.getDate() + index);
+
+    return {
+      day: date.toLocaleDateString("en-US", {
+        weekday: "short",
+      }),
+      date: date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
+      fullDate: date,
+    };
+  });
+};
 
 const statusColors = {
   available: "bg-green-100 border-green-300 text-green-700",
@@ -125,7 +44,64 @@ const statusIcons = {
   maintenance: Wrench,
 };
 
+interface RoomAvailabilityData {
+  id: string;
+  room: string;
+  type: string;
+  status: string;
+}
+
 export default function RoomAvailability() {
+  const [rooms, setRooms] = useState<RoomAvailabilityData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const weekDates = getWeekDates();
+  const availableCount = rooms.filter(
+    (room) => room.status === "available",
+  ).length;
+
+  const occupiedCount = rooms.filter(
+    (room) => room.status === "occupied",
+  ).length;
+
+  const reservedCount = rooms.filter(
+    (room) => room.status === "reserved",
+  ).length;
+
+  const maintenanceCount = rooms.filter(
+    (room) => room.status === "maintenance",
+  ).length;
+
+  useEffect(() => {
+    const fetchRooms = async () => {
+      try {
+        setLoading(true);
+
+        const roomsSnapshot = await getDocs(collection(db, "Rooms"));
+
+        const roomData: RoomAvailabilityData[] = roomsSnapshot.docs.map(
+          (doc) => {
+            const data = doc.data();
+
+            return {
+              id: doc.id,
+              room: data.roomNumber || data.room || doc.id,
+              type: data.roomType || data.type || "Unknown",
+              status: data.status || "available",
+            };
+          },
+        );
+
+        setRooms(roomData);
+      } catch (error) {
+        console.error("Error fetching rooms:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchRooms();
+  }, []);
+
   return (
     <div className="p-8">
       <div className="mb-8">
@@ -178,48 +154,69 @@ export default function RoomAvailability() {
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
                   Type
                 </th>
-                {weekDays.map((day, index) => (
+                {weekDates.map((item) => (
                   <th
-                    key={day}
+                    key={item.fullDate.toISOString()}
                     className="text-center py-3 px-4 text-sm font-medium text-gray-500"
                   >
-                    <div>{day}</div>
-                    <div className="text-xs text-gray-400">
-                      Jun {dates[index]}
-                    </div>
+                    <div>{item.day}</div>
+
+                    <div className="text-xs text-gray-400">{item.date}</div>
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {roomAvailability.map((room) => (
-                <tr
-                  key={room.room}
-                  className="border-b border-gray-200 hover:bg-gray-50"
-                >
-                  <td className="py-3 px-4 font-medium text-gray-900 sticky left-0 bg-white">
-                    #{room.room}
+              {loading ? (
+                <tr>
+                  <td colSpan={9} className="py-10 text-center text-gray-500">
+                    Loading rooms...
                   </td>
-                  <td className="py-3 px-4 text-sm text-gray-700">
-                    {room.type}
-                  </td>
-                  {room.status.map((status, index) => {
-                    const Icon =
-                      statusIcons[status as keyof typeof statusIcons];
-                    return (
-                      <td key={index} className="py-3 px-4">
-                        <div
-                          className={`flex items-center justify-center p-2 rounded border ${
-                            statusColors[status as keyof typeof statusColors]
-                          }`}
-                        >
-                          <Icon className="w-4 h-4" />
-                        </div>
-                      </td>
-                    );
-                  })}
                 </tr>
-              ))}
+              ) : rooms.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-10 text-center text-gray-500">
+                    No rooms found.
+                  </td>
+                </tr>
+              ) : (
+                rooms.map((room) => (
+                  <tr
+                    key={room.id}
+                    className="border-b border-gray-200 hover:bg-gray-50"
+                  >
+                    <td className="py-3 px-4 font-medium text-gray-900 sticky left-0 bg-white">
+                      #{room.room}
+                    </td>
+
+                    <td className="py-3 px-4 text-sm text-gray-700">
+                      {room.type}
+                    </td>
+
+                    {weekDates.map((item, index) => {
+                      const status = room.status || "available";
+
+                      const Icon =
+                        statusIcons[status as keyof typeof statusIcons] ||
+                        CheckCircle;
+
+                      return (
+                        <td key={index} className="py-3 px-4">
+                          <div
+                            className={`flex items-center justify-center p-2 rounded border ${
+                              statusColors[
+                                status as keyof typeof statusColors
+                              ] || statusColors.available
+                            }`}
+                          >
+                            <Icon className="w-4 h-4" />
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -234,7 +231,9 @@ export default function RoomAvailability() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Available</p>
-              <p className="text-xl font-bold text-gray-900">12 rooms</p>
+              <p className="text-xl font-bold text-gray-900">
+                {availableCount} rooms
+              </p>
             </div>
           </div>
         </Card>
@@ -245,7 +244,9 @@ export default function RoomAvailability() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Occupied</p>
-              <p className="text-xl font-bold text-gray-900">32 rooms</p>
+              <p className="text-xl font-bold text-gray-900">
+                {occupiedCount} rooms
+              </p>
             </div>
           </div>
         </Card>
@@ -256,7 +257,9 @@ export default function RoomAvailability() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Reserved</p>
-              <p className="text-xl font-bold text-gray-900">8 rooms</p>
+              <p className="text-xl font-bold text-gray-900">
+                {reservedCount} rooms
+              </p>
             </div>
           </div>
         </Card>
@@ -267,7 +270,9 @@ export default function RoomAvailability() {
             </div>
             <div>
               <p className="text-sm text-gray-500">Maintenance</p>
-              <p className="text-xl font-bold text-gray-900">2 rooms</p>
+              <p className="text-xl font-bold text-gray-900">
+                {maintenanceCount} rooms
+              </p>
             </div>
           </div>
         </Card>

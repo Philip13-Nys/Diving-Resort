@@ -12,10 +12,16 @@ import {
   Activity,
   Wrench,
   Waves,
+  Menu,
+  X,
+  LogOut,
 } from "lucide-react";
-import { useState } from "react";
-import { Menu, X } from "lucide-react";
-import { Outlet, Link, useLocation } from "react-router-dom";
+import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
+import { signOut } from "firebase/auth";
+import { useEffect, useState } from "react";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../app/firebase";
 
 const navigation = [
   { name: "Dashboard", href: "/manager", icon: LayoutDashboard },
@@ -47,7 +53,56 @@ const navigation = [
 
 export default function ManagerLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userName, setUserName] = useState("User");
+  const [userRole, setUserRole] = useState("Manager");
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+
+      if (!user) {
+        setUserName("User");
+        setUserRole("Manager");
+        return;
+      }
+
+      try {
+        const userRef = doc(db, "Users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+
+          setUserName(userData.name || "User");
+          setUserRole(userData.role || "Manager");
+        } else {
+          console.log("User document not found:", user.uid);
+        }
+      } catch (error) {
+        console.error("Error loading user information:", error);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+  const handleLogout = async () => {
+    const confirmLogout = window.confirm("Are you sure you want to log out?");
+
+    if (!confirmLogout) return;
+
+    try {
+      await signOut(auth);
+
+      setSidebarOpen(false);
+
+      navigate("/login", { replace: true });
+    } catch (error) {
+      console.error("Logout failed:", error);
+      alert("Failed to log out. Please try again.");
+    }
+  };
   return (
     <>
       {sidebarOpen && (
@@ -59,7 +114,7 @@ export default function ManagerLayout() {
       <div className="flex h-screen bg-gray-50">
         {/* Sidebar */}
         <aside
-          className={`fixed lg:static z-30 h-full w-64 bg-white border-r border-gray-200 overflow-y-auto transition-transform duration-300 ${
+          className={`fixed lg:static z-30 flex flex-col h-full w-64 bg-white border-r border-gray-200 overflow-y-auto transition-transform duration-300 ${
             sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
           }`}
         >
@@ -92,6 +147,37 @@ export default function ManagerLayout() {
               );
             })}
           </nav>
+          {/* Manager Profile / Logout */}
+          <div className="mt-auto bg-blue-600 px-4 py-4">
+            <div className="flex items-center gap-3">
+              {/* Avatar */}
+              <div className="w-10 h-10 rounded-full bg-cyan-400 flex items-center justify-center flex-shrink-0">
+                <span className="text-blue-900 font-medium text-sm">
+                  {userName.charAt(0).toUpperCase()}
+                </span>
+              </div>
+
+              {/* User information */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">
+                  {userName}
+                </p>
+
+                <p className="text-xs text-blue-100 truncate">
+                  {currentUser?.email || "No email"}
+                </p>
+              </div>
+
+              {/* Logout */}
+              <button
+                onClick={handleLogout}
+                className="p-2 text-white hover:bg-blue-700 rounded-lg transition-colors flex-shrink-0"
+                title="Logout"
+              >
+                <LogOut className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
         </aside>
 
         {/* Main Content */}

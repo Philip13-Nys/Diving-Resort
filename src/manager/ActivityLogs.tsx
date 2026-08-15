@@ -2,93 +2,91 @@ import { useState, useEffect, useRef } from "react";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Filter, Download, User, Clock } from "lucide-react";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { db } from "../app/firebase";
 
-const activityLogs = [
-  {
-    id: 1,
-    timestamp: "Jun 7, 2026 09:15 AM",
-    user: "Maria Santos",
-    role: "Receptionist",
-    action: "Created Reservation",
-    details: "Booking #BK-2026-001 for John Martinez",
-    status: "success",
-  },
-  {
-    id: 2,
-    timestamp: "Jun 7, 2026 09:30 AM",
-    user: "Carlos Reyes",
-    role: "Receptionist",
-    action: "Check-out Guest",
-    details: "Completed check-out for Room 205",
-    status: "success",
-  },
-  {
-    id: 3,
-    timestamp: "Jun 7, 2026 10:00 AM",
-    user: "Admin Manager",
-    role: "Manager",
-    action: "Updated Room Rate",
-    details: "Modified pricing for Ocean View Suite",
-    status: "success",
-  },
-  {
-    id: 4,
-    timestamp: "Jun 7, 2026 10:15 AM",
-    user: "Lisa Garcia",
-    role: "Senior Receptionist",
-    action: "Payment Received",
-    details: "Payment of $2,250 for Booking #BK-2026-002",
-    status: "success",
-  },
-  {
-    id: 5,
-    timestamp: "Jun 7, 2026 10:30 AM",
-    user: "Carlos Reyes",
-    role: "Receptionist",
-    action: "Room Change Request",
-    details: "Changed Room 203 to Room 305 for guest",
-    status: "success",
-  },
-  {
-    id: 6,
-    timestamp: "Jun 7, 2026 11:00 AM",
-    user: "Maria Santos",
-    role: "Receptionist",
-    action: "Failed Login Attempt",
-    details: "Incorrect password entered",
-    status: "warning",
-  },
-  {
-    id: 7,
-    timestamp: "Jun 7, 2026 11:30 AM",
-    user: "Admin Manager",
-    role: "Manager",
-    action: "Generated Report",
-    details: "Daily Occupancy Report for Jun 7, 2026",
-    status: "success",
-  },
-  {
-    id: 8,
-    timestamp: "Jun 7, 2026 12:00 PM",
-    user: "Lisa Garcia",
-    role: "Senior Receptionist",
-    action: "Cancelled Reservation",
-    details: "Cancelled Booking #BK-2026-015 at guest request",
-    status: "warning",
-  },
-];
-
+type ActivityLog = {
+  id: string;
+  timestamp: string;
+  user: string;
+  role: string;
+  action: string;
+  details: string;
+  status: "success" | "warning";
+};
 type FilterStatus = "all" | "success" | "warning";
 
 export default function ActivityLogs() {
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("all");
+
   const [showFilter, setShowFilter] = useState(false);
+
   const filterRef = useRef<HTMLDivElement>(null);
 
   const filteredLogs =
     filterStatus === "all"
       ? activityLogs
       : activityLogs.filter((log) => log.status === filterStatus);
+
+  useEffect(() => {
+    const loadActivityLogs = async () => {
+      try {
+        console.log("Loading activity logs from Firestore...");
+
+        const logsQuery = query(
+          collection(db, "ActivityLogs"),
+          orderBy("timestamp", "desc"),
+        );
+
+        const snapshot = await getDocs(logsQuery);
+
+        console.log("Activity logs found:", snapshot.size);
+
+        const logs: ActivityLog[] = snapshot.docs.map((logDoc) => {
+          const data = logDoc.data();
+
+          console.log("Activity log:", logDoc.id, data);
+
+          let formattedTimestamp = "";
+
+          if (data.timestamp?.toDate) {
+            formattedTimestamp = data.timestamp
+              .toDate()
+              .toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+          } else if (data.timestamp) {
+            formattedTimestamp = String(data.timestamp);
+          }
+
+          return {
+            id: logDoc.id,
+            timestamp: formattedTimestamp,
+            user: data.user || "Unknown User",
+            role: data.role || "Unknown Role",
+            action: data.action || "",
+            details: data.details || "",
+            status: data.status === "warning" ? "warning" : "success",
+          };
+        });
+
+        setActivityLogs(logs);
+      } catch (error) {
+        console.error("Error loading activity logs:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadActivityLogs();
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -272,7 +270,16 @@ export default function ActivityLogs() {
               </tr>
             </thead>
             <tbody>
-              {filteredLogs.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={5}
+                    className="py-8 text-center text-sm text-gray-500"
+                  >
+                    Loading activity logs...
+                  </td>
+                </tr>
+              ) : filteredLogs.length === 0 ? (
                 <tr>
                   <td
                     colSpan={5}

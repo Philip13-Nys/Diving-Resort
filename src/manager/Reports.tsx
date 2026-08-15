@@ -55,33 +55,6 @@ type RecentReport = {
   status: string;
 };
 
-const initialRecentReports: RecentReport[] = [
-  {
-    name: "Daily Occupancy Report",
-    date: "Jun 7, 2026",
-    size: "245 KB",
-    status: "ready",
-  },
-  {
-    name: "Weekly Revenue Summary",
-    date: "Jun 6, 2026",
-    size: "512 KB",
-    status: "ready",
-  },
-  {
-    name: "Monthly Guest Analytics",
-    date: "Jun 1, 2026",
-    size: "1.2 MB",
-    status: "ready",
-  },
-  {
-    name: "Maintenance Report",
-    date: "Jun 5, 2026",
-    size: "180 KB",
-    status: "ready",
-  },
-];
-
 type FilterCategory =
   | "All"
   | "Operational"
@@ -97,29 +70,13 @@ const CATEGORIES: FilterCategory[] = [
   "Human Resources",
 ];
 
-const RANDOM_SIZES = [
-  "210 KB",
-  "324 KB",
-  "456 KB",
-  "512 KB",
-  "128 KB",
-  "389 KB",
-  "640 KB",
-];
-
-function randomSize() {
-  return RANDOM_SIZES[Math.floor(Math.random() * RANDOM_SIZES.length)];
-}
-
 export default function Reports() {
   const [filterCategory, setFilterCategory] = useState<FilterCategory>("All");
   const [showFilter, setShowFilter] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [recentReports, setRecentReports] =
-    useState<RecentReport[]>(initialRecentReports);
+  const [recentReports, setRecentReports] = useState<RecentReport[]>([]);
   const [generatingId, setGeneratingId] = useState<number | null>(null);
 
-  // Custom report form state
   const [reportName, setReportName] = useState("");
   const [reportType, setReportType] = useState("Occupancy");
   const [startDate, setStartDate] = useState("");
@@ -133,7 +90,6 @@ export default function Reports() {
       ? reportTemplates
       : reportTemplates.filter((r) => r.category === filterCategory);
 
-  // Close filter dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
@@ -146,7 +102,6 @@ export default function Reports() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showFilter]);
 
-  // Close modal on Escape key
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setShowModal(false);
@@ -164,8 +119,12 @@ export default function Reports() {
       setRecentReports((prev) => [
         {
           name: templateName,
-          date: "Jun 23, 2026",
-          size: randomSize(),
+          date: new Date().toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }),
+          size: "Generated",
           status: "ready",
         },
         ...prev,
@@ -178,12 +137,16 @@ export default function Reports() {
     if (!reportName.trim()) return;
     const newReport: RecentReport = {
       name: reportName.trim(),
-      date: "Jun 23, 2026",
-      size: randomSize(),
+      date: new Date().toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      }),
+      size: "Generated",
       status: "ready",
     };
     setRecentReports((prev) => [newReport, ...prev]);
-    // Reset form and close modal
+
     setReportName("");
     setReportType("Occupancy");
     setStartDate("");
@@ -271,49 +234,58 @@ export default function Reports() {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">
           Recently Generated
         </h2>
-        <div className="space-y-3">
-          {recentReports.map((report, index) => (
-            <div
-              key={index}
-              className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:border-blue-300 transition-colors"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <FileText className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">{report.name}</p>
-                  <p className="text-sm text-gray-500">
-                    Generated on {report.date} · {report.size}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                  Ready
-                </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  onClick={() => handleDownload(report)}
-                  className="sm:hidden"
-                >
-                  <Download className="w-4 h-4" />
-                </Button>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleDownload(report)}
-                  className="hidden sm:flex"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Download
-                </Button>
+        {recentReports.length === 0 ? (
+          <div className="py-12 text-center">
+            <FileText className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+
+            <h3 className="font-medium text-gray-700">
+              No reports generated yet
+            </h3>
+
+            <p className="text-sm text-gray-500 mt-1">
+              Generate a report from the templates below to see it here.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recentReports.map((report, index) => (
+              <div
+                key={index}
+                className="flex items-center justify-between p-4 border border-gray-200 rounded-lg"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <FileText className="w-5 h-5 text-blue-600" />
+                  </div>
+
+                  <div>
+                    <p className="font-medium text-gray-900">{report.name}</p>
+
+                    <p className="text-sm text-gray-500">
+                      Generated on {report.date} · {report.size}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
+                    Ready
+                  </span>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDownload(report)}
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* Report Templates */}
