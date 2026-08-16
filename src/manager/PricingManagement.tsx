@@ -2,134 +2,55 @@ import { Fragment } from "react";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Edit, TrendingUp, Calendar, X, Save } from "lucide-react";
-import { useEffect, useState } from "react";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
-import { db } from "../app/firebase";
+import { useState } from "react";
 
-interface PricingRule {
-  id: string;
-  name: string;
-  period: string;
-  multiplier: string;
-  status: string;
-  affectedRooms: string;
-}
+const pricingRules = [
+  {
+    id: 1,
+    name: "Peak Season Rate",
+    period: "Dec 15 - Jan 15",
+    multiplier: "1.5x",
+    status: "active",
+    affectedRooms: "All room types",
+  },
+  {
+    id: 2,
+    name: "Weekend Premium",
+    period: "Every Fri-Sun",
+    multiplier: "1.3x",
+    status: "active",
+    affectedRooms: "Ocean View & Villa",
+  },
+  {
+    id: 3,
+    name: "Low Season Discount",
+    period: "Sep 1 - Nov 30",
+    multiplier: "0.8x",
+    status: "scheduled",
+    affectedRooms: "Standard & Deluxe",
+  },
+];
 
-interface RoomRate {
-  id: string;
-  roomType: string;
-  baseRate: number;
-  weekendRate: number;
-  peakRate: number;
-}
+const currentRates = [
+  { roomType: "Standard Room", baseRate: 150, weekendRate: 180, peakRate: 225 },
+  { roomType: "Deluxe Room", baseRate: 250, weekendRate: 300, peakRate: 375 },
+  {
+    roomType: "Ocean View Suite",
+    baseRate: 400,
+    weekendRate: 520,
+    peakRate: 600,
+  },
+  {
+    roomType: "Beach Front Villa",
+    baseRate: 800,
+    weekendRate: 1040,
+    peakRate: 1200,
+  },
+];
 
 export default function PricingManagement() {
-  const [currentRates, setCurrentRates] = useState<RoomRate[]>([]);
-  const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
-
   const [editingRate, setEditingRate] = useState<string | null>(null);
-  const [editingRule, setEditingRule] = useState<string | null>(null);
-
-  const [loading, setLoading] = useState(true);
-  const [editValues, setEditValues] = useState({
-    baseRate: 0,
-    weekendRate: 0,
-    peakRate: 0,
-  });
-
-  useEffect(() => {
-    const fetchPricingData = async () => {
-      try {
-        setLoading(true);
-
-        // Get room rates
-        const roomTypesSnapshot = await getDocs(collection(db, "roomTypes"));
-
-        const rates: RoomRate[] = roomTypesSnapshot.docs.map((doc) => {
-          const data = doc.data();
-
-          return {
-            id: doc.id,
-            roomType: data.name || "Unnamed Room",
-            baseRate: Number(data.baseRate || 0),
-            weekendRate: Number(data.weekendRate || 0),
-            peakRate: Number(data.peakRate || 0),
-          };
-        });
-
-        setCurrentRates(rates);
-
-        // Get pricing rules
-        const pricingRulesSnapshot = await getDocs(
-          collection(db, "pricingRules"),
-        );
-
-        const rules: PricingRule[] = pricingRulesSnapshot.docs.map((doc) => {
-          const data = doc.data();
-
-          return {
-            id: doc.id,
-            name: data.name || "",
-            period: data.period || "",
-            multiplier: data.multiplier || "",
-            status: data.status || "scheduled",
-            affectedRooms: data.affectedRooms || "",
-          };
-        });
-
-        setPricingRules(rules);
-      } catch (error) {
-        console.error("Error loading pricing data:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPricingData();
-  }, []);
-  if (loading) {
-    return (
-      <div className="p-8">
-        <div className="flex items-center justify-center py-20">
-          <p className="text-gray-500">Loading pricing data...</p>
-        </div>
-      </div>
-    );
-  }
-  const handleSaveRate = async (
-    rateId: string,
-    baseRate: number,
-    weekendRate: number,
-    peakRate: number,
-  ) => {
-    try {
-      await updateDoc(doc(db, "roomTypes", rateId), {
-        baseRate,
-        weekendRate,
-        peakRate,
-      });
-
-      setCurrentRates((prev) =>
-        prev.map((rate) =>
-          rate.id === rateId
-            ? {
-                ...rate,
-                baseRate,
-                weekendRate,
-                peakRate,
-              }
-            : rate,
-        ),
-      );
-
-      setEditingRate(null);
-
-      alert("Room rates updated successfully!");
-    } catch (error) {
-      console.error("Error updating room rate:", error);
-      alert("Failed to update room rate.");
-    }
-  };
+  const [editingRule, setEditingRule] = useState<number | null>(null);
 
   return (
     <div className="p-8">
@@ -159,6 +80,7 @@ export default function PricingManagement() {
             Current Room Rates
           </h2>
         </div>
+
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -180,9 +102,10 @@ export default function PricingManagement() {
                 </th>
               </tr>
             </thead>
+
             <tbody>
               {currentRates.map((rate) => (
-                <Fragment key={rate.id}>
+                <Fragment key={rate.roomType}>
                   <tr className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="py-3 px-4 font-medium text-gray-900">
                       {rate.roomType}
@@ -199,13 +122,10 @@ export default function PricingManagement() {
 
                       <span className="text-xs text-gray-500 ml-2">
                         (+
-                        {rate.baseRate > 0
-                          ? Math.round(
-                              ((rate.weekendRate - rate.baseRate) /
-                                rate.baseRate) *
-                                100,
-                            )
-                          : 0}
+                        {Math.round(
+                          ((rate.weekendRate - rate.baseRate) / rate.baseRate) *
+                            100,
+                        )}
                         %)
                       </span>
                     </td>
@@ -217,13 +137,10 @@ export default function PricingManagement() {
 
                       <span className="text-xs text-gray-500 ml-2">
                         (+
-                        {rate.baseRate > 0
-                          ? Math.round(
-                              ((rate.peakRate - rate.baseRate) /
-                                rate.baseRate) *
-                                100,
-                            )
-                          : 0}
+                        {Math.round(
+                          ((rate.peakRate - rate.baseRate) / rate.baseRate) *
+                            100,
+                        )}
                         %)
                       </span>
                     </td>
@@ -232,21 +149,15 @@ export default function PricingManagement() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => {
-                          if (editingRate === rate.id) {
-                            setEditingRate(null);
-                          } else {
-                            setEditingRate(rate.id);
-
-                            setEditValues({
-                              baseRate: rate.baseRate,
-                              weekendRate: rate.weekendRate,
-                              peakRate: rate.peakRate,
-                            });
-                          }
-                        }}
+                        onClick={() =>
+                          setEditingRate(
+                            editingRate === rate.roomType
+                              ? null
+                              : rate.roomType,
+                          )
+                        }
                       >
-                        {editingRate === rate.id ? (
+                        {editingRate === rate.roomType ? (
                           <X className="w-4 h-4" />
                         ) : (
                           <Edit className="w-4 h-4" />
@@ -254,7 +165,8 @@ export default function PricingManagement() {
                       </Button>
                     </td>
                   </tr>
-                  {editingRate === rate.id && (
+
+                  {editingRate === rate.roomType && (
                     <tr className="bg-blue-50 border-b border-blue-100">
                       <td colSpan={5} className="px-4 py-4">
                         <div className="grid grid-cols-3 gap-4 mb-3">
@@ -262,66 +174,49 @@ export default function PricingManagement() {
                             <label className="text-xs font-medium text-gray-600 block mb-1">
                               Base Rate ($/night)
                             </label>
+
                             <input
                               type="number"
-                              value={editValues.baseRate}
-                              onChange={(e) =>
-                                setEditValues({
-                                  ...editValues,
-                                  baseRate: Number(e.target.value),
-                                })
-                              }
-                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                              defaultValue={rate.baseRate}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                           </div>
+
                           <div>
                             <label className="text-xs font-medium text-gray-600 block mb-1">
                               Weekend Rate ($/night)
                             </label>
+
                             <input
                               type="number"
-                              value={editValues.weekendRate}
-                              onChange={(e) =>
-                                setEditValues({
-                                  ...editValues,
-                                  weekendRate: Number(e.target.value),
-                                })
-                              }
-                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                              defaultValue={rate.weekendRate}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                           </div>
+
                           <div>
                             <label className="text-xs font-medium text-gray-600 block mb-1">
                               Peak Season Rate ($/night)
                             </label>
+
                             <input
                               type="number"
-                              value={editValues.peakRate}
-                              onChange={(e) =>
-                                setEditValues({
-                                  ...editValues,
-                                  peakRate: Number(e.target.value),
-                                })
-                              }
-                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                              defaultValue={rate.peakRate}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                             />
                           </div>
                         </div>
+
                         <div className="flex gap-2">
                           <Button
                             size="sm"
                             className="bg-blue-600 hover:bg-blue-700 text-white"
-                            onClick={() =>
-                              handleSaveRate(
-                                rate.id,
-                                editValues.baseRate,
-                                editValues.weekendRate,
-                                editValues.peakRate,
-                              )
-                            }
+                            onClick={() => setEditingRate(null)}
                           >
-                            <Save className="w-3 h-3 mr-1" /> Save Changes
+                            <Save className="w-3 h-3 mr-1" />
+                            Save Changes
                           </Button>
+
                           <Button
                             size="sm"
                             variant="outline"
@@ -344,15 +239,21 @@ export default function PricingManagement() {
       <Card className="p-6">
         <div className="flex items-center gap-2 mb-4">
           <Calendar className="w-5 h-5 text-blue-600" />
+
           <h2 className="text-lg font-semibold text-gray-900">
             Pricing Rules & Policies
           </h2>
         </div>
+
         <div className="space-y-4">
           {pricingRules.map((rule) => (
             <div
               key={rule.id}
-              className={`p-4 border rounded-lg transition-colors ${editingRule === rule.id ? "border-blue-400 bg-blue-50" : "border-gray-200 hover:border-blue-300"}`}
+              className={`p-4 border rounded-lg transition-colors ${
+                editingRule === rule.id
+                  ? "border-blue-400 bg-blue-50"
+                  : "border-gray-200 hover:border-blue-300"
+              }`}
             >
               {editingRule === rule.id ? (
                 <div>
@@ -361,47 +262,57 @@ export default function PricingManagement() {
                       <label className="text-xs font-medium text-gray-600 block mb-1">
                         Rule Name
                       </label>
+
                       <input
                         defaultValue={rule.name}
                         className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
+
                     <div>
                       <label className="text-xs font-medium text-gray-600 block mb-1">
                         Period
                       </label>
+
                       <input
                         defaultValue={rule.period}
                         className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
+
                     <div>
                       <label className="text-xs font-medium text-gray-600 block mb-1">
                         Price Multiplier
                       </label>
+
                       <input
                         defaultValue={rule.multiplier}
                         className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
+
                     <div>
                       <label className="text-xs font-medium text-gray-600 block mb-1">
                         Affected Rooms
                       </label>
+
                       <input
                         defaultValue={rule.affectedRooms}
                         className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </div>
+
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       className="bg-blue-600 hover:bg-blue-700 text-white"
                       onClick={() => setEditingRule(null)}
                     >
-                      <Save className="w-3 h-3 mr-1" /> Save Changes
+                      <Save className="w-3 h-3 mr-1" />
+                      Save Changes
                     </Button>
+
                     <Button
                       size="sm"
                       variant="outline"
@@ -418,6 +329,7 @@ export default function PricingManagement() {
                       <h3 className="font-semibold text-gray-900">
                         {rule.name}
                       </h3>
+
                       <span
                         className={`px-2 py-1 rounded text-xs ${
                           rule.status === "active"
@@ -429,6 +341,7 @@ export default function PricingManagement() {
                           rule.status.slice(1)}
                       </span>
                     </div>
+
                     <div className="grid grid-cols-3 gap-4 mt-3">
                       <div>
                         <p className="text-xs text-gray-500">Period</p>
@@ -436,22 +349,27 @@ export default function PricingManagement() {
                           {rule.period}
                         </p>
                       </div>
+
                       <div>
                         <p className="text-xs text-gray-500">
                           Price Multiplier
                         </p>
+
                         <p className="text-sm font-semibold text-blue-600 mt-1">
                           {rule.multiplier}
                         </p>
                       </div>
+
                       <div>
                         <p className="text-xs text-gray-500">Affected Rooms</p>
+
                         <p className="text-sm text-gray-900 mt-1">
                           {rule.affectedRooms}
                         </p>
                       </div>
                     </div>
                   </div>
+
                   <div className="flex gap-2">
                     <Button
                       variant="ghost"

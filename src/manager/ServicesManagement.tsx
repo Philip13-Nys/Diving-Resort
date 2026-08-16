@@ -9,10 +9,21 @@ import {
   Dumbbell,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  doc,
+  serverTimestamp,
+} from "firebase/firestore";
+
+import { db } from "../app/firebase";
 
 type Service = {
-  id: number;
+  id: string;
   name: string;
   category: string;
   description: string;
@@ -24,7 +35,7 @@ type Service = {
 };
 
 type Package = {
-  id: number;
+  id: string;
   name: string;
   description: string;
   services: string[];
@@ -51,114 +62,212 @@ export default function ServicesManagement() {
     Wellness: Dumbbell,
   };
 
-  // Service CRUD
-  const handleDeleteService = (id: number) => {
-    if (window.confirm("Delete this service?")) {
-      setServices((prev) => prev.filter((s) => s.id !== id));
+  const loadServices = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "services"));
+
+      const serviceData: Service[] = snapshot.docs.map((item) => ({
+        id: item.id,
+        ...item.data(),
+      })) as Service[];
+
+      setServices(serviceData);
+    } catch (error) {
+      console.error("Error loading services:", error);
     }
   };
 
-  const handleAddService = (e: React.FormEvent<HTMLFormElement>) => {
+  const loadPackages = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "packages"));
+
+      const packageData: Package[] = snapshot.docs.map((item) => ({
+        id: item.id,
+        ...item.data(),
+      })) as Package[];
+
+      setPackages(packageData);
+    } catch (error) {
+      console.error("Error loading packages:", error);
+    }
+  };
+  useEffect(() => {
+    loadServices();
+    loadPackages();
+  }, []);
+  // Service CRUD
+  const handleDeleteService = async (id: string) => {
+    if (!window.confirm("Delete this service?")) {
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, "services", id));
+
+      await loadServices();
+
+      console.log("Service deleted successfully");
+    } catch (error) {
+      console.error("Error deleting service:", error);
+    }
+  };
+
+  const handleAddService = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    const form = e.currentTarget;
-    const data = new FormData(form);
+    try {
+      const form = e.currentTarget;
+      const data = new FormData(form);
 
-    const file = data.get("image") as File;
+      await addDoc(collection(db, "services"), {
+        name: data.get("name") as string,
+        category: data.get("category") as string,
+        description: data.get("description") as string,
+        price: Number(data.get("price")),
+        maxParticipants: Number(data.get("maxParticipants")),
+        duration: data.get("duration") as string,
+        status: (data.get("status") as string).toLowerCase(),
 
-    const imageUrl =
-      file && file.size > 0
-        ? URL.createObjectURL(file)
-        : editingService?.image || "";
+        // Image will be connected to Cloudinary later
+        image: "",
 
-    const service: Service = {
-      id: editingService ? editingService.id : Date.now(),
-      name: data.get("name") as string,
-      category: data.get("category") as string,
-      description: data.get("description") as string,
-      price: Number(data.get("price")),
-      maxParticipants: Number(data.get("maxParticipants")),
-      duration: data.get("duration") as string,
-      status: data.get("status") as string,
-      image: imageUrl,
-    };
+        createdAt: serverTimestamp(),
+      });
 
-    {
-      setServices((prev) => [...prev, service]);
+      await loadServices();
 
       setShowForm(false);
+
+      console.log("Service added successfully");
+    } catch (error) {
+      console.error("Error adding service:", error);
     }
   };
 
-  const handleSaveService = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveService = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = e.currentTarget;
-    const data = new FormData(form);
-    const updated: Service = {
-      id: editingService!.id,
-      name: data.get("name") as string,
-      category: data.get("category") as string,
-      description: data.get("description") as string,
-      price: Number(data.get("price")),
-      maxParticipants: Number(data.get("maxParticipants")),
-      duration: data.get("duration") as string,
-      status: data.get("status") as string,
-      image: editingService!.image,
-    };
-    setServices((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
-    setEditingService(null);
+
+    if (!editingService) {
+      return;
+    }
+
+    try {
+      const form = e.currentTarget;
+      const data = new FormData(form);
+
+      const serviceRef = doc(db, "services", editingService.id);
+
+      await updateDoc(serviceRef, {
+        name: data.get("name") as string,
+        category: data.get("category") as string,
+        description: data.get("description") as string,
+        price: Number(data.get("price")),
+        maxParticipants: Number(data.get("maxParticipants")),
+        duration: data.get("duration") as string,
+        status: (data.get("status") as string).toLowerCase(),
+      });
+
+      await loadServices();
+
+      setEditingService(null);
+
+      console.log("Service updated successfully");
+    } catch (error) {
+      console.error("Error updating service:", error);
+    }
   };
 
   // Package CRUD
-  const handleDeletePackage = (id: number) => {
-    if (window.confirm("Delete this package?")) {
-      setPackages((prev) => prev.filter((p) => p.id !== id));
+  const handleDeletePackage = async (id: string) => {
+    if (!window.confirm("Delete this package?")) {
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, "packages", id));
+
+      await loadPackages();
+
+      console.log("Package deleted successfully");
+    } catch (error) {
+      console.error("Error deleting package:", error);
+    }
+  };
+  const handleSavePackage = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (!editingPackage) {
+      return;
+    }
+
+    try {
+      const form = e.currentTarget;
+      const data = new FormData(form);
+
+      const packageRef = doc(db, "packages", editingPackage.id);
+
+      await updateDoc(packageRef, {
+        name: data.get("name") as string,
+
+        description: data.get("description") as string,
+
+        services: (data.get("services") as string)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+
+        originalPrice: Number(data.get("originalPrice")),
+
+        packagePrice: Number(data.get("packagePrice")),
+
+        discount: Number(data.get("discount")),
+      });
+
+      await loadPackages();
+
+      setEditingPackage(null);
+
+      console.log("Package updated successfully");
+    } catch (error) {
+      console.error("Error updating package:", error);
     }
   };
 
-  const handleSavePackage = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const form = e.currentTarget;
-    const data = new FormData(form);
-    const updated: Package = {
-      id: editingPackage!.id,
-      name: data.get("name") as string,
-      description: data.get("description") as string,
-      services: (data.get("services") as string)
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      originalPrice: Number(data.get("originalPrice")),
-      packagePrice: Number(data.get("packagePrice")),
-      discount: Number(data.get("discount")),
-      status: editingPackage!.status,
-    };
-    setPackages((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-    setEditingPackage(null);
-  };
-
-  const handleAddPackage = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddPackage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    const data = new FormData(e.currentTarget);
+    try {
+      const data = new FormData(e.currentTarget);
 
-    const newPackage: Package = {
-      id: Date.now(),
-      name: data.get("name") as string,
-      description: data.get("description") as string,
-      services: (data.get("services") as string)
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      originalPrice: Number(data.get("originalPrice")),
-      packagePrice: Number(data.get("packagePrice")),
-      discount: Number(data.get("discount")),
-      status: "active",
-    };
+      await addDoc(collection(db, "packages"), {
+        name: data.get("name") as string,
 
-    setPackages((prev) => [...prev, newPackage]);
+        description: data.get("description") as string,
 
-    setShowForm(false);
+        services: (data.get("services") as string)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+
+        originalPrice: Number(data.get("originalPrice")),
+
+        packagePrice: Number(data.get("packagePrice")),
+
+        discount: Number(data.get("discount")),
+
+        status: "active",
+
+        createdAt: serverTimestamp(),
+      });
+
+      await loadPackages();
+
+      setShowForm(false);
+
+      console.log("Package added successfully");
+    } catch (error) {
+      console.error("Error adding package:", error);
+    }
   };
 
   return (
@@ -289,8 +398,8 @@ export default function ServicesManagement() {
                     name="status"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option>Active</option>
-                    <option>Inactive</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
                   </select>
                 </div>
                 <div className="flex gap-3 mt-6">
@@ -661,11 +770,17 @@ export default function ServicesManagement() {
             return (
               <Card key={service.id} className="p-6">
                 <div className="mb-6">
-                  <img
-                    src={service.image}
-                    alt={service.name}
-                    className="w-full h-56 object-cover rounded-lg"
-                  />
+                  {service.image ? (
+                    <img
+                      src={service.image}
+                      alt={service.name}
+                      className="w-full h-56 object-cover rounded-lg"
+                    />
+                  ) : (
+                    <div className="w-full h-56 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400">
+                      No Image
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-between items-start mb-4">

@@ -1,11 +1,24 @@
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Plus, Edit, Trash2, X } from "lucide-react";
+
 import { useState, useEffect } from "react";
-import { useSearchParams } from "react-router";
+import { useSearchParams } from "react-router-dom";
+
+import { db } from "../app/firebase";
+
+import {
+  collection,
+  getDocs,
+  addDoc,
+  deleteDoc,
+  doc,
+  updateDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 
 type RoomType = {
-  id: number;
+  id: string;
   name: string;
   count: number;
   amenities: string[];
@@ -15,7 +28,7 @@ type RoomType = {
 };
 
 type Room = {
-  id: number;
+  id: string;
   roomNumber: number;
   type: string;
   floor: number;
@@ -33,6 +46,40 @@ export default function RoomManagement() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
 
   useEffect(() => {
+    loadRoomTypes();
+    loadRooms();
+  }, []);
+  const loadRoomTypes = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "roomTypes"));
+
+      const data: RoomType[] = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as RoomType[];
+
+      setRoomTypes(data);
+    } catch (error) {
+      console.error("Error loading room types:", error);
+    }
+  };
+
+  const loadRooms = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "rooms"));
+
+      const data: Room[] = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Room[];
+
+      setRooms(data);
+    } catch (error) {
+      console.error("Error loading rooms:", error);
+    }
+  };
+
+  useEffect(() => {
     const tab = searchParams.get("tab");
     const action = searchParams.get("action");
     if (tab === "rooms") setActiveTab("rooms");
@@ -46,81 +93,146 @@ export default function RoomManagement() {
   };
 
   // Room Type CRUD
-  const handleDeleteRoomType = (id: number) => {
-    if (window.confirm("Delete this room type?")) {
-      setRoomTypes((prev) => prev.filter((rt) => rt.id !== id));
+  const handleDeleteRoomType = async (id: string) => {
+    if (!window.confirm("Delete this room type?")) return;
+
+    try {
+      await deleteDoc(doc(db, "roomTypes", id));
+
+      await loadRoomTypes();
+
+      alert("Room type deleted successfully.");
+    } catch (error) {
+      console.error("Error deleting room type:", error);
+      alert("Failed to delete room type.");
     }
   };
 
-  const handleAddRoomType = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddRoomType = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    const form = e.currentTarget;
-    const data = new FormData(form);
+    try {
+      const form = e.currentTarget;
+      const data = new FormData(form);
 
-    // STEP 4 GOES HERE
-    const file = data.get("image") as File;
-    const imageUrl = file && file.size > 0 ? URL.createObjectURL(file) : "";
+      const name = String(data.get("name") || "");
+      const basePrice = Number(data.get("basePrice") || 0);
+      const maxGuests = Number(data.get("maxGuests") || 0);
+      const count = Number(data.get("count") || 0);
 
-    const newRoomType: RoomType = {
-      id: Date.now(),
-      name: data.get("name") as string,
-      basePrice: Number(data.get("basePrice")),
-      maxGuests: Number(data.get("maxGuests")),
-      count: Number(data.get("count")),
-      amenities: (data.get("amenities") as string)
+      const amenities = String(data.get("amenities") || "")
         .split(",")
         .map((a) => a.trim())
-        .filter(Boolean),
-      image: imageUrl,
-    };
+        .filter(Boolean);
 
-    setRoomTypes((prev) => [...prev, newRoomType]);
+      const file = data.get("image") as File | null;
 
-    closeForm();
+      let imageUrl = "";
+
+      // Upload image to Firebase Storage
+      // if (file && file.size > 0) {
+      // const imageRef = ref(storage, `roomTypes/${Date.now()}-${file.name}`);
+
+      // await uploadBytes(imageRef, file);
+
+      // imageUrl = await getDownloadURL(imageRef);
+      // }
+
+      // Save room type to Firestore
+      await addDoc(collection(db, "roomTypes"), {
+        name,
+        basePrice,
+        maxGuests,
+        count,
+        amenities,
+        image: imageUrl,
+        createdAt: serverTimestamp(),
+      });
+
+      await loadRoomTypes();
+
+      closeForm();
+
+      alert("Room type added successfully!");
+    } catch (error) {
+      console.error("Error adding room type:", error);
+      alert("Failed to add room type.");
+    }
   };
 
-  const handleAddRoom = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleAddRoom = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    const form = e.currentTarget;
-    const data = new FormData(form);
+    try {
+      const form = e.currentTarget;
+      const data = new FormData(form);
 
-    const newRoom: Room = {
-      id: Date.now(),
-      roomNumber: Number(data.get("roomNumber")),
-      type: data.get("roomType") as string,
-      floor: Number(data.get("floor")),
-      condition: data.get("condition") as string,
-      status: "Available",
-    };
+      const newRoom = {
+        roomNumber: Number(data.get("roomNumber")),
+        type: String(data.get("roomType") || ""),
+        floor: Number(data.get("floor")),
+        condition: String(data.get("condition") || "good"),
+        status: "available",
+        createdAt: serverTimestamp(),
+      };
 
-    setRooms((prev) => [...prev, newRoom]);
+      await addDoc(collection(db, "rooms"), newRoom);
 
-    closeForm();
+      await loadRooms();
+
+      closeForm();
+
+      alert("Room added successfully!");
+    } catch (error) {
+      console.error("Error adding room:", error);
+      alert("Failed to add room.");
+    }
   };
 
   // Room CRUD
-  const handleDeleteRoom = (id: number) => {
-    if (window.confirm("Delete this room?")) {
-      setRooms((prev) => prev.filter((r) => r.id !== id));
+  const handleDeleteRoom = async (id: string) => {
+    if (!window.confirm("Delete this room?")) return;
+
+    try {
+      await deleteDoc(doc(db, "rooms", id));
+
+      await loadRooms();
+
+      alert("Room deleted successfully.");
+    } catch (error) {
+      console.error("Error deleting room:", error);
+      alert("Failed to delete room.");
     }
   };
 
-  const handleSaveRoom = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveRoom = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = e.currentTarget;
-    const data = new FormData(form);
-    const updated: Room = {
-      id: editingRoom!.id,
-      roomNumber: Number(data.get("roomNumber")),
-      type: data.get("type") as string,
-      floor: Number(data.get("floor")),
-      condition: data.get("condition") as string,
-      status: data.get("status") as string,
-    };
-    setRooms((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-    setEditingRoom(null);
+
+    if (!editingRoom) return;
+
+    try {
+      const form = e.currentTarget;
+      const data = new FormData(form);
+
+      const updatedRoom = {
+        roomNumber: Number(data.get("roomNumber")),
+        type: String(data.get("type") || ""),
+        floor: Number(data.get("floor")),
+        condition: String(data.get("condition") || ""),
+        status: String(data.get("status") || ""),
+      };
+
+      await updateDoc(doc(db, "rooms", editingRoom.id), updatedRoom);
+
+      await loadRooms();
+
+      setEditingRoom(null);
+
+      alert("Room updated successfully.");
+    } catch (error) {
+      console.error("Error updating room:", error);
+      alert("Failed to update room.");
+    }
   };
 
   return (
@@ -447,9 +559,10 @@ export default function RoomManagement() {
                   </label>
                   <input
                     type="number"
-                    value={editingRoom.id}
-                    readOnly
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50 text-gray-500 cursor-not-allowed"
+                    name="roomNumber"
+                    defaultValue={editingRoom.roomNumber}
+                    required
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50"
                   />
                 </div>
                 <div>
