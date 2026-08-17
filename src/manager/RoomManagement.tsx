@@ -129,16 +129,6 @@ export default function RoomManagement() {
 
       let imageUrl = "";
 
-      // Upload image to Firebase Storage
-      // if (file && file.size > 0) {
-      // const imageRef = ref(storage, `roomTypes/${Date.now()}-${file.name}`);
-
-      // await uploadBytes(imageRef, file);
-
-      // imageUrl = await getDownloadURL(imageRef);
-      // }
-
-      // Save room type to Firestore
       await addDoc(collection(db, "roomTypes"), {
         name,
         basePrice,

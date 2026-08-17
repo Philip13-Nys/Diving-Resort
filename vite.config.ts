@@ -4,5 +4,5 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: "/Diving-Resort/",
+  bbase: process.env.VITE_BASE_PATH || "/",
 });

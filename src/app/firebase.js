@@ -2,9 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// ================================
 // RECEPTIONIST / ADMIN FIREBASE
-// ================================
 
 const adminFirebaseConfig = {
   apiKey: "AIzaSyCIjTHJOa3nWNz6nCib6AYZJ8MYmvgRsPA",
@@ -21,9 +19,7 @@ const adminApp =
 export const auth = getAuth(adminApp);
 export const db = getFirestore(adminApp);
 
-// ================================
 // CUSTOMER FIREBASE
-// ================================
 
 const customerFirebaseConfig = {
   apiKey: "AIzaSyCK-OcxL1VnKr_b3Cps5B7_8GvuChQClCw",
