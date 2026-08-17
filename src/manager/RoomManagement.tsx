@@ -125,17 +125,13 @@ export default function RoomManagement() {
         .map((a) => a.trim())
         .filter(Boolean);
 
-      const file = data.get("image") as File | null;
-
-      let imageUrl = "";
-
       await addDoc(collection(db, "roomTypes"), {
         name,
         basePrice,
         maxGuests,
         count,
         amenities,
-        image: imageUrl,
+        image: "",
         createdAt: serverTimestamp(),
       });
 
@@ -147,6 +143,45 @@ export default function RoomManagement() {
     } catch (error) {
       console.error("Error adding room type:", error);
       alert("Failed to add room type.");
+    }
+  };
+
+  const handleSaveRoomType = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+
+    if (!editingRoomType) return;
+
+    try {
+      const form = e.currentTarget;
+      const data = new FormData(form);
+
+      const name = String(data.get("name") || "");
+      const basePrice = Number(data.get("basePrice") || 0);
+      const maxGuests = Number(data.get("maxGuests") || 0);
+      const count = Number(data.get("count") || 0);
+
+      const amenities = String(data.get("amenities") || "")
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean);
+
+      await updateDoc(doc(db, "roomTypes", editingRoomType.id), {
+        name,
+        basePrice,
+        maxGuests,
+        count,
+        amenities,
+        updatedAt: serverTimestamp(),
+      });
+
+      await loadRoomTypes();
+
+      setEditingRoomType(null);
+
+      alert("Room type updated successfully!");
+    } catch (error) {
+      console.error("Error updating room type:", error);
+      alert("Failed to update room type.");
     }
   };
 
@@ -267,7 +302,7 @@ export default function RoomManagement() {
             </div>
 
             {activeTab === "types" ? (
-              <form onSubmit={handleAddRoomType} className="space-y-4">
+              <form onSubmit={handleSaveRoomType} className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Room Type Name
@@ -438,6 +473,7 @@ export default function RoomManagement() {
               <h2 className="text-lg font-semibold text-gray-900">
                 Edit Room Type
               </h2>
+
               <button
                 onClick={() => setEditingRoomType(null)}
                 className="text-gray-400 hover:text-gray-600"
@@ -445,66 +481,78 @@ export default function RoomManagement() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleAddRoomType} className="space-y-4">
+
+            {/* IMPORTANT: UPDATE instead of ADD */}
+            <form onSubmit={handleSaveRoomType} className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Name
                 </label>
+
                 <input
                   name="name"
                   defaultValue={editingRoomType.name}
                   required
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Base Price / Night
                   </label>
+
                   <input
                     name="basePrice"
                     type="number"
                     defaultValue={editingRoomType.basePrice}
                     required
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                   />
                 </div>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Max Guests
                   </label>
+
                   <input
                     name="maxGuests"
                     type="number"
                     defaultValue={editingRoomType.maxGuests}
                     required
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                   />
                 </div>
               </div>
+
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Total Rooms
                 </label>
+
                 <input
                   name="count"
                   type="number"
                   defaultValue={editingRoomType.count}
                   required
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
+
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Amenities (comma-separated)
                 </label>
+
                 <input
                   name="amenities"
                   defaultValue={editingRoomType.amenities.join(", ")}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
+
               <div className="flex gap-3 mt-6">
                 <Button
                   type="button"
@@ -514,6 +562,7 @@ export default function RoomManagement() {
                 >
                   Cancel
                 </Button>
+
                 <Button
                   type="submit"
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"

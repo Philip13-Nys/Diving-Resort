@@ -3,7 +3,7 @@ import { Button } from "../app/components/ui/button";
 import { Search, Eye, Mail, Phone, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
-import { db } from "../app/firebase";
+import { customerDb } from "../app/firebase";
 
 type Guest = {
   id: string;
@@ -44,7 +44,7 @@ export default function GuestRecords() {
       try {
         setLoading(true);
 
-        const snapshot = await getDocs(collection(db, "bookings"));
+        const snapshot = await getDocs(collection(customerDb, "Bookings"));
 
         const guestMap = new Map<string, GuestWithHistory>();
 

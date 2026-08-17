@@ -344,7 +344,7 @@ export default function BookingOverview() {
                     {booking.guests}
                   </td>
                   <td className="py-3 px-4 font-medium text-gray-900">
-                    ${booking.total.toLocaleString()}
+                    ₱{booking.total.toLocaleString()}
                   </td>
                   <td className="py-3 px-4">{statusBadge(booking.status)}</td>
                   <td className="py-3 px-4">
@@ -439,7 +439,7 @@ export default function BookingOverview() {
                 ["Check-in", viewingBooking.checkIn],
                 ["Check-out", viewingBooking.checkOut],
                 ["Number of Guests", String(viewingBooking.guests)],
-                ["Total Amount", `$${viewingBooking.total.toLocaleString()}`],
+                ["Total Amount", `₱${viewingBooking.total.toLocaleString()}`],
               ].map(([label, value]) => (
                 <div
                   key={label}

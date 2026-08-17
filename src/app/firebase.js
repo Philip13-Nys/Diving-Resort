@@ -1,8 +1,11 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// RECEPTIONIST / ADMIN FIREBASE
+/* =========================================================
+   ADMIN FIREBASE
+   Project: admin-80f41
+   ========================================================= */
 
 const adminFirebaseConfig = {
   apiKey: "AIzaSyCIjTHJOa3nWNz6nCib6AYZJ8MYmvgRsPA",
@@ -14,12 +17,16 @@ const adminFirebaseConfig = {
 };
 
 const adminApp =
-  getApps().length === 0 ? initializeApp(adminFirebaseConfig) : getApp();
+  getApps().find((app) => app.name === "adminApp") ??
+  initializeApp(adminFirebaseConfig, "adminApp");
 
-export const auth = getAuth(adminApp);
 export const db = getFirestore(adminApp);
+export const auth = getAuth(adminApp);
 
-// CUSTOMER FIREBASE
+/* =========================================================
+   CUSTOMER FIREBASE
+   Project: customeraccount-ce2ae
+   ========================================================= */
 
 const customerFirebaseConfig = {
   apiKey: "AIzaSyCK-OcxL1VnKr_b3Cps5B7_8GvuChQClCw",
@@ -31,8 +38,8 @@ const customerFirebaseConfig = {
 };
 
 const customerApp =
-  getApps().find((app) => app.name === "customerApp") ??
+  getApps().find((app) => app.name === "customerApp") ||
   initializeApp(customerFirebaseConfig, "customerApp");
 
-export const customerAuth = getAuth(customerApp);
 export const customerDb = getFirestore(customerApp);
+export const customerAuth = getAuth(customerApp);
