@@ -32,7 +32,7 @@ const navigation = [
   },
   { name: "Room Management", href: "/manager/rooms", icon: Hotel },
   {
-    name: "Room Availabilityyyyy",
+    name: "Room Availability",
     href: "/manager/room-availability",
     icon: CalendarCheck,
   },

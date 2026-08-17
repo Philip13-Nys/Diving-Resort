@@ -32,24 +32,55 @@ export default function BookingOverview() {
       try {
         setLoading(true);
 
-        const snapshot = await getDocs(collection(customerDb, "bookings"));
+        console.log("Loading bookings from customerDb...");
+
+        const snapshot = await getDocs(collection(customerDb, "Bookings"));
+
+        console.log("Number of bookings:", snapshot.size);
 
         const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
           const data = bookingDoc.data();
 
+          console.log("Booking:", bookingDoc.id, data);
+
           return {
             id: bookingDoc.id,
-            guest: data.guest || data.guestName || "Unknown Guest",
-            email: data.email || "",
-            room: data.room || data.roomName || "Unknown Room",
+
+            guest: data.customerName || "Unknown Guest",
+
+            email: data.customerEmail || "",
+
+            room: data.roomName || "Unknown Room",
+
             checkIn: data.checkIn || "",
+
             checkOut: data.checkOut || "",
+
             guests: Number(data.guests || 0),
-            total: Number(data.total || 0),
-            status: data.status || "pending",
-            paymentStatus: data.paymentStatus || "unpaid",
+
+            total: Number(
+              data.total ||
+                data.totalAmount ||
+                Number(data.roomRate || 0) * Number(data.nights || 0),
+            ),
+
+            status:
+              data.status === "confirmed"
+                ? "confirmed"
+                : data.status === "cancelled"
+                  ? "cancelled"
+                  : "pending",
+
+            paymentStatus:
+              data.paymentStatus === "paid"
+                ? "paid"
+                : data.paymentStatus === "partial"
+                  ? "partial"
+                  : "unpaid",
           };
         });
+
+        console.log("Final bookings:", bookingData);
 
         setBookings(bookingData);
       } catch (error) {
@@ -83,7 +114,7 @@ export default function BookingOverview() {
       const newPaymentStatus =
         booking.paymentStatus === "unpaid" ? "partial" : booking.paymentStatus;
 
-      await updateDoc(doc(customerDb, "bookings", id), {
+      await updateDoc(doc(customerDb, "Bookings", id), {
         status: "confirmed",
         paymentStatus: newPaymentStatus,
       });
@@ -110,7 +141,7 @@ export default function BookingOverview() {
     }
 
     try {
-      await updateDoc(doc(customerDb, "bookings", id), {
+      await updateDoc(doc(customerDb, "Bookings", id), {
         status: "cancelled",
       });
 
