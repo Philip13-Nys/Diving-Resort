@@ -2,11 +2,6 @@ import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-/* =========================================================
-   ADMIN FIREBASE
-   Project: admin-80f41
-   ========================================================= */
-
 const adminFirebaseConfig = {
   apiKey: "AIzaSyCIjTHJOa3nWNz6nCib6AYZJ8MYmvgRsPA",
   authDomain: "admin-80f41.firebaseapp.com",
@@ -22,11 +17,6 @@ const adminApp =
 
 export const db = getFirestore(adminApp);
 export const auth = getAuth(adminApp);
-
-/* =========================================================
-   CUSTOMER FIREBASE
-   Project: customeraccount-ce2ae
-   ========================================================= */
 
 const customerFirebaseConfig = {
   apiKey: "AIzaSyCK-OcxL1VnKr_b3Cps5B7_8GvuChQClCw",

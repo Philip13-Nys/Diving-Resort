@@ -16,8 +16,6 @@ export default function Login() {
     try {
       const user = await loginUser(email, password);
 
-      // Convert role to lowercase so "Administrator"
-      // and "administrator" can be handled consistently.
       const role = String(user.role).toLowerCase();
 
       if (role === "administrator" || role === "admin") {

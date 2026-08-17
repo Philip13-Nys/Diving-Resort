@@ -1,8 +1,17 @@
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Plus, Wrench, AlertCircle, CheckCircle, Clock, X } from "lucide-react";
-import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
+import { useState, useEffect } from "react";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  doc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { db } from "../app/firebase";
 
 type MaintenanceRequest = {
   id: string;
@@ -16,53 +25,6 @@ type MaintenanceRequest = {
   estimatedCompletion: string;
 };
 
-const initialMaintenanceRequests: MaintenanceRequest[] = [
-  {
-    id: "MR-001",
-    room: "103",
-    issue: "Air conditioning not cooling properly",
-    priority: "high",
-    status: "in_progress",
-    reportedBy: "Housekeeping",
-    assignedTo: "Ana Rodriguez",
-    reportedDate: "Jun 7, 2026 08:00 AM",
-    estimatedCompletion: "Jun 7, 2026 02:00 PM",
-  },
-  {
-    id: "MR-002",
-    room: "205",
-    issue: "Leaking faucet in bathroom",
-    priority: "medium",
-    status: "pending",
-    reportedBy: "Guest",
-    assignedTo: "Unassigned",
-    reportedDate: "Jun 7, 2026 09:30 AM",
-    estimatedCompletion: "Jun 8, 2026 10:00 AM",
-  },
-  {
-    id: "MR-003",
-    room: "301",
-    issue: "TV remote not working",
-    priority: "low",
-    status: "pending",
-    reportedBy: "Guest",
-    assignedTo: "Unassigned",
-    reportedDate: "Jun 7, 2026 10:15 AM",
-    estimatedCompletion: "Jun 7, 2026 04:00 PM",
-  },
-  {
-    id: "MR-004",
-    room: "102",
-    issue: "Door lock malfunction",
-    priority: "urgent",
-    status: "completed",
-    reportedBy: "Receptionist",
-    assignedTo: "Ana Rodriguez",
-    reportedDate: "Jun 6, 2026 03:00 PM",
-    estimatedCompletion: "Jun 6, 2026 05:00 PM",
-  },
-];
-
 export default function MaintenanceManagement() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [filter, setFilter] = useState<
@@ -71,10 +33,39 @@ export default function MaintenanceManagement() {
   const [showForm, setShowForm] = useState(false);
   const [maintenanceRequests, setMaintenanceRequests] = useState<
     MaintenanceRequest[]
-  >(initialMaintenanceRequests);
+  >([]);
+
+  const loadMaintenanceRequests = async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "maintenanceRequests"));
+
+      const requests: MaintenanceRequest[] = snapshot.docs.map((item) => {
+        const data = item.data();
+
+        return {
+          id: item.id,
+          room: data.room || "",
+          issue: data.issue || "",
+          priority: data.priority || "medium",
+          status: data.status || "pending",
+          reportedBy: data.reportedBy || "",
+          assignedTo: data.assignedTo || "Unassigned",
+          reportedDate: data.reportedDate || "",
+          estimatedCompletion: data.estimatedCompletion || "",
+        };
+      });
+
+      setMaintenanceRequests(requests);
+    } catch (error) {
+      console.error("Error loading maintenance requests:", error);
+    }
+  };
 
   useEffect(() => {
-    if (searchParams.get("action") === "new") setShowForm(true);
+    loadMaintenanceRequests();
+    if (searchParams.get("action") === "new") {
+      setShowForm(true);
+    }
   }, [searchParams]);
 
   const closeForm = () => {
@@ -82,11 +73,27 @@ export default function MaintenanceManagement() {
     setSearchParams({});
   };
 
-  const updateStatus = (id: string, status: string) => {
-    setMaintenanceRequests((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, status } : r)),
-    );
+  const updateStatus = async (id: string, status: string) => {
+    try {
+      await updateDoc(doc(db, "maintenanceRequests", id), {
+        status,
+        updatedAt: serverTimestamp(),
+      });
+
+      await loadMaintenanceRequests();
+    } catch (error) {
+      console.error("Error updating maintenance status:", error);
+      alert("Failed to update maintenance request.");
+    }
   };
+  const [newRequest, setNewRequest] = useState({
+    room: "",
+    issue: "",
+    priority: "medium",
+    reportedBy: "Receptionist",
+    assignedTo: "",
+    estimatedCompletion: "",
+  });
 
   const filteredRequests = maintenanceRequests.filter((request) => {
     if (filter === "all") return true;
@@ -100,6 +107,45 @@ export default function MaintenanceManagement() {
       .length,
     completed: maintenanceRequests.filter((r) => r.status === "completed")
       .length,
+  };
+
+  const handleAddMaintenanceRequest = async () => {
+    if (!newRequest.room || !newRequest.issue) {
+      alert("Please enter the room number and issue description.");
+      return;
+    }
+
+    try {
+      await addDoc(collection(db, "maintenanceRequests"), {
+        room: newRequest.room,
+        issue: newRequest.issue,
+        priority: newRequest.priority.toLowerCase(),
+        status: "pending",
+        reportedBy: newRequest.reportedBy,
+        assignedTo: newRequest.assignedTo || "Unassigned",
+        reportedDate: new Date().toLocaleString(),
+        estimatedCompletion: newRequest.estimatedCompletion || "",
+        createdAt: serverTimestamp(),
+      });
+
+      await loadMaintenanceRequests();
+
+      setNewRequest({
+        room: "",
+        issue: "",
+        priority: "medium",
+        reportedBy: "Receptionist",
+        assignedTo: "",
+        estimatedCompletion: "",
+      });
+
+      closeForm();
+
+      alert("Maintenance request submitted successfully.");
+    } catch (error) {
+      console.error("Error adding maintenance request:", error);
+      alert("Failed to add maintenance request.");
+    }
   };
 
   return (
@@ -143,6 +189,13 @@ export default function MaintenanceManagement() {
                   Room Number
                 </label>
                 <input
+                  value={newRequest.room}
+                  onChange={(e) =>
+                    setNewRequest({
+                      ...newRequest,
+                      room: e.target.value,
+                    })
+                  }
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="e.g. 103"
                 />
@@ -152,6 +205,13 @@ export default function MaintenanceManagement() {
                   Issue Description
                 </label>
                 <textarea
+                  value={newRequest.issue}
+                  onChange={(e) =>
+                    setNewRequest({
+                      ...newRequest,
+                      issue: e.target.value,
+                    })
+                  }
                   rows={3}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Describe the issue..."
@@ -162,18 +222,36 @@ export default function MaintenanceManagement() {
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Priority
                   </label>
-                  <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option>Urgent</option>
-                    <option>High</option>
-                    <option>Medium</option>
-                    <option>Low</option>
+                  <select
+                    value={newRequest.priority}
+                    onChange={(e) =>
+                      setNewRequest({
+                        ...newRequest,
+                        priority: e.target.value,
+                      })
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="urgent">Urgent</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Reported By
                   </label>
-                  <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                  <select
+                    value={newRequest.reportedBy}
+                    onChange={(e) =>
+                      setNewRequest({
+                        ...newRequest,
+                        reportedBy: e.target.value,
+                      })
+                    }
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
                     <option>Receptionist</option>
                     <option>Housekeeping</option>
                     <option>Guest</option>
@@ -186,6 +264,13 @@ export default function MaintenanceManagement() {
                   Assign To
                 </label>
                 <input
+                  value={newRequest.assignedTo}
+                  onChange={(e) =>
+                    setNewRequest({
+                      ...newRequest,
+                      assignedTo: e.target.value,
+                    })
+                  }
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Staff member name"
                 />
@@ -196,6 +281,13 @@ export default function MaintenanceManagement() {
                 </label>
                 <input
                   type="datetime-local"
+                  value={newRequest.estimatedCompletion}
+                  onChange={(e) =>
+                    setNewRequest({
+                      ...newRequest,
+                      estimatedCompletion: e.target.value,
+                    })
+                  }
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -206,7 +298,7 @@ export default function MaintenanceManagement() {
               </Button>
               <Button
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-                onClick={closeForm}
+                onClick={handleAddMaintenanceRequest}
               >
                 Submit Request
               </Button>

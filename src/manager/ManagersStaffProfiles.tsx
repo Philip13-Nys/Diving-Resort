@@ -75,27 +75,23 @@ export default function StaffProfiles() {
       try {
         console.log("Loading users from Firestore...");
         const snapshot = await getDocs(collection(db, "Users"));
-        console.log("Snapshot empty?", snapshot.empty, "size:", snapshot.size);
 
         console.log("Users found:", snapshot.size);
 
         const staffData: StaffMember[] = snapshot.docs.map((userDoc) => {
           const data = userDoc.data();
 
-          console.log("User:", userDoc.id, data);
-
           return {
             id: userDoc.id,
-            name: data.name || "",
-            role: data.role || "",
+            name:
+              data.name ||
+              `${data.firstName || ""} ${data.lastName || ""}`.trim(),
+            role: data.role || "Staff Member",
             email: data.email || "",
             phone: data.phone || "",
             department: data.department || "",
             hireDate: data.hireDate || "",
-            status:
-              String(data.status || "").toLowerCase() === "inactive"
-                ? "inactive"
-                : "active",
+            status: data.status === "inactive" ? "inactive" : "active",
             shift: data.shift || "",
           };
         });

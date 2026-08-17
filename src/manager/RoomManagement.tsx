@@ -1,16 +1,15 @@
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Plus, Edit, Trash2, X } from "lucide-react";
-
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-
 import { db } from "../app/firebase";
-
 import {
   collection,
   getDocs,
   addDoc,
+  query,
+  where,
   deleteDoc,
   doc,
   updateDoc,
@@ -29,6 +28,7 @@ type RoomType = {
 
 type Room = {
   id: string;
+  roomId: string;
   roomNumber: number;
   type: string;
   floor: number;
@@ -44,6 +44,69 @@ export default function RoomManagement() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [editingRoomType, setEditingRoomType] = useState<RoomType | null>(null);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const [reservations, setReservations] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadReservations = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "reservations"));
+
+        const reservationData = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        }));
+
+        setReservations(reservationData);
+
+        console.log("Admin reservations:", reservationData);
+      } catch (error) {
+        console.error("Error loading reservations:", error);
+      }
+    };
+
+    loadReservations();
+  }, []);
+
+  const getRoomAvailability = (
+    roomId: string,
+    roomCount: number,
+    selectedDate: string,
+  ) => {
+    const selected = new Date(`${selectedDate}T00:00:00`);
+
+    const reservedCount = reservations.filter((reservation) => {
+      if (reservation.roomTypeId !== roomId) {
+        return false;
+      }
+
+      if (reservation.status === "cancelled") {
+        return false;
+      }
+
+      const checkIn = new Date(`${reservation.checkIn}T00:00:00`);
+      const checkOut = new Date(`${reservation.checkOut}T00:00:00`);
+      return selected >= checkIn && selected < checkOut;
+    }).length;
+
+    return {
+      reserved: reservedCount,
+
+      available: Math.max(0, roomCount - reservedCount),
+    };
+  };
+
+  const generateRoomId = (existingRooms: Room[]) => {
+    const numbers = existingRooms
+      .map((room) => {
+        const match = room.roomId?.match(/^R-(\d+)$/);
+        return match ? Number(match[1]) : 0;
+      })
+      .filter((number) => number > 0);
+
+    const nextNumber = numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
+
+    return `R-${String(nextNumber).padStart(3, "0")}`;
+  };
 
   useEffect(() => {
     loadRoomTypes();
@@ -68,10 +131,19 @@ export default function RoomManagement() {
     try {
       const snapshot = await getDocs(collection(db, "rooms"));
 
-      const data: Room[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Room[];
+      const data: Room[] = snapshot.docs.map((roomDoc) => {
+        const roomData = roomDoc.data();
+
+        return {
+          id: roomDoc.id,
+          roomId: String(roomData.roomId || ""),
+          roomNumber: Number(roomData.roomNumber || 0),
+          type: String(roomData.type || ""),
+          floor: Number(roomData.floor || 0),
+          status: String(roomData.status || "available").toLowerCase(),
+          condition: String(roomData.condition || "good").toLowerCase(),
+        };
+      });
 
       setRooms(data);
     } catch (error) {
@@ -192,11 +264,30 @@ export default function RoomManagement() {
       const form = e.currentTarget;
       const data = new FormData(form);
 
+      const roomNumber = Number(data.get("roomNumber"));
+      const floor = Number(data.get("floor"));
+      const type = String(data.get("roomType") || "");
+      const condition = String(data.get("condition") || "good").toLowerCase();
+
+      // Prevent duplicate physical room numbers
+      const duplicateRoom = rooms.find(
+        (room) => room.roomNumber === roomNumber,
+      );
+
+      if (duplicateRoom) {
+        alert(`Room ${roomNumber} already exists.`);
+        return;
+      }
+
+      // Generate application Room ID
+      const roomId = generateRoomId(rooms);
+
       const newRoom = {
-        roomNumber: Number(data.get("roomNumber")),
-        type: String(data.get("roomType") || ""),
-        floor: Number(data.get("floor")),
-        condition: String(data.get("condition") || "good"),
+        roomId,
+        roomNumber,
+        type,
+        floor,
+        condition,
         status: "available",
         createdAt: serverTimestamp(),
       };
@@ -207,7 +298,7 @@ export default function RoomManagement() {
 
       closeForm();
 
-      alert("Room added successfully!");
+      alert(`Room ${roomId} added successfully!`);
     } catch (error) {
       console.error("Error adding room:", error);
       alert("Failed to add room.");
@@ -302,7 +393,7 @@ export default function RoomManagement() {
             </div>
 
             {activeTab === "types" ? (
-              <form onSubmit={handleSaveRoomType} className="space-y-4">
+              <form onSubmit={handleAddRoomType} className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Room Type Name
@@ -374,6 +465,7 @@ export default function RoomManagement() {
 
                 <div className="flex gap-3 mt-6">
                   <Button
+                    type="button"
                     variant="outline"
                     className="flex-1"
                     onClick={closeForm}
@@ -582,7 +674,7 @@ export default function RoomManagement() {
             <Card className="w-full max-w-lg p-6">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-lg font-semibold text-gray-900">
-                  Edit Room #{editingRoom.id}
+                  Edit Room {editingRoom.roomId}
                 </h2>
                 <button
                   onClick={() => setEditingRoom(null)}
@@ -789,6 +881,9 @@ export default function RoomManagement() {
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
+                    Room ID
+                  </th>
+                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
                     Room Number
                   </th>
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
@@ -814,15 +909,27 @@ export default function RoomManagement() {
                     key={room.id}
                     className="border-b border-gray-100 hover:bg-gray-50"
                   >
+                    {/* Room ID */}
                     <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                      #{room.id}
+                      {room.roomId}
                     </td>
+
+                    {/* Room Number */}
+                    <td className="py-3 px-4 text-sm text-gray-700">
+                      {room.roomNumber}
+                    </td>
+
+                    {/* Room Type */}
                     <td className="py-3 px-4 text-sm text-gray-700">
                       {room.type}
                     </td>
+
+                    {/* Floor */}
                     <td className="py-3 px-4 text-sm text-gray-700">
                       Floor {room.floor}
                     </td>
+
+                    {/* Status */}
                     <td className="py-3 px-4">
                       <span
                         className={`px-2 py-1 rounded text-xs ${
@@ -839,6 +946,8 @@ export default function RoomManagement() {
                           room.status.slice(1)}
                       </span>
                     </td>
+
+                    {/* Condition */}
                     <td className="py-3 px-4">
                       <span
                         className={`px-2 py-1 rounded text-xs ${
@@ -853,6 +962,8 @@ export default function RoomManagement() {
                           room.condition.slice(1)}
                       </span>
                     </td>
+
+                    {/* Actions */}
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-2">
                         <Button
@@ -862,6 +973,7 @@ export default function RoomManagement() {
                         >
                           <Edit className="w-4 h-4" />
                         </Button>
+
                         <Button
                           variant="ghost"
                           size="sm"
