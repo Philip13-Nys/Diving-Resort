@@ -34,4 +34,5 @@ const customerApp =
   getApps().find((app) => app.name === "customerApp") ??
   initializeApp(customerFirebaseConfig, "customerApp");
 
+export const customerAuth = getAuth(customerApp);
 export const customerDb = getFirestore(customerApp);

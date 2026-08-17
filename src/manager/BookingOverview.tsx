@@ -32,21 +32,16 @@ export default function BookingOverview() {
       try {
         setLoading(true);
 
-        console.log("========== CUSTOMER DB DEBUG ==========");
-        console.log("Project ID:", customerDb.app.options.projectId);
-        console.log("App name:", customerDb.app.name);
+        console.log("Loading bookings from customerDb...");
 
         const snapshot = await getDocs(collection(customerDb, "Bookings"));
 
-        console.log("Bookings found:", snapshot.size);
-
-        snapshot.forEach((doc) => {
-          console.log("BOOKING ID:", doc.id);
-          console.log("BOOKING DATA:", doc.data());
-        });
+        console.log("Number of bookings:", snapshot.size);
 
         const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
           const data = bookingDoc.data();
+
+          console.log("Booking:", bookingDoc.id, data);
 
           return {
             id: bookingDoc.id,
@@ -56,10 +51,10 @@ export default function BookingOverview() {
             checkIn: data.checkIn || "",
             checkOut: data.checkOut || "",
             guests: Number(data.guests || 0),
-
             total: Number(
-              data.total ??
+              data.totalPrice ??
                 data.totalAmount ??
+                data.total ??
                 Number(data.roomRate || 0) * Number(data.nights || 0),
             ),
 
@@ -79,12 +74,11 @@ export default function BookingOverview() {
           };
         });
 
-        console.log("FINAL BOOKING DATA:", bookingData);
+        console.log("Final bookings:", bookingData);
 
         setBookings(bookingData);
       } catch (error) {
-        console.error("========== CUSTOMER DB ERROR ==========");
-        console.error(error);
+        console.error("Error loading customer bookings:", error);
       } finally {
         setLoading(false);
       }
