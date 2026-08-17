@@ -109,9 +109,10 @@ export default function BookingOverview() {
       return;
     }
 
-  await updateDoc(doc(customerDb, "bookings", id), {
-  status: "cancelled",
-  });
+    try {
+      await updateDoc(doc(customerDb, "bookings", id), {
+        status: "cancelled",
+      });
 
       setBookings((prev) =>
         prev.map((b) =>
