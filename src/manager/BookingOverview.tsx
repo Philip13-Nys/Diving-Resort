@@ -4,7 +4,7 @@ import { CheckCircle, XCircle, Clock, Eye, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 
-import { db } from "../app/firebase";
+import { customerDb } from "../app/firebase";
 
 type Booking = {
   id: string;
@@ -32,7 +32,7 @@ export default function BookingOverview() {
       try {
         setLoading(true);
 
-        const snapshot = await getDocs(collection(db, "bookings"));
+        const snapshot = await getDocs(collection(customerDb, "bookings"));
 
         const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
           const data = bookingDoc.data();
@@ -53,7 +53,7 @@ export default function BookingOverview() {
 
         setBookings(bookingData);
       } catch (error) {
-        console.error("Error loading bookings:", error);
+        console.error("Error loading customer bookings:", error);
       } finally {
         setLoading(false);
       }
@@ -83,7 +83,7 @@ export default function BookingOverview() {
       const newPaymentStatus =
         booking.paymentStatus === "unpaid" ? "partial" : booking.paymentStatus;
 
-      await updateDoc(doc(db, "bookings", id), {
+      await updateDoc(doc(customerDb, "bookings", id), {
         status: "confirmed",
         paymentStatus: newPaymentStatus,
       });
@@ -109,10 +109,9 @@ export default function BookingOverview() {
       return;
     }
 
-    try {
-      await updateDoc(doc(db, "bookings", id), {
-        status: "cancelled",
-      });
+  await updateDoc(doc(customerDb, "bookings", id), {
+  status: "cancelled",
+  });
 
       setBookings((prev) =>
         prev.map((b) =>

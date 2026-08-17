@@ -362,7 +362,6 @@ export default function PricingManagement() {
 
                       <div>
                         <p className="text-xs text-gray-500">Affected Rooms</p>
-
                         <p className="text-sm text-gray-900 mt-1">
                           {rule.affectedRooms}
                         </p>
