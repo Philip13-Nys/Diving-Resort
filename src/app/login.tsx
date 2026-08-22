@@ -5,7 +5,7 @@ import { loginUser } from "./auth";
 const BACKGROUND_IMAGES = [
   "https://wallpaperaccess.com/full/902518.jpg",
   "https://png.pngtree.com/background/20250124/original/pngtree-tropical-sunset-ocean-view-at-cozy-beach-resort-terrace-picture-image_16248681.jpg",
-  "https://wallpaperaccess.com/full/259735.jpg",
+  "https://wallpaperaccess.com/full/259735.jpg"  
 ];
 
 export default function Login() {
@@ -17,15 +17,17 @@ export default function Login() {
   const [error, setError] = useState("");
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
+  // Background Slideshow Timer
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentImageIndex((prevIndex) =>
-        prevIndex === BACKGROUND_IMAGES.length - 1 ? 0 : prevIndex + 1,
+      setCurrentImageIndex((prevIndex) => 
+        prevIndex === BACKGROUND_IMAGES.length - 1 ? 0 : prevIndex + 1
       );
     }, 6000);
     return () => clearInterval(timer);
   }, []);
 
+  // Underwater Canvas Animation Logic
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -43,6 +45,7 @@ export default function Login() {
     resizeCanvas();
     window.addEventListener("resize", resizeCanvas);
 
+    // Mga Klase ng Element na gumagamit ng ctx.canvas para iwas TypeScript error
     class Dolphin {
       x = -100;
       y = ctx!.canvas.height * 0.7;
@@ -52,10 +55,10 @@ export default function Login() {
       update() {
         const cWidth = ctx!.canvas.width;
         const cHeight = ctx!.canvas.height;
-
+        
         this.x += this.speed;
         this.angle += 0.03;
-        this.y = cHeight * 0.6 + Math.sin(this.angle) * 40;
+        this.y = (cHeight * 0.6) + Math.sin(this.angle) * 40;
 
         if (this.x > cWidth + 100) {
           this.x = -100;
@@ -103,15 +106,7 @@ export default function Login() {
         if (!ctx) return;
         ctx.fillStyle = this.color;
         ctx.beginPath();
-        ctx.ellipse(
-          this.x,
-          this.y,
-          this.size,
-          this.size / 2,
-          0,
-          0,
-          Math.PI * 2,
-        );
+        ctx.ellipse(this.x, this.y, this.size, this.size / 2, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
         ctx.moveTo(this.x + this.size, this.y);
@@ -161,6 +156,7 @@ export default function Login() {
 
       ctx.clearRect(0, 0, cWidth, cHeight);
 
+      // 1. Alon / Wave Effect
       const time = Date.now() * 0.002;
       ctx.fillStyle = "rgba(6, 182, 212, 0.15)";
       ctx.beginPath();
@@ -173,16 +169,19 @@ export default function Login() {
       ctx.closePath();
       ctx.fill();
 
+      // 2. Bubbles
       bubbles.forEach((bubble) => {
         bubble.update();
         bubble.draw();
       });
 
+      // 3. Isda
       fishes.forEach((fish) => {
         fish.update();
         fish.draw();
       });
 
+      // 4. Dolphin
       dolphin.update();
       dolphin.draw();
 
@@ -216,6 +215,8 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-zinc-950">
+      
+      {/* Background Slideshow */}
       {BACKGROUND_IMAGES.map((image, index) => (
         <div
           key={image}
@@ -225,13 +226,13 @@ export default function Login() {
         />
       ))}
 
+      {/* Dark Blur Overlay */}
       <div className="absolute inset-0 bg-black/35 backdrop-blur-[3px] z-10"></div>
 
+      {/* TRANSPARENT BOX CONTAINER WITH CANVAS */}
       <div className="w-full max-w-md bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl p-8 relative z-20 border border-white/20 overflow-hidden">
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 pointer-events-none z-0 rounded-2xl"
-        />
+        
+        <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0 rounded-2xl" />
 
         <div className="relative z-10">
           <h1 className="text-2xl font-bold text-white text-center tracking-tight drop-shadow-md animate-pulse">
