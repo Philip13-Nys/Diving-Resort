@@ -25,6 +25,36 @@ Thumbs.db
 # VS Code
 .vscode/
 
+# Dependencies
+node_modules/
+functions/node_modules/
 
+# Build output
+dist/
+functions/lib/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Firebase local/cache files
+.firebase/
+
+# Firebase debug logs
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE/editor
+.vscode/
+.idea/
 
 
