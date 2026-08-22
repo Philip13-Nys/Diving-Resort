@@ -281,7 +281,7 @@ export default function Login() {
               type="submit"
               className="w-full bg-cyan-600 hover:bg-cyan-700 text-white py-2.5 rounded-lg font-medium shadow-md hover:shadow-lg active:scale-[0.99] transition-all duration-200 mt-2"
             >
-              Loginsss
+              Login
             </button>
           </form>
         </div>
