@@ -1,0 +1,13 @@
+
+lib/**/*.js
+lib/**/*.js.map
+
+typings/
+
+node_modules/
+
+.env
+.env.*
+functions/.env
+
+*.local

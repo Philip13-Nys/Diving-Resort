@@ -139,9 +139,6 @@ export default function RoomAvailability() {
       try {
         setLoading(true);
 
-        // Fetch roomTypes first so we can resolve each room's "type" name
-        // (e.g. "Bahay ni cunag") into the roomTypes document ID that
-        // Booking.tsx actually stores on each booking as roomId.
         const roomTypesSnapshot = await getDocs(collection(db, "roomTypes"));
         const nameToRoomTypeId: Record<string, string> = {};
 

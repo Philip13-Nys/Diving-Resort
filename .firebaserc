@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "admin-80f41"
-  }
+    "default": "admin-80f41",
+    "admin": "admin-80f41"
+  },
+  "targets": {},
+  "etags": {}
 }
