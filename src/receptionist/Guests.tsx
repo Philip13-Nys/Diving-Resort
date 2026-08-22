@@ -1,6 +1,14 @@
-import { useState } from "react";
 import { Search, Plus, Edit2, Phone, Mail, Star, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  doc,
+} from "firebase/firestore";
 
+import { customerDb } from "../app/firebase";
 interface Guest {
   id: string;
   name: string;
@@ -15,93 +23,7 @@ interface Guest {
   tags: string[];
   notes: string;
 }
-
-const GUESTS: Guest[] = [
-  {
-    id: "G-001",
-    name: "James Villanueva",
-    email: "james@email.com",
-    phone: "+63 917 111 2222",
-    nationality: "Filipino",
-    idType: "Passport",
-    idNumber: "P1234567A",
-    visits: 5,
-    lastVisit: "Jun 7, 2026",
-    totalSpent: 85000,
-    tags: ["VIP", "Diver"],
-    notes: "Prefers beachfront, PADI advanced",
-  },
-  {
-    id: "G-002",
-    name: "Linda Tan",
-    email: "linda@email.com",
-    phone: "+63 918 333 4444",
-    nationality: "Filipino",
-    idType: "Driver's License",
-    idNumber: "L-9876543",
-    visits: 3,
-    lastVisit: "Jun 7, 2026",
-    totalSpent: 32000,
-    tags: ["Regular"],
-    notes: "Allergic to shellfish",
-  },
-  {
-    id: "G-003",
-    name: "Mark Reyes",
-    email: "mark@email.com",
-    phone: "+63 919 555 6666",
-    nationality: "Filipino",
-    idType: "National ID",
-    idNumber: "PH-112233",
-    visits: 1,
-    lastVisit: "Jun 8, 2026",
-    totalSpent: 12000,
-    tags: ["New"],
-    notes: "",
-  },
-  {
-    id: "G-004",
-    name: "Grace Kim",
-    email: "gracekim@email.com",
-    phone: "+82 10-1234-5678",
-    nationality: "Korean",
-    idType: "Passport",
-    idNumber: "M12345678",
-    visits: 2,
-    lastVisit: "May 20, 2026",
-    totalSpent: 24000,
-    tags: ["Diver"],
-    notes: "Speaks basic English",
-  },
-  {
-    id: "G-005",
-    name: "Lester Tan",
-    email: "lester.t@corp.ph",
-    phone: "+63 917 000 1111",
-    nationality: "Filipino",
-    idType: "Passport",
-    idNumber: "P9999888B",
-    visits: 8,
-    lastVisit: "Apr 15, 2026",
-    totalSpent: 160000,
-    tags: ["VIP", "Corporate"],
-    notes: "Group bookings, corporate account",
-  },
-  {
-    id: "G-006",
-    name: "Sofia Cruz",
-    email: "sofia@email.com",
-    phone: "+63 917 777 8888",
-    nationality: "Filipino",
-    idType: "UMID",
-    idNumber: "0001-23456",
-    visits: 4,
-    lastVisit: "Jun 9, 2026",
-    totalSpent: 40000,
-    tags: ["Regular", "Diver"],
-    notes: "PADI Open Water",
-  },
-];
+ 
 
 const TAG_COLORS: Record<string, { color: string; bg: string }> = {
   VIP: { color: "#f97316", bg: "#fff7ed" },
@@ -218,26 +140,117 @@ function GuestModal({
 }
 
 export default function Guests() {
-  const [guests, setGuests] = useState<Guest[]>(GUESTS);
+  const [guests, setGuests] = useState<Guest[]>([]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Guest | null>(null);
   const [modal, setModal] = useState<Partial<Guest> | null>(null);
+  const filtered = guests.filter((g) => {
+  const q = search.toLowerCase();
 
-  const filtered = guests.filter(
-    (g) =>
-      g.name.toLowerCase().includes(search.toLowerCase()) ||
-      g.email.toLowerCase().includes(search.toLowerCase()) ||
-      g.phone.includes(search),
+  return (
+    (g.name ?? "").toLowerCase().includes(q) ||
+    (g.email ?? "").toLowerCase().includes(q) ||
+    (g.phone ?? "").toLowerCase().includes(q)
   );
+});
+  useEffect(() => {
+  loadGuests();
+}, []);
 
-  const saveGuest = (g: Guest) => {
-    if (guests.find((x) => x.id === g.id)) {
-      setGuests((prev) => prev.map((x) => (x.id === g.id ? g : x)));
+const loadGuests = async () => {
+  try {
+    const snapshot = await getDocs(collection(customerDb, "Bookings"));
+
+    const guestMap = new Map<string, Guest>();
+
+    snapshot.forEach((bookingDoc) => {
+      const data = bookingDoc.data();
+
+      const email = data.customerEmail || "";
+
+      if (!guestMap.has(email)) {
+        guestMap.set(email, {
+          id: bookingDoc.id,
+
+          name: data.customerName || "Unknown Guest",
+
+          email,
+
+          phone: data.customerPhone || "",
+
+          nationality: data.nationality || "",
+
+          idType: data.idType || "",
+
+          idNumber: data.idNumber || "",
+
+          visits: 1,
+
+          lastVisit: data.checkOut || "",
+
+          totalSpent: Number(
+            data.totalPrice ??
+              data.totalAmount ??
+              data.total ??
+              0
+          ),
+
+          tags: [],
+
+          notes: data.notes || "",
+        });
+      } else {
+        const guest = guestMap.get(email)!;
+
+        guest.visits += 1;
+
+        guest.totalSpent += Number(
+          data.totalPrice ??
+            data.totalAmount ??
+            data.total ??
+            0
+        );
+
+        guest.lastVisit = data.checkOut || guest.lastVisit;
+      }
+    });
+
+    setGuests(Array.from(guestMap.values()));
+  } catch (err) {
+    console.error(err);
+  }
+};
+
+  const saveGuest = async (g: Guest) => {
+  try {
+    if (g.id) {
+      await updateDoc(doc(customerDb, "Bookings", g.id), {
+        customerName: g.name,
+        customerEmail: g.email,
+        customerPhone: g.phone,
+        nationality: g.nationality,
+        idType: g.idType,
+        idNumber: g.idNumber,
+        notes: g.notes,
+      });
     } else {
-      setGuests((prev) => [g, ...prev]);
+      await addDoc(collection(customerDb, "Bookings"), {
+        customerName: g.name,
+        customerEmail: g.email,
+        customerPhone: g.phone,
+        nationality: g.nationality,
+        idType: g.idType,
+        idNumber: g.idNumber,
+        notes: g.notes,
+      });
     }
+
+    loadGuests();
     setModal(null);
-  };
+  } catch (err) {
+    console.error(err);
+  }
+};
 
   return (
     <div className="flex gap-6" style={{ minHeight: "calc(100vh - 140px)" }}>
