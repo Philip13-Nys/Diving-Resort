@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
   Calendar,
@@ -19,7 +19,8 @@ import {
 } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
-import { auth } from "../app/firebase";
+import { auth, db } from "../app/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 const NAV_ITEMS: {
   id:
@@ -54,13 +55,58 @@ export default function ReceptionistLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const [userName, setUserName] = useState("Receptionist");
+  const [userEmail, setUserEmail] = useState("");
+  const [userInitial, setUserInitial] = useState("R");
+
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      try {
+        const user = auth.currentUser;
+
+        if (!user) {
+          console.log("No logged-in user.");
+          return;
+        }
+
+        setUserEmail(user.email || "");
+
+        const userRef = doc(db, "Users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+
+          console.log("Logged-in user data:", data);
+
+          const fullName =
+            `${data.firstName || ""} ${data.lastName || ""}`.trim();
+
+          if (fullName) {
+            setUserName(fullName);
+            setUserInitial(fullName.charAt(0).toUpperCase());
+          } else if (data.name) {
+            setUserName(data.name);
+            setUserInitial(String(data.name).charAt(0).toUpperCase());
+          }
+        } else {
+          console.log("User document does not exist.");
+        }
+      } catch (error) {
+        console.error("Error loading user profile:", error);
+      }
+    };
+
+    loadUserProfile();
+  }, []);
+
   const handleLogout = async () => {
     const confirmLogout = window.confirm("Are you sure you want to log out?");
 
     if (!confirmLogout) return;
 
     try {
-      await signOut(auth); // Logs out the Firebase user
+      await signOut(auth);
       navigate("/login", { replace: true });
     } catch (error) {
       console.error("Logout failed:", error);
@@ -78,7 +124,6 @@ export default function ReceptionistLayout() {
       className="flex h-screen overflow-hidden"
       style={{ background: "#f0f9f8" }}
     >
-      {/* Mobile overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/50 lg:hidden"
@@ -86,12 +131,10 @@ export default function ReceptionistLayout() {
         />
       )}
 
-      {/* Sidebar */}
       <aside
         className={`fixed lg:static z-30 flex flex-col h-full transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
         style={{ width: 260, background: "#0a2e2e", minWidth: 260 }}
       >
-        {/* Logo */}
         <div
           className="flex items-center gap-3 px-6 py-5 border-b"
           style={{ borderColor: "rgba(255,255,255,0.08)" }}
@@ -121,7 +164,6 @@ export default function ReceptionistLayout() {
           </button>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 py-4 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
@@ -173,7 +215,6 @@ export default function ReceptionistLayout() {
           })}
         </nav>
 
-        {/* User footer */}
         <div
           className="px-5 py-4 border-t"
           style={{ borderColor: "rgba(255,255,255,0.08)" }}
@@ -183,13 +224,14 @@ export default function ReceptionistLayout() {
               className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium"
               style={{ background: "#0d7377", color: "#e2f3f2" }}
             >
-              R
+              {userInitial}
             </div>
 
             <div className="flex-1 min-w-0">
-              <div className="text-sm text-white truncate">Receptionist</div>
+              <div className="text-sm text-white truncate">{userName}</div>
+
               <div className="text-xs truncate" style={{ color: "#4a7a7a" }}>
-                Receptionist
+                {userEmail}
               </div>
             </div>
             <button
@@ -210,9 +252,7 @@ export default function ReceptionistLayout() {
         </div>
       </aside>
 
-      {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Top bar */}
         <header
           className="flex-shrink-0 flex items-center gap-4 px-6 py-4 bg-white border-b"
           style={{ borderColor: "rgba(13,115,119,0.12)" }}
@@ -272,16 +312,16 @@ export default function ReceptionistLayout() {
                 className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium"
                 style={{ background: "#0d7377", color: "#e2f3f2" }}
               >
-                R
+                {userInitial}
               </div>
+
               <span className="text-sm" style={{ color: "#0a2e2e" }}>
-                Receptionist
+                {userName}
               </span>
             </div>
           </div>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
