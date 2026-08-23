@@ -289,7 +289,7 @@ const loadBookings = async () => {
   amountPaid: booking.paid,
   status: "pending",
   notes: booking.notes,
-});
+});                                                                                                                                         
     }
 
     loadBookings();

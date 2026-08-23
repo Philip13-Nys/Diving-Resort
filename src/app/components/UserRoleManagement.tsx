@@ -1,8 +1,18 @@
-import { useState } from 'react';
 import { Shield, Edit, Trash2, Plus, Search, X, Check } from 'lucide-react';
+import { useEffect, useState } from "react";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+} from "firebase/firestore";
+
+import { db } from "../firebase";
 
 type User = {
-  id: number;
+  id: string;
   name: string;
   email: string;
   role: string;
@@ -11,60 +21,9 @@ type User = {
   lastActive: string;
 };
 
-const initialUsers: User[] = [
-  {
-    id: 1,
-    name: 'Sarah Johnson',
-    email: 'sarah.j@resort.com',
-    role: 'Manager',
-    status: 'Active',
-    permissions: ['View Reports', 'Manage Bookings', 'Staff Management'],
-    lastActive: '2 hours ago',
-  },
-  {
-    id: 2,
-    name: 'Mike Chen',
-    email: 'mike.c@resort.com',
-    role: 'Manager',
-    status: 'Active',
-    permissions: ['View Reports', 'Manage Bookings', 'Financial Access'],
-    lastActive: '30 mins ago',
-  },
-  {
-    id: 3,
-    name: 'Emma Williams',
-    email: 'emma.w@resort.com',
-    role: 'Receptionist',
-    status: 'Active',
-    permissions: ['Check-in/out', 'Booking Management', 'Payment Processing'],
-    lastActive: '5 mins ago',
-  },
-  {
-    id: 4,
-    name: 'David Brown',
-    email: 'david.b@resort.com',
-    role: 'Receptionist',
-    status: 'Active',
-    permissions: ['Check-in/out', 'Booking Management'],
-    lastActive: '1 hour ago',
-  },
-  {
-    id: 5,
-    name: 'Lisa Martinez',
-    email: 'lisa.m@resort.com',
-    role: 'Staff',
-    status: 'Inactive',
-    permissions: ['View Schedule', 'Update Availability'],
-    lastActive: '2 days ago',
-  },
-];
 
-const roles = [
-  { name: 'Administrator', count: 2, color: 'bg-red-100 text-red-700' },
-  { name: 'Manager', count: 8, color: 'bg-blue-100 text-blue-700' },
-  { name: 'Receptionist', count: 12, color: 'bg-green-100 text-green-700' },
-  { name: 'Staff', count: 25, color: 'bg-purple-100 text-purple-700' },
-];
+
+
 
 const allPermissions = [
   'View Reports',
@@ -89,13 +48,56 @@ const emptyForm = {
 type FormState = typeof emptyForm;
 
 export default function UserRoleManagement() {
-  const [users, setUsers] = useState<User[]>(initialUsers);
+  const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [success, setSuccess] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [deleteConfirm, setDeleteConfirm] =
+  useState<string | null>(null);;
+
+  useEffect(() => {
+  loadUsers();
+}, []);
+
+const roles = [
+  {
+    name: "Administrator",
+    count: users.filter((u) => u.role === "Administrator").length,
+    color: "bg-red-100 text-red-700",
+  },
+  {
+    name: "Manager",
+    count: users.filter((u) => u.role === "Manager").length,
+    color: "bg-blue-100 text-blue-700",
+  },
+  {
+    name: "Receptionist",
+    count: users.filter((u) => u.role === "Receptionist").length,
+    color: "bg-green-100 text-green-700",
+  },
+  {
+    name: "Staff",
+    count: users.filter((u) => u.role === "Staff").length,
+    color: "bg-purple-100 text-purple-700",
+  },
+];
+
+const loadUsers = async () => {
+  try {
+    const snapshot = await getDocs(collection(db, "Users"));
+
+    const data = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as User[];
+
+    setUsers(data);
+  } catch (err) {
+    console.error(err);
+  }
+};
 
   const filtered = users.filter(
     (u) =>
@@ -131,35 +133,64 @@ export default function UserRoleManagement() {
     }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.name.trim() || !form.email.trim()) return;
+  async function handleSubmit(e: React.FormEvent) {
+  e.preventDefault();
 
+  if (!form.name.trim() || !form.email.trim()) return;
+
+  try {
     if (editUser) {
-      setUsers((prev) =>
-        prev.map((u) => (u.id === editUser.id ? { ...u, ...form, lastActive: 'Just now' } : u))
-      );
-      setSuccess(`User "${form.name}" updated successfully.`);
-    } else {
-      const newUser: User = {
-        id: Date.now(),
-        ...form,
-        lastActive: 'Just now',
-      };
-      setUsers((prev) => [...prev, newUser]);
-      setSuccess(`User "${form.name}" added successfully.`);
-    }
-    closeModal();
-    setTimeout(() => setSuccess(''), 3500);
-  }
+      await updateDoc(doc(db, "Users", editUser.id), {
+        name: form.name,
+        email: form.email,
+        role: form.role,
+        status: form.status,
+        permissions: form.permissions,
+        lastActive: "Just now",
+      });
 
-  function handleDelete(id: number) {
-    const user = users.find((u) => u.id === id);
-    setUsers((prev) => prev.filter((u) => u.id !== id));
-    setDeleteConfirm(null);
-    setSuccess(`User "${user?.name}" removed.`);
-    setTimeout(() => setSuccess(''), 3500);
+      setSuccess("User updated successfully.");
+    } else {
+      await addDoc(collection(db, "Users"), {
+        name: form.name,
+        email: form.email,
+        role: form.role,
+        status: form.status,
+        permissions: form.permissions,
+        lastActive: "Just now",
+      });
+
+      setSuccess("User added successfully.");
+    }
+
+    await loadUsers();
+    closeModal();
+
+    setTimeout(() => {
+      setSuccess("");
+    }, 3000);
+  } catch (err) {
+    console.error(err);
   }
+}
+
+ async function handleDelete(id: string) {
+  try {
+    await deleteDoc(doc(db, "Users", id));
+
+    loadUsers();
+
+    setDeleteConfirm(null);
+
+    setSuccess("User deleted.");
+
+    setTimeout(() => {
+      setSuccess("");
+    }, 3000);
+  } catch (err) {
+    console.error(err);
+  }
+}
 
   return (
     <div className="space-y-6">
@@ -247,12 +278,12 @@ export default function UserRoleManagement() {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-1">
-                      {user.permissions.slice(0, 2).map((perm) => (
+                      {(user.permissions ?? []).slice(0, 2).map((perm) => (
                         <span key={perm} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">
                           {perm}
                         </span>
                       ))}
-                      {user.permissions.length > 2 && (
+                      {(user.permissions ?? []).length > 2 && (
                         <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">
                           +{user.permissions.length - 2}
                         </span>
@@ -385,7 +416,7 @@ export default function UserRoleManagement() {
                       <label key={perm} className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={form.permissions.includes(perm)}
+                          checked={(form.permissions ?? []).includes(perm)}
                           onChange={() => togglePermission(perm)}
                           className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
                         />
