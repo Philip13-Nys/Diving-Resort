@@ -33,7 +33,6 @@ const emptyForm = {
 type FormState = typeof emptyForm;
 
 export default function UserRoleManagement() {
-  const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -42,6 +41,8 @@ export default function UserRoleManagement() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [userName, setUserName] = useState("Receptionist");
   const [userEmail, setUserEmail] = useState("");
+  const [users, setUsers] = useState<User[]>([]);
+  const [staffCount, setStaffCount] = useState(0);
 
   useEffect(() => {
     loadUsers();
@@ -58,7 +59,7 @@ export default function UserRoleManagement() {
         if (userSnap.exists()) {
           const data = userSnap.data();
 
-          setUserName(data.name || "Receptionist");
+          setUserName(data.name || "Users");
           setUserEmail(data.email || auth.currentUser.email || "");
         } else {
           setUserEmail(auth.currentUser.email || "");
@@ -91,23 +92,27 @@ export default function UserRoleManagement() {
     },
     {
       name: "Staff",
-      count: users.filter((u) => u.role?.toLowerCase() === "staff").length,
+      count: staffCount,
       color: "bg-purple-100 text-purple-700",
     },
   ];
 
   const loadUsers = async () => {
     try {
-      const snapshot = await getDocs(collection(db, "Users"));
+      const userSnapshot = await getDocs(collection(db, "Users"));
 
-      const data = snapshot.docs.map((doc) => ({
+      const userData = userSnapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       })) as User[];
 
-      setUsers(data);
+      setUsers(userData);
+
+      const staffSnapshot = await getDocs(collection(db, "Staff"));
+
+      setStaffCount(staffSnapshot.size);
     } catch (err) {
-      console.error(err);
+      console.error("Failed to load users and staff:", err);
     }
   };
 
@@ -513,7 +518,6 @@ export default function UserRoleManagement() {
                     <option>Administrator</option>
                     <option>Manager</option>
                     <option>Receptionist</option>
-                    <option>Staff</option>
                   </select>
                 </div>
                 <div>
