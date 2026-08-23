@@ -1,8 +1,18 @@
-import { useState } from 'react';
 import { User, Mail, Phone, Calendar, Plus, Search, Filter, X, Check, Edit, Trash2 } from 'lucide-react';
+import { useEffect, useState } from "react";
+import {
+  collection,
+  getDocs,
+  addDoc,
+ updateDoc,
+ deleteDoc,
+  doc,
+} from "firebase/firestore";
+
+import { db } from "../firebase";
 
 type StaffMember = {
-  id: number;
+  id: string;
   name: string;
   position: string;
   department: string;
@@ -13,74 +23,6 @@ type StaffMember = {
   certifications: string[];
 };
 
-const initialStaff: StaffMember[] = [
-  {
-    id: 1,
-    name: 'Carlos Rodriguez',
-    position: 'Diving Instructor',
-    department: 'Water Sports',
-    email: 'carlos.r@resort.com',
-    phone: '+1 (555) 123-4567',
-    joinDate: '2023-05-15',
-    status: 'Active',
-    certifications: ['PADI Master', 'Rescue Diver'],
-  },
-  {
-    id: 2,
-    name: 'Anna Peterson',
-    position: 'Head Chef',
-    department: 'Restaurant',
-    email: 'anna.p@resort.com',
-    phone: '+1 (555) 234-5678',
-    joinDate: '2022-03-10',
-    status: 'Active',
-    certifications: ['Culinary Arts Degree', 'Food Safety'],
-  },
-  {
-    id: 3,
-    name: 'James Wilson',
-    position: 'Maintenance Supervisor',
-    department: 'Facilities',
-    email: 'james.w@resort.com',
-    phone: '+1 (555) 345-6789',
-    joinDate: '2021-08-22',
-    status: 'Active',
-    certifications: ['HVAC Certified', 'Electrical License'],
-  },
-  {
-    id: 4,
-    name: 'Maria Santos',
-    position: 'Spa Therapist',
-    department: 'Spa & Wellness',
-    email: 'maria.s@resort.com',
-    phone: '+1 (555) 456-7890',
-    joinDate: '2023-01-18',
-    status: 'Active',
-    certifications: ['Massage Therapy', 'Aromatherapy'],
-  },
-  {
-    id: 5,
-    name: 'Kevin Park',
-    position: 'Diving Instructor',
-    department: 'Water Sports',
-    email: 'kevin.p@resort.com',
-    phone: '+1 (555) 567-8901',
-    joinDate: '2023-06-30',
-    status: 'On Leave',
-    certifications: ['PADI Advanced', 'First Aid'],
-  },
-  {
-    id: 6,
-    name: 'Sophie Laurent',
-    position: 'Concierge',
-    department: 'Guest Services',
-    email: 'sophie.l@resort.com',
-    phone: '+1 (555) 678-9012',
-    joinDate: '2022-11-05',
-    status: 'Active',
-    certifications: ['Hospitality Management', 'Tour Guide'],
-  },
-];
 
 const departmentOptions = ['Water Sports', 'Restaurant', 'Facilities', 'Spa & Wellness', 'Guest Services'];
 
@@ -98,7 +40,7 @@ const emptyForm = {
 type FormState = typeof emptyForm;
 
 export default function StaffProfiles() {
-  const [staff, setStaff] = useState<StaffMember[]>(initialStaff);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDept, setFilterDept] = useState('All');
   const [showFilter, setShowFilter] = useState(false);
@@ -106,12 +48,30 @@ export default function StaffProfiles() {
   const [editStaff, setEditStaff] = useState<StaffMember | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [success, setSuccess] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+ const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   const departments = departmentOptions.map((name) => ({
     name,
     count: staff.filter((s) => s.department === name).length,
   }));
+  useEffect(() => {
+  loadStaff();
+}, []);
+
+const loadStaff = async () => {
+  try {
+    const snapshot = await getDocs(collection(db, "Staff"));
+
+    const data = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as StaffMember[];
+
+    setStaff(data);
+  } catch (error) {
+    console.error(error);
+  }
+};
 
   const filtered = staff.filter((s) => {
     const matchSearch =
@@ -149,41 +109,69 @@ export default function StaffProfiles() {
     setForm(emptyForm);
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.name.trim() || !form.email.trim() || !form.position.trim()) return;
+  async function handleSubmit(e: React.FormEvent) {
+  e.preventDefault();
 
-    const certifications = form.certifications
-      .split(',')
-      .map((c) => c.trim())
-      .filter(Boolean);
+  if (!form.name || !form.email || !form.position) return;
 
+  const certifications = form.certifications
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
+
+  try {
     if (editStaff) {
-      setStaff((prev) =>
-        prev.map((s) => (s.id === editStaff.id ? { ...s, ...form, certifications } : s))
-      );
-      setSuccess(`Staff member "${form.name}" updated successfully.`);
-    } else {
-      const newMember: StaffMember = {
-        id: Date.now(),
-        ...form,
+      await updateDoc(doc(db, "Staff", editStaff.id), {
+        name: form.name,
+        position: form.position,
+        department: form.department,
+        email: form.email,
+        phone: form.phone,
+        joinDate: form.joinDate,
+        status: form.status,
         certifications,
-      };
-      setStaff((prev) => [...prev, newMember]);
-      setSuccess(`Staff member "${form.name}" added successfully.`);
+      });
+
+      setSuccess("Staff updated successfully.");
+    } else {
+      await addDoc(collection(db, "Staff"), {
+        name: form.name,
+        position: form.position,
+        department: form.department,
+        email: form.email,
+        phone: form.phone,
+        joinDate: form.joinDate,
+        status: form.status,
+        certifications,
+      });
+
+      setSuccess("Staff added successfully.");
     }
+
+    await loadStaff();
     closeModal();
-    setTimeout(() => setSuccess(''), 3500);
-  }
 
-  function handleDelete(id: number) {
-    const member = staff.find((s) => s.id === id);
-    setStaff((prev) => prev.filter((s) => s.id !== id));
+    setTimeout(() => setSuccess(""), 3000);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+ async function handleDelete(id: string) {
+  try {
+    await deleteDoc(doc(db, "Staff", id));
+
+    await loadStaff();
+
     setDeleteConfirm(null);
-    setSuccess(`Staff member "${member?.name}" removed.`);
-    setTimeout(() => setSuccess(''), 3500);
-  }
 
+    setSuccess("Staff deleted.");
+
+    setTimeout(() => setSuccess(""), 3000);
+  } catch (error) {
+    console.error(error);
+  }
+}
   return (
     <div className="space-y-6">
       {success && (
@@ -324,7 +312,7 @@ export default function StaffProfiles() {
                     {deleteConfirm === member.id ? (
                       <>
                         <button
-                          onClick={() => handleDelete(member.id)}
+                          onClick={() => setDeleteConfirm(member.id)}
                           className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded transition-colors"
                         >
                           Confirm Delete
@@ -338,11 +326,10 @@ export default function StaffProfiles() {
                       </>
                     ) : (
                       <button
-                        onClick={() => setDeleteConfirm(member.id)}
-                        className="flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors"
-                      >
-                        <Trash2 className="size-3.5" />
-                        Remove
+                        onClick={() => handleDelete(member.id)}
+                        className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded transition-colors"
+                       >
+                        Confirm Delete
                       </button>
                     )}
                   </div>
