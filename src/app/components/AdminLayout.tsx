@@ -11,9 +11,10 @@ import {
   BarChart3,
   LogOut,
 } from "lucide-react";
-import { signOut } from "firebase/auth";
-import { auth } from "../firebase";
 import { useState, useEffect } from "react";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../firebase";
 
 const navigation = [
   { name: "Dashboard", path: "/admin", icon: LayoutDashboard },
@@ -39,6 +40,50 @@ const navigation = [
 
 export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 1024);
+  const [userName, setUserName] = useState("Administrator");
+  const [userEmail, setUserEmail] = useState("");
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setUserName("Administrator");
+        setUserEmail("");
+        return;
+      }
+
+      setUserEmail(user.email || "");
+
+      try {
+        const userRef = doc(db, "Users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+
+          setUserName(
+            userData.name ||
+              userData.fullName ||
+              userData.displayName ||
+              user.email?.split("@")[0] ||
+              "Administrator",
+          );
+        } else {
+          setUserName(
+            user.displayName || user.email?.split("@")[0] || "Administrator",
+          );
+        }
+      } catch (error) {
+        console.error("Error loading user profile:", error);
+
+        setUserName(
+          user.displayName || user.email?.split("@")[0] || "Administrator",
+        );
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth >= 1024) {
@@ -125,12 +170,13 @@ export default function AdminLayout() {
           <div className="p-4 border-t border-cyan-500">
             <div className="flex items-center gap-3 px-2">
               <div className="size-10 rounded-full bg-cyan-400 flex items-center justify-center font-semibold text-cyan-900">
-                A
+                {userName.charAt(0).toUpperCase()}
               </div>
 
-              <div className="flex-1">
-                <p className="font-medium text-sm">Administrator</p>
-                <p className="text-xs text-cyan-100">admin@resort.com</p>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm truncate">{userName}</p>
+
+                <p className="text-xs text-cyan-100 truncate">{userEmail}</p>
               </div>
 
               <button
