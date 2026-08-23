@@ -1,6 +1,5 @@
 import { Shield, Edit, Trash2, Plus, Search, X, Check } from "lucide-react";
 import { useEffect, useState } from "react";
-
 import {
   collection,
   getDocs,
@@ -9,6 +8,7 @@ import {
   doc,
   getDoc,
   setDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { auth, db, secondaryAuth } from "../firebase";
@@ -19,7 +19,7 @@ type User = {
   email: string;
   role: string;
   status: string;
-  lastActive: string;
+  lastActive: any;
 };
 
 const emptyForm = {
@@ -27,7 +27,7 @@ const emptyForm = {
   email: "",
   password: "",
   role: "Staff",
-  status: "Active",
+  status: "Inactive",
 };
 
 type FormState = typeof emptyForm;
@@ -152,33 +152,20 @@ export default function UserRoleManagement() {
     }
 
     try {
-      // ============================================
-      // EDIT EXISTING USER
-      // ============================================
-
       if (editUser) {
         await updateDoc(doc(db, "Users", editUser.id), {
           name: form.name.trim(),
           email: form.email.trim(),
           role: form.role,
           status: form.status,
-          lastActive: "Just now",
         });
-
         setSuccess("User updated successfully.");
-      }
-
-      // ============================================
-      // CREATE NEW USER
-      // ============================================
-      else {
+      } else {
         if (!form.password || form.password.length < 6) {
           alert("Password must be at least 6 characters.");
           return;
         }
 
-        // Create Firebase Authentication account
-        // using SECONDARY auth instance.
         const userCredential = await createUserWithEmailAndPassword(
           secondaryAuth,
           form.email.trim(),
@@ -187,18 +174,16 @@ export default function UserRoleManagement() {
 
         const newUser = userCredential.user;
 
-        // Set display name in Firebase Authentication
         await updateProfile(newUser, {
           displayName: form.name.trim(),
         });
 
-        // Create Firestore profile using the SAME UID
         await setDoc(doc(db, "Users", newUser.uid), {
           name: form.name.trim(),
           email: form.email.trim(),
           role: form.role,
-          status: form.status,
-          lastActive: "Never",
+          status: "Inactive",
+          lastActive: null,
           uid: newUser.uid,
         });
 
@@ -249,6 +234,18 @@ export default function UserRoleManagement() {
     } catch (err) {
       console.error(err);
     }
+  }
+
+  function formatLastActive(lastActive: any) {
+    if (!lastActive) {
+      return "Never";
+    }
+
+    if (lastActive.toDate) {
+      return lastActive.toDate().toLocaleString();
+    }
+
+    return lastActive;
   }
 
   return (
@@ -369,7 +366,7 @@ export default function UserRoleManagement() {
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {user.lastActive}
+                    {formatLastActive(user.lastActive)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {deleteConfirm === user.id ? (
