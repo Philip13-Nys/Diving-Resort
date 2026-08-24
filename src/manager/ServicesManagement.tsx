@@ -359,7 +359,7 @@ export default function ServicesManagement() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
-                      Price ($)
+                      Price (₱)
                     </label>
                     <input
                       name="price"
@@ -455,7 +455,7 @@ export default function ServicesManagement() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
-                      Original Price ($)
+                      Original Price (₱)
                     </label>
                     <input
                       name="originalPrice"
@@ -466,7 +466,7 @@ export default function ServicesManagement() {
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
-                      Package Price ($)
+                      Package Price (₱)
                     </label>
                     <input
                       name="packagePrice"
@@ -565,7 +565,7 @@ export default function ServicesManagement() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Price ($)
+                    Price (₱)
                   </label>
                   <input
                     name="price"
@@ -833,7 +833,11 @@ export default function ServicesManagement() {
                       Price
                     </span>
                     <span className="text-lg font-bold text-blue-600">
-                      ${service.price}
+                      ₱
+                      {service.price.toLocaleString("en-PH", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
                     </span>
                   </div>
                 </div>
@@ -879,12 +883,20 @@ export default function ServicesManagement() {
                   <div className="flex items-center gap-4">
                     <div>
                       <span className="text-sm text-gray-500 line-through">
-                        ${pkg.originalPrice}
+                        ₱
+                        {pkg.originalPrice.toLocaleString("en-PH", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </span>
                     </div>
                     <div>
                       <span className="text-2xl font-bold text-blue-600">
-                        ${pkg.packagePrice}
+                        ₱
+                        {pkg.packagePrice.toLocaleString("en-PH", {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
                       </span>
                       <span className="text-sm text-gray-500 ml-2">
                         per person

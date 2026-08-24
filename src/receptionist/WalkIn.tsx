@@ -1,24 +1,35 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, UserPlus } from "lucide-react";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDocs,
+  serverTimestamp,
+  updateDoc,
+} from "firebase/firestore";
+import { db, customerDb } from "../app/firebase";
 
-const AVAILABLE_ROOMS = [
-  { id: "2", type: "Garden Room", capacity: 2, rate: 2500, floor: 1 },
-  { id: "4", type: "Garden Room", capacity: 3, rate: 3000, floor: 1 },
-  { id: "7", type: "Ocean View", capacity: 2, rate: 4200, floor: 2 },
-  { id: "9", type: "Ocean View", capacity: 4, rate: 5500, floor: 2 },
-  { id: "11", type: "Beachfront Suite", capacity: 2, rate: 6500, floor: 1 },
-  { id: "13", type: "Dive Cabin", capacity: 2, rate: 3800, floor: 1 },
-];
+type Room = {
+  id: string;
+  roomNumber: string;
+  type: string;
+  capacity: number;
+  rate: number;
+  floor: number;
+  status: string;
+};
 
 export default function WalkIn() {
   const [step, setStep] = useState(1);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [loadingRooms, setLoadingRooms] = useState(true);
   const [form, setForm] = useState({
     firstName: "",
     lastName: "",
     email: "",
     phone: "",
-    idType: "passport",
-    idNumber: "",
+    checkIn: new Date().toISOString().split("T")[0],
     nights: 1,
     pax: 2,
     selectedRoom: "",
@@ -26,35 +37,173 @@ export default function WalkIn() {
     downPayment: "",
     specialRequests: "",
   });
+
   const [success, setSuccess] = useState(false);
+  const [bookingReference, setBookingReference] = useState("");
+
+  useEffect(() => {
+    const loadRooms = async () => {
+      try {
+        setLoadingRooms(true);
+
+        const snapshot = await getDocs(collection(db, "rooms"));
+
+        const loadedRooms: Room[] = snapshot.docs.map((roomDoc) => {
+          const data = roomDoc.data();
+
+          return {
+            id: roomDoc.id,
+            roomNumber: String(
+              data.roomNumber ?? data.number ?? data.roomNo ?? roomDoc.id,
+            ),
+            type: String(
+              data.type ?? data.roomType ?? data.roomTypeName ?? "Room",
+            ),
+            capacity: Number(data.capacity ?? data.maxGuests ?? data.pax ?? 2),
+            rate: Number(
+              data.rate ??
+                data.price ??
+                data.pricePerNight ??
+                data.nightlyRate ??
+                0,
+            ),
+            floor: Number(data.floor ?? 1),
+            status: String(data.status ?? "Available"),
+          };
+        });
+
+        console.log("Rooms from admin database:", loadedRooms);
+
+        setRooms(loadedRooms);
+      } catch (error) {
+        console.error("Error loading rooms:", error);
+      } finally {
+        setLoadingRooms(false);
+      }
+    };
+
+    loadRooms();
+  }, []);
 
   const update = (k: string, v: string | number) =>
     setForm((f) => ({ ...f, [k]: v }));
 
-  const selectedRoom = AVAILABLE_ROOMS.find((r) => r.id === form.selectedRoom);
+  const selectedRoom = rooms.find((room) => room.id === form.selectedRoom);
+
+  const availableRooms = rooms.filter(
+    (room) =>
+      room.status.toLowerCase() === "available" && room.capacity >= form.pax,
+  );
+
   const total = selectedRoom ? selectedRoom.rate * form.nights : 0;
   const balance = total - Number(form.downPayment || 0);
+  const checkoutDate = new Date(form.checkIn);
+  checkoutDate.setDate(checkoutDate.getDate() + Number(form.nights));
+  const checkOut = checkoutDate.toISOString().split("T")[0];
 
-  const handleSubmit = () => {
-    setSuccess(true);
-    setTimeout(() => {
-      setSuccess(false);
-      setStep(1);
-      setForm({
-        firstName: "",
-        lastName: "",
-        email: "",
-        phone: "",
-        idType: "passport",
-        idNumber: "",
-        nights: 1,
-        pax: 2,
-        selectedRoom: "",
-        paymentMethod: "cash",
-        downPayment: "",
-        specialRequests: "",
+  const handleSubmit = async () => {
+    if (!selectedRoom) {
+      alert("Please select a room.");
+      return;
+    }
+
+    if (!form.firstName.trim() || !form.lastName.trim()) {
+      alert("Please enter the guest's first and last name.");
+      return;
+    }
+
+    if (!form.phone.trim()) {
+      alert("Please enter the guest's phone number.");
+      return;
+    }
+
+    const payment = Number(form.downPayment || 0);
+
+    if (payment < 0) {
+      alert("Payment cannot be negative.");
+      return;
+    }
+
+    if (payment > total) {
+      alert("Down payment cannot be greater than the total.");
+      return;
+    }
+
+    try {
+      const bookingRef = `CBR-${new Date().getFullYear()}-${Math.floor(
+        100000 + Math.random() * 900000,
+      )}`;
+
+      const bookingData = {
+        bookingRef,
+
+        guestName: `${form.firstName.trim()} ${form.lastName.trim()}`,
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        phone: form.phone.trim(),
+
+        roomId: selectedRoom.id,
+        roomNumber: selectedRoom.roomNumber,
+        roomType: selectedRoom.type,
+
+        guests: Number(form.pax),
+        nights: Number(form.nights),
+
+        checkIn: form.checkIn,
+        checkOut,
+
+        paymentMethod: form.paymentMethod,
+        totalAmount: total,
+        amountPaid: payment,
+        balance,
+
+        paymentStatus:
+          payment >= total ? "Paid" : payment > 0 ? "Partial" : "Unpaid",
+
+        bookingType: "Walk-in",
+        status: "Confirmed",
+
+        specialRequests: form.specialRequests.trim(),
+
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      await addDoc(collection(customerDb, "Bookings"), bookingData);
+
+      await updateDoc(doc(db, "rooms", selectedRoom.id), {
+        status: "Occupied",
+        updatedAt: serverTimestamp(),
       });
-    }, 3000);
+
+      console.log("Walk-in booking created:", bookingData);
+
+      setSuccess(true);
+
+      setTimeout(() => {
+        setSuccess(false);
+        setStep(1);
+
+        setForm({
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "",
+          checkIn: new Date().toISOString().split("T")[0],
+          nights: 1,
+          pax: 2,
+          selectedRoom: "",
+          paymentMethod: "cash",
+          downPayment: "",
+          specialRequests: "",
+        });
+      }, 3000);
+    } catch (error) {
+      console.error("Error creating walk-in booking:", error);
+
+      alert("Failed to create walk-in booking. Please try again.");
+    }
   };
 
   if (success) {
@@ -80,7 +229,7 @@ export default function WalkIn() {
             Booking confirmed for {form.firstName} {form.lastName}
           </p>
           <p className="font-mono text-sm" style={{ color: "#0d7377" }}>
-            Booking ID: BK-{Date.now().toString().slice(-4)}
+            Booking ID: {bookingReference}
           </p>
         </div>
       </div>
@@ -149,19 +298,19 @@ export default function WalkIn() {
                   label: "First Name",
                   key: "firstName",
                   type: "text",
-                  placeholder: "Juan",
+                  placeholder: "Albert",
                 },
                 {
                   label: "Last Name",
                   key: "lastName",
                   type: "text",
-                  placeholder: "dela Cruz",
+                  placeholder: "Cunag",
                 },
                 {
                   label: "Email",
                   key: "email",
                   type: "email",
-                  placeholder: "juan@email.com",
+                  placeholder: "albertcunag@email.com",
                 },
                 {
                   label: "Phone",
@@ -194,51 +343,7 @@ export default function WalkIn() {
                 </div>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label
-                  className="block text-sm mb-1"
-                  style={{ color: "#4a7a7a" }}
-                >
-                  ID Type
-                </label>
-                <select
-                  value={form.idType}
-                  onChange={(e) => update("idType", e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-lg border text-sm outline-none"
-                  style={{
-                    borderColor: "rgba(13,115,119,0.2)",
-                    background: "#f0f9f8",
-                    color: "#0a2e2e",
-                  }}
-                >
-                  <option value="passport">Passport</option>
-                  <option value="license">Driver's License</option>
-                  <option value="national-id">National ID</option>
-                  <option value="umid">UMID</option>
-                </select>
-              </div>
-              <div>
-                <label
-                  className="block text-sm mb-1"
-                  style={{ color: "#4a7a7a" }}
-                >
-                  ID Number
-                </label>
-                <input
-                  type="text"
-                  value={form.idNumber}
-                  onChange={(e) => update("idNumber", e.target.value)}
-                  placeholder="ID Number"
-                  className="w-full px-4 py-2.5 rounded-lg border text-sm outline-none"
-                  style={{
-                    borderColor: "rgba(13,115,119,0.2)",
-                    background: "#f0f9f8",
-                    color: "#0a2e2e",
-                  }}
-                />
-              </div>
-            </div>
+
             <div>
               <label
                 className="block text-sm mb-1"
@@ -314,10 +419,29 @@ export default function WalkIn() {
               </div>
             </div>
             <div className="space-y-2">
-              {AVAILABLE_ROOMS.filter((r) => r.capacity >= form.pax).map(
-                (room) => (
+              {loadingRooms ? (
+                <div
+                  className="py-8 text-center text-sm"
+                  style={{ color: "#4a7a7a" }}
+                >
+                  Loading available rooms...
+                </div>
+              ) : availableRooms.length === 0 ? (
+                <div
+                  className="py-8 text-center rounded-xl"
+                  style={{
+                    background: "#f0f9f8",
+                    color: "#4a7a7a",
+                  }}
+                >
+                  No available rooms for {form.pax} guest
+                  {form.pax !== 1 ? "s" : ""}.
+                </div>
+              ) : (
+                availableRooms.map((room) => (
                   <button
                     key={room.id}
+                    type="button"
                     onClick={() => update("selectedRoom", room.id)}
                     className="w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all"
                     style={{
@@ -333,21 +457,27 @@ export default function WalkIn() {
                   >
                     <div
                       className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-medium"
-                      style={{ background: "#f0f9f8", color: "#0d7377" }}
+                      style={{
+                        background: "#f0f9f8",
+                        color: "#0d7377",
+                      }}
                     >
-                      {room.id}
+                      {room.roomNumber}
                     </div>
+
                     <div className="flex-1">
                       <p
                         className="text-sm font-medium"
                         style={{ color: "#0a2e2e" }}
                       >
-                        {room.type} – Room {room.id}
+                        {room.type} – Room {room.roomNumber}
                       </p>
+
                       <p className="text-xs" style={{ color: "#4a7a7a" }}>
                         Up to {room.capacity} guests · Floor {room.floor}
                       </p>
                     </div>
+
                     <div className="text-right">
                       <p
                         className="text-sm font-medium"
@@ -355,10 +485,12 @@ export default function WalkIn() {
                       >
                         ₱{room.rate.toLocaleString()}/night
                       </p>
+
                       <p className="text-xs" style={{ color: "#4a7a7a" }}>
                         ₱{(room.rate * form.nights).toLocaleString()} total
                       </p>
                     </div>
+
                     {form.selectedRoom === room.id && (
                       <Check
                         className="w-5 h-5 flex-shrink-0"
@@ -366,7 +498,7 @@ export default function WalkIn() {
                       />
                     )}
                   </button>
-                ),
+                ))
               )}
             </div>
           </div>

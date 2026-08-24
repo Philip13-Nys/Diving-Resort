@@ -1,107 +1,126 @@
-import { useState } from 'react';
-import { Shield, Edit, Trash2, Plus, Search, X, Check } from 'lucide-react';
+import { Shield, Edit, Trash2, Plus, Search, X, Check } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  collection,
+  getDocs,
+  updateDoc,
+  deleteDoc,
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { auth, db, secondaryAuth } from "../firebase";
 
 type User = {
-  id: number;
+  id: string;
   name: string;
   email: string;
   role: string;
   status: string;
-  permissions: string[];
-  lastActive: string;
+  lastActive: any;
 };
 
-const initialUsers: User[] = [
-  {
-    id: 1,
-    name: 'Sarah Johnson',
-    email: 'sarah.j@resort.com',
-    role: 'Manager',
-    status: 'Active',
-    permissions: ['View Reports', 'Manage Bookings', 'Staff Management'],
-    lastActive: '2 hours ago',
-  },
-  {
-    id: 2,
-    name: 'Mike Chen',
-    email: 'mike.c@resort.com',
-    role: 'Manager',
-    status: 'Active',
-    permissions: ['View Reports', 'Manage Bookings', 'Financial Access'],
-    lastActive: '30 mins ago',
-  },
-  {
-    id: 3,
-    name: 'Emma Williams',
-    email: 'emma.w@resort.com',
-    role: 'Receptionist',
-    status: 'Active',
-    permissions: ['Check-in/out', 'Booking Management', 'Payment Processing'],
-    lastActive: '5 mins ago',
-  },
-  {
-    id: 4,
-    name: 'David Brown',
-    email: 'david.b@resort.com',
-    role: 'Receptionist',
-    status: 'Active',
-    permissions: ['Check-in/out', 'Booking Management'],
-    lastActive: '1 hour ago',
-  },
-  {
-    id: 5,
-    name: 'Lisa Martinez',
-    email: 'lisa.m@resort.com',
-    role: 'Staff',
-    status: 'Inactive',
-    permissions: ['View Schedule', 'Update Availability'],
-    lastActive: '2 days ago',
-  },
-];
-
-const roles = [
-  { name: 'Administrator', count: 2, color: 'bg-red-100 text-red-700' },
-  { name: 'Manager', count: 8, color: 'bg-blue-100 text-blue-700' },
-  { name: 'Receptionist', count: 12, color: 'bg-green-100 text-green-700' },
-  { name: 'Staff', count: 25, color: 'bg-purple-100 text-purple-700' },
-];
-
-const allPermissions = [
-  'View Reports',
-  'Manage Bookings',
-  'Staff Management',
-  'Financial Access',
-  'Check-in/out',
-  'Booking Management',
-  'Payment Processing',
-  'View Schedule',
-  'Update Availability',
-];
-
 const emptyForm = {
-  name: '',
-  email: '',
-  role: 'Staff',
-  status: 'Active',
-  permissions: [] as string[],
+  name: "",
+  email: "",
+  password: "",
+  role: "Staff",
+  status: "Inactive",
 };
 
 type FormState = typeof emptyForm;
 
 export default function UserRoleManagement() {
-  const [users, setUsers] = useState<User[]>(initialUsers);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [success, setSuccess] = useState('');
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [success, setSuccess] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [userName, setUserName] = useState("Receptionist");
+  const [userEmail, setUserEmail] = useState("");
+  const [users, setUsers] = useState<User[]>([]);
+  const [staffCount, setStaffCount] = useState(0);
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  useEffect(() => {
+    const loadUserProfile = async () => {
+      if (!auth.currentUser) return;
+
+      try {
+        const userRef = doc(db, "Users", auth.currentUser.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+
+          setUserName(data.name || "Users");
+          setUserEmail(data.email || auth.currentUser.email || "");
+        } else {
+          setUserEmail(auth.currentUser.email || "");
+        }
+      } catch (error) {
+        console.error("Failed to load user profile:", error);
+      }
+    };
+
+    loadUserProfile();
+  }, []);
+
+  const roles = [
+    {
+      name: "Administrator",
+      count: users.filter((u) => u.role?.toLowerCase() === "administrator")
+        .length,
+      color: "bg-red-100 text-red-700",
+    },
+    {
+      name: "Manager",
+      count: users.filter((u) => u.role?.toLowerCase() === "manager").length,
+      color: "bg-blue-100 text-blue-700",
+    },
+    {
+      name: "Receptionist",
+      count: users.filter((u) => u.role?.toLowerCase() === "receptionist")
+        .length,
+      color: "bg-green-100 text-green-700",
+    },
+    {
+      name: "Staff",
+      count: staffCount,
+      color: "bg-purple-100 text-purple-700",
+    },
+  ];
+
+  const loadUsers = async () => {
+    try {
+      const userSnapshot = await getDocs(collection(db, "Users"));
+
+      const userData = userSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as User[];
+
+      setUsers(userData);
+
+      const staffSnapshot = await getDocs(collection(db, "Staff"));
+
+      setStaffCount(staffSnapshot.size);
+    } catch (err) {
+      console.error("Failed to load users and staff:", err);
+    }
+  };
 
   const filtered = users.filter(
     (u) =>
       u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.role.toLowerCase().includes(searchTerm.toLowerCase())
+      u.role.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   function openAdd() {
@@ -112,7 +131,15 @@ export default function UserRoleManagement() {
 
   function openEdit(user: User) {
     setEditUser(user);
-    setForm({ name: user.name, email: user.email, role: user.role, status: user.status, permissions: [...user.permissions] });
+
+    setForm({
+      name: user.name,
+      email: user.email,
+      password: "",
+      role: user.role,
+      status: user.status,
+    });
+
     setShowModal(true);
   }
 
@@ -122,43 +149,108 @@ export default function UserRoleManagement() {
     setForm(emptyForm);
   }
 
-  function togglePermission(perm: string) {
-    setForm((f) => ({
-      ...f,
-      permissions: f.permissions.includes(perm)
-        ? f.permissions.filter((p) => p !== perm)
-        : [...f.permissions, perm],
-    }));
-  }
-
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name.trim() || !form.email.trim()) return;
 
-    if (editUser) {
-      setUsers((prev) =>
-        prev.map((u) => (u.id === editUser.id ? { ...u, ...form, lastActive: 'Just now' } : u))
-      );
-      setSuccess(`User "${form.name}" updated successfully.`);
-    } else {
-      const newUser: User = {
-        id: Date.now(),
-        ...form,
-        lastActive: 'Just now',
-      };
-      setUsers((prev) => [...prev, newUser]);
-      setSuccess(`User "${form.name}" added successfully.`);
+    if (!form.name.trim() || !form.email.trim()) {
+      return;
     }
-    closeModal();
-    setTimeout(() => setSuccess(''), 3500);
+
+    try {
+      if (editUser) {
+        await updateDoc(doc(db, "Users", editUser.id), {
+          name: form.name.trim(),
+          email: form.email.trim(),
+          role: form.role,
+          status: form.status,
+        });
+        setSuccess("User updated successfully.");
+      } else {
+        if (!form.password || form.password.length < 6) {
+          alert("Password must be at least 6 characters.");
+          return;
+        }
+
+        const userCredential = await createUserWithEmailAndPassword(
+          secondaryAuth,
+          form.email.trim(),
+          form.password,
+        );
+
+        const newUser = userCredential.user;
+
+        await updateProfile(newUser, {
+          displayName: form.name.trim(),
+        });
+
+        await setDoc(doc(db, "Users", newUser.uid), {
+          name: form.name.trim(),
+          email: form.email.trim(),
+          role: form.role,
+          status: "Inactive",
+          lastActive: null,
+          uid: newUser.uid,
+        });
+
+        setSuccess("User account created successfully.");
+      }
+
+      await loadUsers();
+
+      closeModal();
+
+      setTimeout(() => {
+        setSuccess("");
+      }, 3000);
+    } catch (error: any) {
+      console.error("Failed to save user:", error);
+
+      let message = "Failed to save user.";
+
+      if (error?.code === "auth/email-already-in-use") {
+        message = "This email address is already registered.";
+      } else if (error?.code === "auth/invalid-email") {
+        message = "The email address is invalid.";
+      } else if (error?.code === "auth/weak-password") {
+        message = "The password is too weak.";
+      } else if (error?.code === "permission-denied") {
+        message = "You do not have permission to create this user.";
+      } else if (error?.message) {
+        message = error.message;
+      }
+
+      alert(message);
+    }
   }
 
-  function handleDelete(id: number) {
-    const user = users.find((u) => u.id === id);
-    setUsers((prev) => prev.filter((u) => u.id !== id));
-    setDeleteConfirm(null);
-    setSuccess(`User "${user?.name}" removed.`);
-    setTimeout(() => setSuccess(''), 3500);
+  async function handleDelete(id: string) {
+    try {
+      await deleteDoc(doc(db, "Users", id));
+
+      loadUsers();
+
+      setDeleteConfirm(null);
+
+      setSuccess("User deleted.");
+
+      setTimeout(() => {
+        setSuccess("");
+      }, 3000);
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function formatLastActive(lastActive: any) {
+    if (!lastActive) {
+      return "Never";
+    }
+
+    if (lastActive.toDate) {
+      return lastActive.toDate().toLocaleString();
+    }
+
+    return lastActive;
   }
 
   return (
@@ -172,8 +264,12 @@ export default function UserRoleManagement() {
 
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">User Role and Access Management</h1>
-          <p className="text-gray-600 mt-1">Create, update, and manage user accounts and permissions</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            User Role and Access Management
+          </h1>
+          <p className="text-gray-600 mt-1">
+            Create, update, and manage user accounts
+          </p>
         </div>
         <button
           onClick={openAdd}
@@ -186,13 +282,20 @@ export default function UserRoleManagement() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {roles.map((role) => (
-          <div key={role.name} className="bg-white rounded-xl p-4 border border-gray-200">
+          <div
+            key={role.name}
+            className="bg-white rounded-xl p-4 border border-gray-200"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">{role.name}</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{role.count}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">
+                  {role.count}
+                </p>
               </div>
-              <div className={`size-10 rounded-full ${role.color} flex items-center justify-center`}>
+              <div
+                className={`size-10 rounded-full ${role.color} flex items-center justify-center`}
+              >
                 <Shield className="size-5" />
               </div>
             </div>
@@ -218,12 +321,21 @@ export default function UserRoleManagement() {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Permissions</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Active</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  User
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Role
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Last Active
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -242,33 +354,25 @@ export default function UserRoleManagement() {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="px-3 py-1 text-xs font-medium bg-blue-100 text-blue-700 rounded-full">
-                      {user.role}
+                      {user.role.charAt(0).toUpperCase() +
+                        user.role.slice(1).toLowerCase()}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
-                    <div className="flex flex-wrap gap-1">
-                      {user.permissions.slice(0, 2).map((perm) => (
-                        <span key={perm} className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">
-                          {perm}
-                        </span>
-                      ))}
-                      {user.permissions.length > 2 && (
-                        <span className="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">
-                          +{user.permissions.length - 2}
-                        </span>
-                      )}
-                    </div>
-                  </td>
+
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span
                       className={`px-3 py-1 text-xs font-medium rounded-full ${
-                        user.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                        user.status === "Active"
+                          ? "bg-green-100 text-green-700"
+                          : "bg-gray-100 text-gray-700"
                       }`}
                     >
                       {user.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.lastActive}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {formatLastActive(user.lastActive)}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {deleteConfirm === user.id ? (
                       <div className="flex items-center gap-2">
@@ -308,7 +412,10 @@ export default function UserRoleManagement() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500 text-sm">
+                  <td
+                    colSpan={5}
+                    className="px-6 py-8 text-center text-gray-500 text-sm"
+                  >
                     No users match your search.
                   </td>
                 </tr>
@@ -323,9 +430,12 @@ export default function UserRoleManagement() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden">
             <div className="bg-gradient-to-r from-cyan-600 to-blue-700 px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">
-                {editUser ? 'Edit User' : 'Add New User'}
+                {editUser ? "Edit User" : "Add New User"}
               </h2>
-              <button onClick={closeModal} className="text-white/80 hover:text-white transition-colors">
+              <button
+                onClick={closeModal}
+                className="text-white/80 hover:text-white transition-colors"
+              >
                 <X className="size-5" />
               </button>
             </div>
@@ -333,66 +443,97 @@ export default function UserRoleManagement() {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Full Name *
+                  </label>
                   <input
                     type="text"
                     required
                     value={form.name}
-                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, name: e.target.value }))
+                    }
                     placeholder="e.g. John Smith"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email Address *</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email Address *
+                  </label>
+
                   <input
                     type="email"
                     required
                     value={form.email}
-                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, email: e.target.value }))
+                    }
                     placeholder="e.g. john.s@resort.com"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   />
                 </div>
+
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Password {!editUser && "*"}
+                  </label>
+
+                  <input
+                    type="password"
+                    required={!editUser}
+                    minLength={8}
+                    value={form.password}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        password: e.target.value,
+                      }))
+                    }
+                    placeholder={
+                      editUser
+                        ? "Leave blank to keep current password"
+                        : "Enter password"
+                    }
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                  />
+
+                  {!editUser && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Minimum 8 characters.
+                    </p>
+                  )}
+                </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Role
+                  </label>
                   <select
                     value={form.role}
-                    onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, role: e.target.value }))
+                    }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   >
                     <option>Administrator</option>
                     <option>Manager</option>
                     <option>Receptionist</option>
-                    <option>Staff</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Status
+                  </label>
                   <select
                     value={form.status}
-                    onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, status: e.target.value }))
+                    }
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
                   >
                     <option>Active</option>
                     <option>Inactive</option>
                   </select>
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Permissions</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {allPermissions.map((perm) => (
-                      <label key={perm} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={form.permissions.includes(perm)}
-                          onChange={() => togglePermission(perm)}
-                          className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-                        />
-                        <span className="text-sm text-gray-700">{perm}</span>
-                      </label>
-                    ))}
-                  </div>
                 </div>
               </div>
 
@@ -408,7 +549,7 @@ export default function UserRoleManagement() {
                   type="submit"
                   className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors font-medium"
                 >
-                  {editUser ? 'Save Changes' : 'Add User'}
+                  {editUser ? "Save Changes" : "Add User"}
                 </button>
               </div>
             </form>

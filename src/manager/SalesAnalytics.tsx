@@ -12,7 +12,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { TrendingUp, DollarSign, Users, Calendar } from "lucide-react";
+import { TrendingUp, Users, Calendar } from "lucide-react";
 import { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../app/firebase";
@@ -97,12 +97,16 @@ export default function SalesAnalytics() {
         <Card className="p-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-green-600" />
+              <span className="text-xl font-bold text-green-600">₱</span>
             </div>
             <div>
               <p className="text-sm text-gray-500">Total Revenue</p>
               <p className="text-xl font-bold text-gray-900">
-                ${totalRevenue.toLocaleString()}
+                ₱
+                {totalRevenue.toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </p>
               <p className="text-xs text-purple-600 mt-1">
                 Based on actual bookings
@@ -118,7 +122,11 @@ export default function SalesAnalytics() {
             <div>
               <p className="text-sm text-gray-500">Avg. Daily Rate</p>
               <p className="text-xl font-bold text-gray-900">
-                ${avgDailyRate.toLocaleString()}
+                ₱
+                {avgDailyRate.toLocaleString("en-PH", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
               </p>
               <p className="text-xs text-purple-600 mt-1">
                 Based on actual bookings
@@ -251,10 +259,20 @@ export default function SalesAnalytics() {
                       {room.name}
                     </td>
                     <td className="py-3 px-4 text-gray-900">
-                      ${room.value.toLocaleString()}
+                      ₱
+                      {room.value.toLocaleString("en-PH", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
                     </td>
                     <td className="py-3 px-4 text-gray-700">{room.bookings}</td>
-                    <td className="py-3 px-4 text-gray-700">${avgRevenue}</td>
+                    <td className="py-3 px-4 text-gray-700">
+                      ₱
+                      {avgRevenue.toLocaleString("en-PH", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2">
                         <div className="flex-1 bg-gray-200 rounded-full h-2">

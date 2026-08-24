@@ -12,7 +12,6 @@ import {
   Line,
 } from "recharts";
 import {
-  DollarSign,
   Users,
   Hotel,
   TrendingUp,
@@ -30,14 +29,19 @@ import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 type Booking = {
   id: string;
   bookingRef?: string;
+
   guestName?: string;
   guest?: string;
+  customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
+
   room?: string;
   roomName?: string;
   roomType?: string;
 
-  checkIn?: string;
-  checkOut?: string;
+  checkIn?: any;
+  checkOut?: any;
 
   total?: number;
   totalAmount?: number;
@@ -193,8 +197,12 @@ export default function Dashboard() {
             return sum;
           }
 
-          const checkIn = new Date(booking.checkIn);
-          const checkOut = new Date(booking.checkOut);
+          const checkIn = convertToDate(booking.checkIn);
+          const checkOut = convertToDate(booking.checkOut);
+
+          if (!checkIn || !checkOut) {
+            return sum;
+          }
 
           const difference = checkOut.getTime() - checkIn.getTime();
 
@@ -220,19 +228,10 @@ export default function Dashboard() {
       > = {};
 
       bookings.forEach((booking) => {
-        let date: Date;
+        const date =
+          convertToDate(booking.createdAt) || convertToDate(booking.checkIn);
 
-        if (booking.createdAt?.toDate) {
-          date = booking.createdAt.toDate();
-        } else if (booking.createdAt) {
-          date = new Date(booking.createdAt);
-        } else if (booking.checkIn) {
-          date = new Date(booking.checkIn);
-        } else {
-          return;
-        }
-
-        if (isNaN(date.getTime())) return;
+        if (!date) return;
 
         const month = date.toLocaleString("en-US", {
           month: "short",
@@ -281,15 +280,10 @@ export default function Dashboard() {
 
       const sortedBookings = [...bookings].sort((a, b) => {
         const getTime = (booking: Booking) => {
-          if (booking.createdAt?.toDate) {
-            return booking.createdAt.toDate().getTime();
-          }
+          const date =
+            convertToDate(booking.createdAt) || convertToDate(booking.checkIn);
 
-          if (booking.createdAt) {
-            return new Date(booking.createdAt).getTime();
-          }
-
-          return 0;
+          return date ? date.getTime() : 0;
         };
 
         return getTime(b) - getTime(a);
@@ -426,7 +420,7 @@ export default function Dashboard() {
             </div>
 
             <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <DollarSign className="w-6 h-6 text-green-600" />
+              <span className="text-2xl font-bold text-green-600">₱</span>
             </div>
           </div>
         </Card>
@@ -659,7 +653,10 @@ export default function Dashboard() {
                     className="border-b border-gray-100 hover:bg-gray-50"
                   >
                     <td className="py-3 px-4 text-sm text-gray-900">
-                      {booking.guestName || booking.guest || "Guest"}
+                      {booking.customerName ||
+                        booking.guestName ||
+                        booking.guest ||
+                        "Guest"}
                     </td>
 
                     <td className="py-3 px-4 text-sm text-gray-700">

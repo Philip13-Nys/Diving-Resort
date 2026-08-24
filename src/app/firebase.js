@@ -18,6 +18,12 @@ const adminApp =
 export const db = getFirestore(adminApp);
 export const auth = getAuth(adminApp);
 
+const secondaryApp =
+  getApps().find((existingApp) => existingApp.name === "secondaryApp") ??
+  initializeApp(adminFirebaseConfig, "secondaryApp");
+
+export const secondaryAuth = getAuth(secondaryApp);
+
 const customerFirebaseConfig = {
   apiKey: "AIzaSyCK-OcxL1VnKr_b3Cps5B7_8GvuChQClCw",
   authDomain: "customeraccount-ce2ae.firebaseapp.com",

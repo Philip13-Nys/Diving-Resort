@@ -1,5 +1,14 @@
-import { useState } from "react";
 import { Plus, Search, Edit2, X, Check, ChevronDown, Eye } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  doc,
+} from "firebase/firestore";
+
+import { customerDb } from "../app/firebase"; // change the path if necessary
 
 type BookingStatus =
   | "confirmed"
@@ -24,121 +33,6 @@ interface Booking {
   paid: number;
   notes: string;
 }
-
-const BOOKINGS: Booking[] = [
-  {
-    id: "BK-2401",
-    guest: "James Villanueva",
-    email: "james@email.com",
-    phone: "+63 917 111 2222",
-    room: "12",
-    roomType: "Beachfront Suite",
-    checkIn: "2026-06-07",
-    checkOut: "2026-06-10",
-    nights: 3,
-    pax: 2,
-    status: "checked-in",
-    amount: 15000,
-    paid: 15000,
-    notes: "Requested extra towels",
-  },
-  {
-    id: "BK-2402",
-    guest: "Linda Tan",
-    email: "linda@email.com",
-    phone: "+63 918 333 4444",
-    room: "8",
-    roomType: "Ocean View",
-    checkIn: "2026-06-07",
-    checkOut: "2026-06-09",
-    nights: 2,
-    pax: 2,
-    status: "confirmed",
-    amount: 8400,
-    paid: 4200,
-    notes: "",
-  },
-  {
-    id: "BK-2403",
-    guest: "Mark Reyes",
-    email: "mark@email.com",
-    phone: "+63 919 555 6666",
-    room: "3",
-    roomType: "Garden Room",
-    checkIn: "2026-06-08",
-    checkOut: "2026-06-12",
-    nights: 4,
-    pax: 3,
-    status: "pending",
-    amount: 12000,
-    paid: 0,
-    notes: "Requires 3 beds",
-  },
-  {
-    id: "BK-2404",
-    guest: "Sofia Cruz",
-    email: "sofia@email.com",
-    phone: "+63 917 777 8888",
-    room: "5",
-    roomType: "Dive Cabin",
-    checkIn: "2026-06-09",
-    checkOut: "2026-06-11",
-    nights: 2,
-    pax: 1,
-    status: "confirmed",
-    amount: 7600,
-    paid: 7600,
-    notes: "PADI certified",
-  },
-  {
-    id: "BK-2405",
-    guest: "Ryan Lim",
-    email: "ryan@email.com",
-    phone: "+63 918 999 0000",
-    room: "14",
-    roomType: "Beachfront Suite",
-    checkIn: "2026-06-10",
-    checkOut: "2026-06-14",
-    nights: 4,
-    pax: 2,
-    status: "pending",
-    amount: 20000,
-    paid: 10000,
-    notes: "Honeymoon package",
-  },
-  {
-    id: "BK-2406",
-    guest: "Ana Gomez",
-    email: "ana@email.com",
-    phone: "+63 919 111 2233",
-    room: "6",
-    roomType: "Ocean View",
-    checkIn: "2026-06-12",
-    checkOut: "2026-06-15",
-    nights: 3,
-    pax: 4,
-    status: "confirmed",
-    amount: 16800,
-    paid: 16800,
-    notes: "",
-  },
-  {
-    id: "BK-2407",
-    guest: "Paolo Santos",
-    email: "paolo@email.com",
-    phone: "+63 917 444 5566",
-    room: "1",
-    roomType: "Dive Cabin",
-    checkIn: "2026-06-14",
-    checkOut: "2026-06-18",
-    nights: 4,
-    pax: 2,
-    status: "confirmed",
-    amount: 15200,
-    paid: 0,
-    notes: "Airport pickup requested",
-  },
-];
 
 const STATUS: Record<
   BookingStatus,
@@ -275,7 +169,7 @@ function BookingModal({
 }
 
 export default function Reservations() {
-  const [bookings, setBookings] = useState<Booking[]>(BOOKINGS);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<BookingStatus | "all">(
     "all",
@@ -286,32 +180,129 @@ export default function Reservations() {
   const filtered = bookings.filter((b) => {
     const q = search.toLowerCase();
     const matchSearch =
-      b.guest.toLowerCase().includes(q) ||
-      b.id.toLowerCase().includes(q) ||
-      b.room.includes(q);
+      (b.guest ?? "").toLowerCase().includes(q) ||
+      (b.id ?? "").toLowerCase().includes(q) ||
+      String(b.room ?? "").includes(q);
+
     const matchStatus = statusFilter === "all" || b.status === statusFilter;
     return matchSearch && matchStatus;
   });
 
-  const saveBooking = (b: Booking) => {
-    if (!b.id) {
-      b.id = `BK-${Date.now()}`;
-      b.status = "pending";
-      setBookings((prev) => [b, ...prev]);
-    } else {
-      setBookings((prev) => prev.map((x) => (x.id === b.id ? b : x)));
+  useEffect(() => {
+    loadBookings();
+  }, []);
+
+  const loadBookings = async () => {
+    try {
+      const snapshot = await getDocs(collection(customerDb, "Bookings"));
+
+      const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
+        const data = bookingDoc.data();
+
+        return {
+          id: bookingDoc.id,
+
+          guest: data.customerName || "Unknown Guest",
+
+          email: data.customerEmail || "",
+
+          phone: data.customerPhone || "",
+
+          room: data.roomName || "",
+
+          roomType: data.roomType || "",
+
+          checkIn: data.checkIn || "",
+
+          checkOut: data.checkOut || "",
+
+          nights: Number(data.nights || 0),
+
+          pax: Number(data.guests || 0),
+
+          status:
+            data.status === "confirmed"
+              ? "confirmed"
+              : data.status === "checked-in"
+                ? "checked-in"
+                : data.status === "checked-out"
+                  ? "checked-out"
+                  : data.status === "cancelled"
+                    ? "cancelled"
+                    : "pending",
+
+          amount: Number(
+            data.totalPrice ??
+              data.totalAmount ??
+              data.total ??
+              Number(data.roomRate || 0) * Number(data.nights || 0),
+          ),
+
+          paid: Number(data.amountPaid ?? data.paid ?? 0),
+
+          notes: data.notes || "",
+        };
+      });
+
+      setBookings(bookingData);
+    } catch (error) {
+      console.error("Error loading bookings:", error);
     }
-    setModal(null);
+  };
+  const saveBooking = async (booking: Booking) => {
+    try {
+      if (booking.id) {
+        await updateDoc(doc(customerDb, "Bookings", booking.id), {
+          customerName: booking.guest,
+          customerEmail: booking.email,
+          customerPhone: booking.phone,
+          roomName: booking.room,
+          roomType: booking.roomType,
+          checkIn: booking.checkIn,
+          checkOut: booking.checkOut,
+          nights: booking.nights,
+          guests: booking.pax,
+          totalPrice: booking.amount,
+          amountPaid: booking.paid,
+          status: booking.status,
+          notes: booking.notes,
+        });
+      } else {
+        await addDoc(collection(customerDb, "Bookings"), {
+          customerName: booking.guest,
+          customerEmail: booking.email,
+          customerPhone: booking.phone,
+          roomName: booking.room,
+          roomType: booking.roomType,
+          checkIn: booking.checkIn,
+          checkOut: booking.checkOut,
+          nights: booking.nights,
+          guests: booking.pax,
+          totalPrice: booking.amount,
+          amountPaid: booking.paid,
+          status: "pending",
+          notes: booking.notes,
+        });
+      }
+
+      loadBookings();
+      setModal(null);
+    } catch (error) {
+      console.error(error);
+    }
   };
 
-  const cancel = (id: string) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, status: "cancelled" } : b)),
-    );
-    if (detail?.id === id)
-      setDetail((d) => (d ? { ...d, status: "cancelled" } : d));
-  };
+  const cancel = async (id: string) => {
+    try {
+      await updateDoc(doc(customerDb, "Bookings", id), {
+        status: "cancelled",
+      });
 
+      loadBookings();
+    } catch (error) {
+      console.error(error);
+    }
+  };
   return (
     <div className="space-y-4">
       {modal && (

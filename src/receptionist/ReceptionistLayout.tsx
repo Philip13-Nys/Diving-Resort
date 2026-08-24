@@ -18,7 +18,7 @@ import {
   Search,
 } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { signOut } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "../app/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -60,14 +60,17 @@ export default function ReceptionistLayout() {
   const [userInitial, setUserInitial] = useState("R");
 
   useEffect(() => {
-    const loadUserProfile = async () => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
-        const user = auth.currentUser;
-
         if (!user) {
           console.log("No logged-in user.");
+          setUserName("Receptionist");
+          setUserEmail("");
+          setUserInitial("R");
           return;
         }
+
+        console.log("Logged-in Firebase user:", user);
 
         setUserEmail(user.email || "");
 
@@ -77,27 +80,40 @@ export default function ReceptionistLayout() {
         if (userSnap.exists()) {
           const data = userSnap.data();
 
-          console.log("Logged-in user data:", data);
+          console.log("Logged-in user Firestore data:", data);
 
-          const fullName =
-            `${data.firstName || ""} ${data.lastName || ""}`.trim();
+          // Your receptionist Users documents use "name"
+          const name = String(data.name || "").trim();
 
-          if (fullName) {
-            setUserName(fullName);
-            setUserInitial(fullName.charAt(0).toUpperCase());
-          } else if (data.name) {
-            setUserName(data.name);
-            setUserInitial(String(data.name).charAt(0).toUpperCase());
+          if (name) {
+            setUserName(name);
+            setUserInitial(name.charAt(0).toUpperCase());
+          } else {
+            // Fallback to Firebase Auth display name
+            const authName = user.displayName?.trim();
+
+            if (authName) {
+              setUserName(authName);
+              setUserInitial(authName.charAt(0).toUpperCase());
+            }
           }
         } else {
-          console.log("User document does not exist.");
+          console.log("User document does not exist:", user.uid);
+
+          // Still show Firebase Auth name if Firestore profile is missing
+          const authName = user.displayName?.trim();
+
+          if (authName) {
+            setUserName(authName);
+            setUserInitial(authName.charAt(0).toUpperCase());
+          }
         }
       } catch (error) {
         console.error("Error loading user profile:", error);
       }
-    };
+    });
 
-    loadUserProfile();
+    return () => unsubscribe();
   }, []);
 
   const handleLogout = async () => {
