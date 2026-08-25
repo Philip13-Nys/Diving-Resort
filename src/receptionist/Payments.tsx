@@ -1,4 +1,14 @@
-import { useState } from "react";
+import type { LucideIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  updateDoc,
+  doc,
+} from "firebase/firestore";
+
+import { customerDb } from "../app/firebase";
 import {
   Search,
   CreditCard,
@@ -24,96 +34,17 @@ interface Payment {
   receiptNo: string;
 }
 
-const PAYMENTS: Payment[] = [
-  {
-    id: "PAY-001",
-    bookingId: "BK-2401",
-    guest: "James Villanueva",
-    room: "Suite 12",
-    amount: 15000,
-    method: "cash",
-    type: "full",
-    date: "Jun 7, 2026",
-    time: "08:20",
-    status: "completed",
-    receiptNo: "RCP-2401",
-  },
-  {
-    id: "PAY-002",
-    bookingId: "BK-2402",
-    guest: "Linda Tan",
-    room: "Ocean View 8",
-    amount: 4200,
-    method: "card",
-    type: "partial",
-    date: "Jun 7, 2026",
-    time: "09:45",
-    status: "completed",
-    receiptNo: "RCP-2402",
-  },
-  {
-    id: "PAY-003",
-    bookingId: "BK-2404",
-    guest: "Sofia Cruz",
-    room: "Dive Cabin 5",
-    amount: 7600,
-    method: "gcash",
-    type: "full",
-    date: "Jun 7, 2026",
-    time: "10:15",
-    status: "completed",
-    receiptNo: "RCP-2403",
-  },
-  {
-    id: "PAY-004",
-    bookingId: "BK-2405",
-    guest: "Ryan Lim",
-    room: "Suite 14",
-    amount: 10000,
-    method: "cash",
-    type: "partial",
-    date: "Jun 6, 2026",
-    time: "16:30",
-    status: "completed",
-    receiptNo: "RCP-2404",
-  },
-];
+interface PendingBalance {
+  bookingId: string;
+  guest: string;
+  room: string;
+  balance: number;
+  checkOut: string;
+  amountPaid: number;
+}
 
-const PENDING_BALANCES = [
-  {
-    bookingId: "BK-2402",
-    guest: "Linda Tan",
-    room: "Ocean View 8",
-    balance: 4200,
-    checkOut: "Jun 9",
-  },
-  {
-    bookingId: "BK-2403",
-    guest: "Mark Reyes",
-    room: "Garden Room 3",
-    balance: 12000,
-    checkOut: "Jun 12",
-  },
-  {
-    bookingId: "BK-2405",
-    guest: "Ryan Lim",
-    room: "Suite 14",
-    balance: 10000,
-    checkOut: "Jun 14",
-  },
-  {
-    bookingId: "BK-2407",
-    guest: "Paolo Santos",
-    room: "Dive Cabin 1",
-    balance: 15200,
-    checkOut: "Jun 18",
-  },
-];
 
-const METHOD_ICON: Record<
-  string,
-  React.ComponentType<{ className?: string }>
-> = {
+const METHOD_ICON: Record<string, LucideIcon> = {
   cash: Banknote,
   card: CreditCard,
   gcash: Smartphone,
@@ -126,7 +57,7 @@ const METHOD_COLOR: Record<string, { color: string; bg: string }> = {
 };
 
 interface PaymentModalProps {
-  booking: (typeof PENDING_BALANCES)[0];
+ booking: PendingBalance;
   onClose: () => void;
   onPay: (method: string, amount: number) => void;
 }
@@ -281,15 +212,87 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
 }
 
 export default function Payments() {
-  const [payments, setPayments] = useState<Payment[]>(PAYMENTS);
-  const [pendingBalances, setPendingBalances] = useState(PENDING_BALANCES);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [pendingBalances, setPendingBalances] = useState<PendingBalance[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [payModal, setPayModal] = useState<(typeof PENDING_BALANCES)[0] | null>(
-    null,
-  );
+  const [payModal, setPayModal] =
+  useState<PendingBalance | null>(null);
+  
   const [successMsg, setSuccessMsg] = useState("");
+  useEffect(() => {
+  loadData();
+}, []);
 
-  const handlePay = (method: string, amount: number) => {
+const loadData = async () => {
+  try {
+    setLoading(true);
+
+    // Payments
+    const paymentSnap = await getDocs(
+      collection(customerDb, "Payments")
+    );
+
+    const paymentData: Payment[] =
+      paymentSnap.docs.map((docSnap) => {
+        const d = docSnap.data();
+
+        return {
+          id: docSnap.id,
+          bookingId: d.bookingId || "",
+          guest: d.guest || "",
+          room: d.room || "",
+          amount: Number(d.amount || 0),
+          method: d.method || "cash",
+          type: d.type || "full",
+          date: d.date || "",
+          time: d.time || "",
+          status: d.status || "completed",
+          receiptNo: d.receiptNo || "",
+        };
+      });
+
+    setPayments(paymentData);
+
+    // Bookings
+    const bookingSnap = await getDocs(
+      collection(customerDb, "Bookings")
+    );
+
+    const balances: PendingBalance[] = bookingSnap.docs
+      .map((docSnap) => {
+        const d = docSnap.data();
+
+        const total = Number(
+          d.totalPrice ??
+          d.totalAmount ??
+          d.total ??
+          0
+        );
+
+        const paid = Number(d.amountPaid || 0);
+
+        return {
+          bookingId: docSnap.id,
+          guest: d.customerName || "",
+          room: d.roomName || "",
+          balance: total - paid,
+          amountPaid: paid,
+          checkOut: d.checkOut || "",
+        };
+      })
+      .filter((b) => b.balance > 0);
+
+    setPendingBalances(balances);
+  } catch (err) {
+    console.log(err);
+  } finally {
+    setLoading(false);
+  }
+};
+  
+
+  const handlePay = async (method: string, amount: number) => {
     if (!payModal) return;
     const newPay: Payment = {
       id: `PAY-${Date.now()}`,
@@ -307,7 +310,25 @@ export default function Payments() {
       status: "completed",
       receiptNo: `RCP-${Date.now().toString().slice(-4)}`,
     };
-    setPayments((prev) => [newPay, ...prev]);
+    
+    await addDoc(
+  collection(customerDb,"Payments"),
+  newPay
+  
+);
+   const bookingRef = doc(
+  customerDb,
+  "Bookings",
+  payModal.bookingId
+);
+
+     await updateDoc(bookingRef,
+  {
+    amountPaid:
+      payModal.amountPaid + amount
+}); 
+     await loadData();
+
     if (amount >= payModal.balance) {
       setPendingBalances((prev) =>
         prev.filter((p) => p.bookingId !== payModal.bookingId),
@@ -325,14 +346,30 @@ export default function Payments() {
     setSuccessMsg(
       `Payment of ₱${amount.toLocaleString()} via ${method} processed successfully!`,
     );
-    setTimeout(() => setSuccessMsg(""), 4000);
-  };
+    setTimeout(() => setSuccessMsg(""), 4000); 
+  }; 
 
   const filtered = payments.filter(
     (p) =>
       p.guest.toLowerCase().includes(search.toLowerCase()) ||
       p.bookingId.toLowerCase().includes(search.toLowerCase()),
   );
+  const todayCollection = payments.reduce((a, b) => a + b.amount, 0);
+
+const cashTotal = payments
+  .filter((p) => p.method === "cash")
+  .reduce((a, b) => a + b.amount, 0);
+
+const cardTotal = payments
+  .filter((p) => p.method === "card")
+  .reduce((a, b) => a + b.amount, 0);
+
+const gcashTotal = payments
+  .filter((p) => p.method === "gcash")
+  .reduce((a, b) => a + b.amount, 0);
+
+const pendingTotal = pendingBalances
+  .reduce((a, b) => a + b.balance, 0);
 
   return (
     <div className="space-y-6">
@@ -358,35 +395,36 @@ export default function Payments() {
           </p>
         </div>
       )}
-
+      
       {/* Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          {
-            label: "Today's Collection",
-            value: "₱26,800",
-            color: "#0d7377",
-            bg: "#e2f3f2",
-          },
-          {
-            label: "Cash Payments",
-            value: "₱15,000",
-            color: "#14b8a6",
-            bg: "#f0fdfa",
-          },
-          {
-            label: "Card Payments",
-            value: "₱4,200",
-            color: "#06b6d4",
-            bg: "#ecfeff",
-          },
-          {
-            label: "Pending Balances",
-            value: `₱${pendingBalances.reduce((a, b) => a + b.balance, 0).toLocaleString()}`,
-            color: "#f97316",
-            bg: "#fff7ed",
-          },
-        ].map((s) => (
+  {
+    label: "Today's Collection",
+    value: `₱${todayCollection.toLocaleString()}`,
+    color: "#0d7377",
+  },
+  {
+    label: "Cash Payments",
+    value: `₱${cashTotal.toLocaleString()}`,
+    color: "#14b8a6",
+  },
+  {
+    label: "Card Payments",
+    value: `₱${cardTotal.toLocaleString()}`,
+    color: "#06b6d4",
+  },
+  {
+    label: "GCash Payments",
+    value: `₱${gcashTotal.toLocaleString()}`,
+    color: "#0891b2",
+  },
+  {
+    label: "Pending Balances",
+    value: `₱${pendingTotal.toLocaleString()}`,
+    color: "#f97316",
+  },
+].map((s) => (
           <div
             key={s.label}
             className="p-4 rounded-xl border bg-white"
