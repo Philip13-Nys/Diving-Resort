@@ -1165,16 +1165,8 @@ export default function ReceptionistsDashboard() {
           </div>
         </div>
 
-        {/* =================================================
-            RIGHT SIDE
-        ================================================= */}
-
         <div className="space-y-4">
-          {/* CALENDAR */}
-
           <MiniCal bookings={bookings} />
-
-          {/* QUICK ACTIONS */}
 
           <div
             className="bg-white rounded-xl border p-5"
