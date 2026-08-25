@@ -19,8 +19,8 @@ import {
 } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db } from "../app/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { auth, db, customerDb } from "../app/firebase";
+import { doc, getDoc, collection, onSnapshot } from "firebase/firestore";
 
 const NAV_ITEMS: {
   id:
@@ -39,7 +39,7 @@ const NAV_ITEMS: {
 }[] = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "calendar", label: "Calendar", icon: Calendar },
-  { id: "inquiries", label: "Inquiries", icon: MessageSquare, badge: 5 },
+  { id: "inquiries", label: "Inquiries", icon: MessageSquare },
   { id: "reservations", label: "Reservations", icon: BookOpen },
   { id: "walkin", label: "Walk-in", icon: UserPlus },
   { id: "guests", label: "Guests", icon: Users },
@@ -54,10 +54,39 @@ export default function ReceptionistLayout() {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [unreadInquiryCount, setUnreadInquiryCount] = useState(0);
 
   const [userName, setUserName] = useState("Receptionist");
   const [userEmail, setUserEmail] = useState("");
   const [userInitial, setUserInitial] = useState("R");
+
+  const [inquiryCount, setInquiryCount] = useState(0);
+
+  useEffect(() => {
+    const inquiriesRef = collection(customerDb, "Inquiries");
+
+    const unsubscribe = onSnapshot(inquiriesRef, (snapshot) => {
+      const unreadCount = snapshot.docs.filter((inquiryDoc) => {
+        const data = inquiryDoc.data();
+
+        return data.read !== true;
+      }).length;
+
+      setUnreadInquiryCount(unreadCount);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const inquiriesRef = collection(customerDb, "Inquiries");
+
+    const unsubscribe = onSnapshot(inquiriesRef, (snapshot) => {
+      setInquiryCount(snapshot.size);
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -217,12 +246,12 @@ export default function ReceptionistLayout() {
               >
                 <Icon className="w-5 h-5 flex-shrink-0" />
                 <span className="flex-1 text-sm">{item.label}</span>
-                {item.badge && (
+                {item.id === "inquiries" && inquiryCount > 0 && (
                   <span
                     className="text-xs px-1.5 py-0.5 rounded-full"
                     style={{ background: "#f97316", color: "#fff" }}
                   >
-                    {item.badge}
+                    {inquiryCount}
                   </span>
                 )}
                 {active && <ChevronRight className="w-4 h-4 opacity-50" />}

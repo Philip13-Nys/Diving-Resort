@@ -8,6 +8,7 @@ import {
   Search,
   Send,
   Loader2,
+  ArrowLeft,
 } from "lucide-react";
 import {
   collection,
@@ -37,6 +38,7 @@ interface Inquiry {
   status: Status;
   pax: number;
   dates: string;
+  read: boolean;
 }
 
 interface Reply {
@@ -62,21 +64,18 @@ const STATUS_CONFIG: Record<
     bg: "#fff7ed",
     icon: Clock,
   },
-
   "in-progress": {
     label: "In Progress",
     color: "#06b6d4",
     bg: "#ecfeff",
     icon: Clock,
   },
-
   resolved: {
     label: "Resolved",
     color: "#0d7377",
     bg: "#e2f3f2",
     icon: Check,
   },
-
   cancelled: {
     label: "Cancelled",
     color: "#d4183d",
@@ -88,15 +87,11 @@ const STATUS_CONFIG: Record<
 export default function Inquiries() {
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [selected, setSelected] = useState<Inquiry | null>(null);
-
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Status | "all">("all");
-
   const [reply, setReply] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
-
   const [replies, setReplies] = useState<Reply[]>([]);
 
   useEffect(() => {
@@ -128,6 +123,7 @@ export default function Inquiries() {
             status: data.status ?? "new",
             pax: Number(data.pax ?? data.guests ?? 1),
             dates: String(data.dates ?? ""),
+            read: data.read === true,
           };
         });
 
@@ -165,13 +161,9 @@ export default function Inquiries() {
 
           return {
             id: replyDoc.id,
-
             message: String(data.message ?? ""),
-
             sender: data.sender === "customer" ? "customer" : "receptionist",
-
             senderName: String(data.senderName ?? "Customer"),
-
             createdAt: data.createdAt ?? null,
           };
         });
@@ -186,22 +178,43 @@ export default function Inquiries() {
     return () => unsubscribe();
   }, [selected?.id]);
 
-  const filtered = inquiries.filter((i) => {
-    const searchText = search.toLowerCase();
+  const filtered = inquiries.filter((inquiry) => {
+    const searchText = search.toLowerCase().trim();
 
     const matchSearch =
-      i.name.toLowerCase().includes(searchText) ||
-      i.subject.toLowerCase().includes(searchText) ||
-      i.message.toLowerCase().includes(searchText);
+      inquiry.name.toLowerCase().includes(searchText) ||
+      inquiry.subject.toLowerCase().includes(searchText) ||
+      inquiry.message.toLowerCase().includes(searchText) ||
+      inquiry.contact.toLowerCase().includes(searchText);
 
-    const matchFilter = filter === "all" || i.status === filter;
+    const matchFilter = filter === "all" || inquiry.status === filter;
 
     return matchSearch && matchFilter;
   });
 
-  /*
-   * Update inquiry status.
-   */
+  const markAsRead = async (inquiry: Inquiry) => {
+    setSelected({
+      ...inquiry,
+      read: true,
+    });
+
+    if (inquiry.read) return;
+
+    try {
+      await updateDoc(doc(customerDb, "Inquiries", inquiry.id), {
+        read: true,
+      });
+
+      setInquiries((prev) =>
+        prev.map((item) =>
+          item.id === inquiry.id ? { ...item, read: true } : item,
+        ),
+      );
+    } catch (error) {
+      console.error("Error marking inquiry as read:", error);
+    }
+  };
+
   const updateStatus = async (id: string, status: Status) => {
     try {
       await updateDoc(doc(customerDb, "Inquiries", id), {
@@ -210,25 +223,23 @@ export default function Inquiries() {
       });
 
       setInquiries((prev) =>
-        prev.map((i) => (i.id === id ? { ...i, status } : i)),
+        prev.map((inquiry) =>
+          inquiry.id === id ? { ...inquiry, status } : inquiry,
+        ),
       );
 
       setSelected((prev) => (prev?.id === id ? { ...prev, status } : prev));
     } catch (error) {
       console.error("Error updating inquiry status:", error);
-
       alert("Failed to update inquiry status.");
     }
   };
 
   const sendReply = async () => {
-    if (!selected) return;
-
-    if (!reply.trim()) return;
+    if (!selected || !reply.trim()) return;
 
     if (selected.status === "resolved" || selected.status === "cancelled") {
       alert("This inquiry is already closed.");
-
       return;
     }
 
@@ -246,10 +257,6 @@ export default function Inquiries() {
         },
       );
 
-      /*
-       * Automatically move a new inquiry
-       * into In Progress when receptionist replies.
-       */
       if (selected.status === "new") {
         await updateStatus(selected.id, "in-progress");
       }
@@ -257,7 +264,6 @@ export default function Inquiries() {
       setReply("");
     } catch (error) {
       console.error("Error sending reply:", error);
-
       alert("Failed to send reply.");
     } finally {
       setSendingReply(false);
@@ -276,447 +282,484 @@ export default function Inquiries() {
   };
 
   return (
-    <div
-      className="flex gap-6 h-full"
-      style={{
-        minHeight: "calc(100vh - 140px)",
-      }}
-    >
-      {/* LIST */}
-      <div
-        className="w-full lg:w-96 flex-shrink-0 bg-white rounded-xl border flex flex-col"
-        style={{
-          borderColor: "rgba(13,115,119,0.1)",
-        }}
-      >
+    <div className="w-full h-full min-h-0">
+      <div className="flex w-full h-full min-h-0 gap-4 lg:gap-6">
         <div
-          className="p-4 border-b space-y-3"
+          className={`${
+            selected ? "hidden lg:flex" : "flex"
+          } w-full lg:w-96 lg:flex-shrink-0 bg-white rounded-xl border flex-col min-h-0 overflow-hidden`}
           style={{
             borderColor: "rgba(13,115,119,0.1)",
           }}
         >
-          <div className="relative">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-              style={{
-                color: "#4a7a7a",
-              }}
-            />
-
-            <input
-              type="text"
-              placeholder="Search inquiries..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 rounded-lg border text-sm outline-none"
-              style={{
-                borderColor: "rgba(13,115,119,0.2)",
-                background: "#f0f9f8",
-                color: "#0a2e2e",
-              }}
-            />
-          </div>
-
-          <div className="flex gap-2 flex-wrap">
-            {(
-              ["all", "new", "in-progress", "resolved", "cancelled"] as const
-            ).map((status) => (
-              <button
-                key={status}
-                onClick={() => setFilter(status)}
-                className="px-3 py-1 rounded-full text-xs"
-                style={{
-                  background: filter === status ? "#0d7377" : "#e2f3f2",
-
-                  color: filter === status ? "#fff" : "#0d7377",
-                }}
-              >
-                {status === "all" ? "All" : STATUS_CONFIG[status].label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto divide-y">
-          {loading ? (
-            <div
-              className="p-6 text-center text-sm"
-              style={{
-                color: "#4a7a7a",
-              }}
-            >
-              Loading inquiries...
-            </div>
-          ) : filtered.length === 0 ? (
-            <div
-              className="p-6 text-center text-sm"
-              style={{
-                color: "#4a7a7a",
-              }}
-            >
-              No inquiries found.
-            </div>
-          ) : (
-            filtered.map((inq) => {
-              const status = STATUS_CONFIG[inq.status];
-
-              return (
-                <button
-                  key={inq.id}
-                  onClick={() => setSelected(inq)}
-                  className="w-full text-left p-4"
-                  style={{
-                    background:
-                      selected?.id === inq.id ? "#f0f9f8" : "transparent",
-                  }}
-                >
-                  <div className="flex items-start gap-3">
-                    <div
-                      className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-                      style={{
-                        background: "#e2f3f2",
-                      }}
-                    >
-                      <MessageSquare
-                        className="w-4 h-4"
-                        style={{
-                          color: "#0d7377",
-                        }}
-                      />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span
-                          className="text-sm font-medium truncate"
-                          style={{
-                            color: "#0a2e2e",
-                          }}
-                        >
-                          {inq.name}
-                        </span>
-
-                        <span
-                          className="text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full"
-                          style={{
-                            background: status.bg,
-                            color: status.color,
-                          }}
-                        >
-                          {status.label}
-                        </span>
-                      </div>
-
-                      <p
-                        className="text-xs mt-0.5 truncate"
-                        style={{
-                          color: "#4a7a7a",
-                        }}
-                      >
-                        {inq.subject}
-                      </p>
-
-                      <p
-                        className="text-xs mt-0.5"
-                        style={{
-                          color: "#4a7a7a",
-                        }}
-                      >
-                        {inq.date}
-                      </p>
-                    </div>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
-      </div>
-
-      {/* DETAIL */}
-      <div
-        className="flex-1 bg-white rounded-xl border flex flex-col"
-        style={{
-          borderColor: "rgba(13,115,119,0.1)",
-        }}
-      >
-        {!selected ? (
           <div
-            className="flex-1 flex items-center justify-center flex-col gap-3"
+            className="p-3 sm:p-4 border-b space-y-3 flex-shrink-0"
             style={{
-              color: "#4a7a7a",
+              borderColor: "rgba(13,115,119,0.1)",
             }}
           >
-            <MessageSquare className="w-12 h-12 opacity-30" />
+            <div className="relative">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
+                style={{
+                  color: "#4a7a7a",
+                }}
+              />
 
-            <p className="text-sm">Select an inquiry to view details</p>
-          </div>
-        ) : (
-          <>
-            {/* HEADER */}
-            <div
-              className="px-6 py-4 border-b flex items-center gap-4"
-              style={{
-                borderColor: "rgba(13,115,119,0.1)",
-              }}
-            >
-              <div>
-                <h3
-                  className="font-medium"
-                  style={{
-                    color: "#0a2e2e",
-                    fontFamily: "Georgia, serif",
-                  }}
-                >
-                  {selected.name}
-                </h3>
-
-                <p
-                  className="text-sm"
-                  style={{
-                    color: "#4a7a7a",
-                  }}
-                >
-                  {selected.subject} · {selected.date}
-                </p>
-              </div>
-
-              <div className="ml-auto flex gap-2 flex-wrap">
-                {(["in-progress", "resolved", "cancelled"] as Status[]).map(
-                  (status) => {
-                    const cfg = STATUS_CONFIG[status];
-
-                    return (
-                      <button
-                        key={status}
-                        onClick={() => updateStatus(selected.id, status)}
-                        className="px-3 py-1.5 rounded-lg text-sm border"
-                        style={{
-                          borderColor:
-                            selected.status === status
-                              ? cfg.color
-                              : "rgba(13,115,119,0.2)",
-
-                          background:
-                            selected.status === status ? cfg.bg : "transparent",
-
-                          color:
-                            selected.status === status ? cfg.color : "#4a7a7a",
-                        }}
-                      >
-                        {cfg.label}
-                      </button>
-                    );
-                  },
-                )}
-              </div>
+              <input
+                type="text"
+                placeholder="Search inquiries..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2.5 rounded-lg border text-sm outline-none"
+                style={{
+                  borderColor: "rgba(13,115,119,0.2)",
+                  background: "#f0f9f8",
+                  color: "#0a2e2e",
+                }}
+              />
             </div>
 
-            {/* CONTENT */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              {/* INFO */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {[
-                  {
-                    label: "Contact",
-                    value: selected.contact,
-                  },
-                  {
-                    label: "Type",
-                    value: selected.type,
-                  },
-                  {
-                    label: "Guests",
-                    value: `${selected.pax} pax`,
-                  },
-                  {
-                    label: "Requested Dates",
-                    value: selected.dates || "Not specified",
-                  },
-                ].map((field) => (
-                  <div
-                    key={field.label}
-                    className="p-3 rounded-lg"
-                    style={{
-                      background: "#f0f9f8",
-                    }}
-                  >
-                    <p
-                      className="text-xs mb-1"
-                      style={{
-                        color: "#4a7a7a",
-                      }}
-                    >
-                      {field.label}
-                    </p>
+            <div className="flex gap-2 flex-wrap">
+              {(
+                ["all", "new", "in-progress", "resolved", "cancelled"] as const
+              ).map((status) => (
+                <button
+                  key={status}
+                  onClick={() => setFilter(status)}
+                  className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap"
+                  style={{
+                    background: filter === status ? "#0d7377" : "#e2f3f2",
+                    color: filter === status ? "#fff" : "#0d7377",
+                  }}
+                >
+                  {status === "all" ? "All" : STATUS_CONFIG[status].label}
+                </button>
+              ))}
+            </div>
+          </div>
 
-                    <p
-                      className="text-sm"
-                      style={{
-                        color: "#0a2e2e",
-                      }}
-                    >
-                      {field.value}
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              {/* ORIGINAL MESSAGE */}
+          <div className="flex-1 min-h-0 overflow-y-auto divide-y">
+            {loading ? (
               <div
-                className="p-4 rounded-xl"
+                className="p-6 text-center text-sm"
                 style={{
-                  background: "#f0f9f8",
-                  borderLeft: "4px solid #0d7377",
+                  color: "#4a7a7a",
                 }}
               >
-                <p
-                  className="text-xs mb-2 font-medium"
-                  style={{
-                    color: "#0d7377",
-                  }}
-                >
-                  Guest Message
-                </p>
-
-                <p
-                  className="text-sm"
-                  style={{
-                    color: "#0a2e2e",
-                  }}
-                >
-                  {selected.message}
-                </p>
+                Loading inquiries...
               </div>
+            ) : filtered.length === 0 ? (
+              <div
+                className="p-6 text-center text-sm"
+                style={{
+                  color: "#4a7a7a",
+                }}
+              >
+                No inquiries found.
+              </div>
+            ) : (
+              filtered.map((inq) => {
+                const status = STATUS_CONFIG[inq.status];
 
-              {/* CONVERSATION */}
-              <div>
-                <p
-                  className="text-sm font-medium mb-3"
-                  style={{
-                    color: "#0a2e2e",
-                  }}
-                >
-                  Conversation
-                </p>
+                return (
+                  <button
+                    key={inq.id}
+                    onClick={async () => {
+                      setSelected(inq);
 
-                <div className="space-y-3">
-                  {replies.length === 0 ? (
-                    <p
-                      className="text-sm"
-                      style={{
-                        color: "#4a7a7a",
-                      }}
-                    >
-                      No replies yet.
-                    </p>
-                  ) : (
-                    replies.map((msg) => (
+                      if (!inq.read) {
+                        try {
+                          await updateDoc(
+                            doc(customerDb, "Inquiries", inq.id),
+                            {
+                              read: true,
+                            },
+                          );
+
+                          setInquiries((prev) =>
+                            prev.map((item) =>
+                              item.id === inq.id
+                                ? { ...item, read: true }
+                                : item,
+                            ),
+                          );
+                        } catch (error) {
+                          console.error(
+                            "Error marking inquiry as read:",
+                            error,
+                          );
+                        }
+                      }
+                    }}
+                    className="w-full text-left p-3 sm:p-4 transition-colors"
+                    style={{
+                      background:
+                        selected?.id === inq.id ? "#f0f9f8" : "transparent",
+                    }}
+                  >
+                    <div className="flex items-start gap-3 min-w-0">
                       <div
-                        key={msg.id}
-                        className={`flex ${
-                          msg.sender === "receptionist"
-                            ? "justify-end"
-                            : "justify-start"
-                        }`}
+                        className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
+                        style={{
+                          background: "#e2f3f2",
+                        }}
                       >
-                        <div className="max-w-lg">
-                          <div
-                            className="px-4 py-3 rounded-xl text-sm"
-                            style={{
-                              background:
-                                msg.sender === "receptionist"
-                                  ? "#e2f3f2"
-                                  : "#f0f9f8",
+                        <MessageSquare
+                          className="w-4 h-4"
+                          style={{
+                            color: "#0d7377",
+                          }}
+                        />
+                      </div>
 
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="text-sm font-medium truncate flex-1"
+                            style={{
                               color: "#0a2e2e",
                             }}
                           >
-                            {msg.message}
-                          </div>
+                            {inq.name}
+                          </span>
 
-                          <p
-                            className={`text-[10px] text-gray-400 mt-1 ${
-                              msg.sender === "receptionist"
-                                ? "text-right"
-                                : "text-left"
-                            }`}
+                          <span
+                            className="text-[10px] sm:text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full"
+                            style={{
+                              background: status.bg,
+                              color: status.color,
+                            }}
                           >
-                            {msg.senderName} · {formatReplyTime(msg.createdAt)}
-                          </p>
+                            {status.label}
+                          </span>
                         </div>
+
+                        <p
+                          className="text-xs mt-0.5 truncate"
+                          style={{
+                            color: "#4a7a7a",
+                          }}
+                        >
+                          {inq.subject}
+                        </p>
+
+                        <p
+                          className="text-xs mt-0.5 truncate"
+                          style={{
+                            color: "#4a7a7a",
+                          }}
+                        >
+                          {inq.date}
+                        </p>
                       </div>
-                    ))
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div
+          className={`${
+            selected ? "flex" : "hidden lg:flex"
+          } flex-1 min-w-0 min-h-0 bg-white rounded-xl border flex-col overflow-hidden`}
+          style={{
+            borderColor: "rgba(13,115,119,0.1)",
+          }}
+        >
+          {!selected ? (
+            <div
+              className="flex-1 flex items-center justify-center flex-col gap-3 p-6"
+              style={{
+                color: "#4a7a7a",
+              }}
+            >
+              <MessageSquare className="w-12 h-12 opacity-30" />
+
+              <p className="text-sm text-center">
+                Select an inquiry to view details
+              </p>
+            </div>
+          ) : (
+            <>
+              <div
+                className="px-3 sm:px-6 py-3 sm:py-4 border-b flex items-center gap-3 flex-shrink-0"
+                style={{
+                  borderColor: "rgba(13,115,119,0.1)",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelected(null)}
+                  className="lg:hidden flex-shrink-0 p-2 rounded-lg"
+                  style={{
+                    color: "#0d7377",
+                    background: "#f0f9f8",
+                  }}
+                  aria-label="Back to inquiries"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+
+                <div className="min-w-0 flex-1">
+                  <h3
+                    className="font-medium truncate"
+                    style={{
+                      color: "#0a2e2e",
+                      fontFamily: "Georgia, serif",
+                    }}
+                  >
+                    {selected.name}
+                  </h3>
+
+                  <p
+                    className="text-xs sm:text-sm truncate"
+                    style={{
+                      color: "#4a7a7a",
+                    }}
+                  >
+                    {selected.subject} · {selected.date}
+                  </p>
+                </div>
+
+                <div className="flex gap-1 sm:gap-2 flex-wrap justify-end">
+                  {(["in-progress", "resolved", "cancelled"] as Status[]).map(
+                    (status) => {
+                      const cfg = STATUS_CONFIG[status];
+
+                      return (
+                        <button
+                          key={status}
+                          onClick={() => updateStatus(selected.id, status)}
+                          className="px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm border whitespace-nowrap"
+                          style={{
+                            borderColor:
+                              selected.status === status
+                                ? cfg.color
+                                : "rgba(13,115,119,0.2)",
+
+                            background:
+                              selected.status === status
+                                ? cfg.bg
+                                : "transparent",
+
+                            color:
+                              selected.status === status
+                                ? cfg.color
+                                : "#4a7a7a",
+                          }}
+                        >
+                          {cfg.label}
+                        </button>
+                      );
+                    },
                   )}
                 </div>
               </div>
 
-              {/* REPLY */}
-              <div>
-                <p
-                  className="text-sm font-medium mb-2"
+              <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 space-y-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                  {[
+                    {
+                      label: "Contact",
+                      value: selected.contact,
+                    },
+                    {
+                      label: "Type",
+                      value: selected.type,
+                    },
+                    {
+                      label: "Guests",
+                      value: `${selected.pax} pax`,
+                    },
+                    {
+                      label: "Requested Dates",
+                      value: selected.dates || "Not specified",
+                    },
+                  ].map((field) => (
+                    <div
+                      key={field.label}
+                      className="p-3 rounded-lg min-w-0 overflow-hidden"
+                      style={{
+                        background: "#f0f9f8",
+                      }}
+                    >
+                      <p
+                        className="text-xs mb-1"
+                        style={{
+                          color: "#4a7a7a",
+                        }}
+                      >
+                        {field.label}
+                      </p>
+
+                      <p
+                        className="text-sm break-words"
+                        style={{
+                          color: "#0a2e2e",
+                        }}
+                      >
+                        {field.value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div
+                  className="p-3 sm:p-4 rounded-xl overflow-hidden"
                   style={{
-                    color: "#0a2e2e",
+                    background: "#f0f9f8",
+                    borderLeft: "4px solid #0d7377",
                   }}
                 >
-                  Reply
-                </p>
-
-                <textarea
-                  value={reply}
-                  onChange={(e) => setReply(e.target.value)}
-                  rows={4}
-                  disabled={
-                    selected.status === "resolved" ||
-                    selected.status === "cancelled" ||
-                    sendingReply
-                  }
-                  placeholder={
-                    selected.status === "resolved"
-                      ? "This inquiry is resolved."
-                      : selected.status === "cancelled"
-                        ? "This inquiry is cancelled."
-                        : "Type your reply..."
-                  }
-                  className="w-full px-4 py-3 rounded-lg border text-sm outline-none resize-none disabled:bg-gray-100"
-                  style={{
-                    borderColor: "rgba(13,115,119,0.2)",
-                    background: "#f0f9f8",
-                    color: "#0a2e2e",
-                  }}
-                />
-
-                <div className="flex justify-end mt-2">
-                  <button
-                    onClick={sendReply}
-                    disabled={
-                      !reply.trim() ||
-                      sendingReply ||
-                      selected.status === "resolved" ||
-                      selected.status === "cancelled"
-                    }
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm text-white disabled:opacity-50"
+                  <p
+                    className="text-xs mb-2 font-medium"
                     style={{
-                      background: "#0d7377",
+                      color: "#0d7377",
                     }}
                   >
-                    {sendingReply ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Sending...
-                      </>
+                    Guest Message
+                  </p>
+
+                  <p
+                    className="text-sm break-words whitespace-pre-wrap"
+                    style={{
+                      color: "#0a2e2e",
+                    }}
+                  >
+                    {selected.message}
+                  </p>
+                </div>
+
+                <div>
+                  <p
+                    className="text-sm font-medium mb-3"
+                    style={{
+                      color: "#0a2e2e",
+                    }}
+                  >
+                    Conversation
+                  </p>
+
+                  <div className="space-y-3">
+                    {replies.length === 0 ? (
+                      <p
+                        className="text-sm"
+                        style={{
+                          color: "#4a7a7a",
+                        }}
+                      >
+                        No replies yet.
+                      </p>
                     ) : (
-                      <>
-                        <Send className="w-4 h-4" />
-                        Send Reply
-                      </>
+                      replies.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`flex ${
+                            msg.sender === "receptionist"
+                              ? "justify-end"
+                              : "justify-start"
+                          }`}
+                        >
+                          <div className="max-w-[85%] sm:max-w-lg min-w-0">
+                            <div
+                              className="px-3 sm:px-4 py-3 rounded-xl text-sm break-words whitespace-pre-wrap"
+                              style={{
+                                background:
+                                  msg.sender === "receptionist"
+                                    ? "#e2f3f2"
+                                    : "#f0f9f8",
+                                color: "#0a2e2e",
+                              }}
+                            >
+                              {msg.message}
+                            </div>
+
+                            <p
+                              className={`text-[10px] text-gray-400 mt-1 ${
+                                msg.sender === "receptionist"
+                                  ? "text-right"
+                                  : "text-left"
+                              }`}
+                            >
+                              {msg.senderName} ·{" "}
+                              {formatReplyTime(msg.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                      ))
                     )}
-                  </button>
+                  </div>
+                </div>
+
+                <div className="pb-2">
+                  <p
+                    className="text-sm font-medium mb-2"
+                    style={{
+                      color: "#0a2e2e",
+                    }}
+                  >
+                    Reply
+                  </p>
+
+                  <textarea
+                    value={reply}
+                    onChange={(e) => setReply(e.target.value)}
+                    rows={4}
+                    disabled={
+                      selected.status === "resolved" ||
+                      selected.status === "cancelled" ||
+                      sendingReply
+                    }
+                    placeholder={
+                      selected.status === "resolved"
+                        ? "This inquiry is resolved."
+                        : selected.status === "cancelled"
+                          ? "This inquiry is cancelled."
+                          : "Type your reply..."
+                    }
+                    className="w-full px-3 sm:px-4 py-3 rounded-lg border text-sm outline-none resize-none disabled:bg-gray-100"
+                    style={{
+                      borderColor: "rgba(13,115,119,0.2)",
+                      background: "#f0f9f8",
+                      color: "#0a2e2e",
+                    }}
+                  />
+
+                  <div className="flex justify-end mt-2">
+                    <button
+                      onClick={sendReply}
+                      disabled={
+                        !reply.trim() ||
+                        sendingReply ||
+                        selected.status === "resolved" ||
+                        selected.status === "cancelled"
+                      }
+                      className="flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 rounded-lg text-sm text-white disabled:opacity-50"
+                      style={{
+                        background: "#0d7377",
+                      }}
+                    >
+                      {sendingReply ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          Send Reply
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
