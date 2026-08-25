@@ -1,4 +1,3 @@
-
 import {
   TrendingUp,
   Users,
@@ -25,7 +24,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 
-import { customerDb } from "../firebase";
+import { db, customerDb } from "../firebase";
 
 type BookingStatus =
   | "confirmed"
@@ -64,11 +63,11 @@ type StaffMember = {
 
 export default function Dashboard() {
   const formatPeso = (value: number) =>
-  `₱${Number(value || 0).toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-  
+    `₱${Number(value || 0).toLocaleString("en-PH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,97 +82,85 @@ export default function Dashboard() {
 
       const [bookingSnapshot, staffSnapshot] = await Promise.all([
         getDocs(collection(customerDb, "Bookings")),
-        getDocs(collection(customerDb, "Staff")),
+        getDocs(collection(db, "Staff")),
       ]);
 
-      const bookingData: Booking[] = bookingSnapshot.docs.map(
-        (bookingDoc) => {
-          const data = bookingDoc.data();
+      const bookingData: Booking[] = bookingSnapshot.docs.map((bookingDoc) => {
+        const data = bookingDoc.data();
 
-          const checkIn = data.checkIn || "";
-          const checkOut = data.checkOut || "";
+        const checkIn = data.checkIn || "";
+        const checkOut = data.checkOut || "";
 
-          let nights = Number(data.nights || 0);
+        let nights = Number(data.nights || 0);
 
-          if (!nights && checkIn && checkOut) {
-            const start = new Date(`${checkIn}T00:00:00`);
-            const end = new Date(`${checkOut}T00:00:00`);
+        if (!nights && checkIn && checkOut) {
+          const start = new Date(`${checkIn}T00:00:00`);
+          const end = new Date(`${checkOut}T00:00:00`);
 
-            if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-              nights = Math.max(
-                0,
-                Math.ceil(
-                  (end.getTime() - start.getTime()) /
-                    (1000 * 60 * 60 * 24),
-                ),
-              );
-            }
+          if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+            nights = Math.max(
+              0,
+              Math.ceil(
+                (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+              ),
+            );
           }
+        }
 
-          return {
-            id: bookingDoc.id,
+        return {
+          id: bookingDoc.id,
+          guest: data.customerName || "Unknown Guest",
+          email: data.customerEmail || "",
+          room: data.roomName || "Unknown Room",
+          checkIn,
+          checkOut,
+          guests: Number(data.guests || 0),
+          total: Number(
+            data.totalPrice ??
+              data.totalAmount ??
+              data.total ??
+              Number(data.roomRate || 0) * nights,
+          ),
 
-            guest: data.customerName || "Unknown Guest",
+          status:
+            data.status === "confirmed"
+              ? "confirmed"
+              : data.status === "cancelled"
+                ? "cancelled"
+                : data.status === "checked-in"
+                  ? "checked-in"
+                  : data.status === "checked-out"
+                    ? "checked-out"
+                    : "pending",
 
-            email: data.customerEmail || "",
+          paymentStatus:
+            data.paymentStatus === "paid"
+              ? "paid"
+              : data.paymentStatus === "partial"
+                ? "partial"
+                : "unpaid",
 
-            room: data.roomName || "Unknown Room",
+          nights,
+        };
+      });
 
-            checkIn,
+      const staffData: StaffMember[] = staffSnapshot.docs.map((staffDoc) => {
+        const data = staffDoc.data();
 
-            checkOut,
-
-            guests: Number(data.guests || 0),
-
-            total: Number(
-              data.totalPrice ??
-                data.totalAmount ??
-                data.total ??
-                Number(data.roomRate || 0) * nights,
-            ),
-
-            status:
-              data.status === "confirmed"
-                ? "confirmed"
-                : data.status === "cancelled"
-                  ? "cancelled"
-                  : data.status === "checked-in"
-                    ? "checked-in"
-                    : data.status === "checked-out"
-                      ? "checked-out"
-                      : "pending",
-
-            paymentStatus:
-              data.paymentStatus === "paid"
-                ? "paid"
-                : data.paymentStatus === "partial"
-                  ? "partial"
-                  : "unpaid",
-
-            nights,
-          };
-        },
-      );
-
-      const staffData: StaffMember[] = staffSnapshot.docs.map(
-        (staffDoc) => {
-          const data = staffDoc.data();
-
-          return {
-            id: staffDoc.id,
-            name: data.name || "Unknown Staff",
-            position: data.position || "",
-            department: data.department || "",
-            email: data.email || "",
-            phone: data.phone || "",
-            joinDate: data.joinDate || "",
-            status: data.status || "Inactive",
-            certifications: Array.isArray(data.certifications)
-              ? data.certifications
-              : [],
-          };
-        },
-      );
+        return {
+          id: staffDoc.id,
+          name: data.name || "Unknown Staff",
+          position: data.position || "",
+          department: data.department || "",
+          email: data.email || "",
+          phone: data.phone || "",
+          joinDate: data.joinDate || "",
+          status: data.status || "Inactive",
+          certifications: Array.isArray(data.certifications)
+            ? data.certifications
+            : [],
+        };
+      });
 
       setBookings(bookingData);
       setStaff(staffData);
@@ -204,7 +191,6 @@ export default function Dashboard() {
 
   const isToday = (value: string) => {
     const date = getDate(value);
-
     if (!date) return false;
 
     return date.getTime() === today.getTime();
@@ -214,8 +200,7 @@ export default function Dashboard() {
     () =>
       bookings.filter(
         (booking) =>
-          booking.status === "confirmed" ||
-          booking.status === "checked-in",
+          booking.status === "confirmed" || booking.status === "checked-in",
       ),
     [bookings],
   );
@@ -223,18 +208,13 @@ export default function Dashboard() {
   const bookingsToday = useMemo(
     () =>
       bookings.filter(
-        (booking) =>
-          isToday(booking.checkIn) &&
-          booking.status !== "cancelled",
+        (booking) => isToday(booking.checkIn) && booking.status !== "cancelled",
       ),
     [bookings],
   );
 
   const pendingBookings = useMemo(
-    () =>
-      bookings.filter(
-        (booking) => booking.status === "pending",
-      ),
+    () => bookings.filter((booking) => booking.status === "pending"),
     [bookings],
   );
 
@@ -242,40 +222,26 @@ export default function Dashboard() {
     () =>
       bookings.filter(
         (booking) =>
-          booking.status === "checked-out" &&
-          isToday(booking.checkOut),
+          booking.status === "checked-out" && isToday(booking.checkOut),
       ),
     [bookings],
   );
 
   const totalRevenue = useMemo(() => {
-  return bookings
-    .filter(
-      (booking) =>
-        booking.status !== "cancelled",
-    )
-    .reduce(
-      (sum, booking) =>
-        sum + Number(booking.total || 0),
-      0,
-    );
-}, [bookings]);
+    return bookings
+      .filter((booking) => booking.status !== "cancelled")
+      .reduce((sum, booking) => sum + Number(booking.total || 0), 0);
+  }, [bookings]);
 
   const activeGuests = useMemo(
-    () =>
-      activeBookings.reduce(
-        (sum, booking) => sum + booking.guests,
-        0,
-      ),
+    () => activeBookings.reduce((sum, booking) => sum + booking.guests, 0),
     [activeBookings],
   );
 
   const activeStaff = useMemo(
     () =>
-      staff.filter(
-        (member) =>
-          (member.status || "").toLowerCase() === "active",
-      ).length,
+      staff.filter((member) => (member.status || "").toLowerCase() === "active")
+        .length,
     [staff],
   );
 
@@ -294,8 +260,7 @@ export default function Dashboard() {
 
       const dayBookings = bookings.filter(
         (booking) =>
-          booking.checkIn === dateKey &&
-          booking.status !== "cancelled",
+          booking.checkIn === dateKey && booking.status !== "cancelled",
       );
 
       data.push({
@@ -303,10 +268,7 @@ export default function Dashboard() {
           month: "short",
           day: "numeric",
         }),
-        revenue: dayBookings.reduce(
-          (sum, booking) => sum + booking.total,
-          0,
-        ),
+        revenue: dayBookings.reduce((sum, booking) => sum + booking.total, 0),
         bookings: dayBookings.length,
       });
     }
@@ -318,33 +280,28 @@ export default function Dashboard() {
     return [
       {
         status: "Pending",
-        count: bookings.filter(
-          (booking) => booking.status === "pending",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "pending")
+          .length,
       },
       {
         status: "Confirmed",
-        count: bookings.filter(
-          (booking) => booking.status === "confirmed",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "confirmed")
+          .length,
       },
       {
         status: "Checked In",
-        count: bookings.filter(
-          (booking) => booking.status === "checked-in",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "checked-in")
+          .length,
       },
       {
         status: "Checked Out",
-        count: bookings.filter(
-          (booking) => booking.status === "checked-out",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "checked-out")
+          .length,
       },
       {
         status: "Cancelled",
-        count: bookings.filter(
-          (booking) => booking.status === "cancelled",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "cancelled")
+          .length,
       },
     ];
   }, [bookings]);
@@ -369,8 +326,7 @@ export default function Dashboard() {
         if (!date) return false;
 
         return (
-          date.getTime() >= today.getTime() &&
-          booking.status !== "cancelled"
+          date.getTime() >= today.getTime() && booking.status !== "cancelled"
         );
       })
       .sort((a, b) => {
@@ -383,31 +339,31 @@ export default function Dashboard() {
   }, [bookings, today]);
 
   const overviewStats = [
-  {
-    label: "Total Revenue",
-    value: formatPeso(totalRevenue),
-    type: "peso",
-    color: "from-green-500 to-emerald-600",
-  },
-  {
-    label: "Active Guests",
-    value: activeGuests.toLocaleString(),
-    icon: Users,
-    color: "from-blue-500 to-cyan-600",
-  },
-  {
-    label: "Bookings Today",
-    value: bookingsToday.length.toLocaleString(),
-    icon: Calendar,
-    color: "from-purple-500 to-pink-600",
-  },
-  {
-    label: "Active Staff",
-    value: activeStaff.toLocaleString(),
-    icon: UserRound,
-    color: "from-orange-500 to-amber-600",
-  },
-];
+    {
+      label: "Total Revenue",
+      value: formatPeso(totalRevenue),
+      type: "peso",
+      color: "from-green-500 to-emerald-600",
+    },
+    {
+      label: "Active Guests",
+      value: activeGuests.toLocaleString(),
+      icon: Users,
+      color: "from-blue-500 to-cyan-600",
+    },
+    {
+      label: "Bookings Today",
+      value: bookingsToday.length.toLocaleString(),
+      icon: Calendar,
+      color: "from-purple-500 to-pink-600",
+    },
+    {
+      label: "Active Staff",
+      value: activeStaff.toLocaleString(),
+      icon: UserRound,
+      color: "from-orange-500 to-amber-600",
+    },
+  ];
 
   if (loading) {
     return (
@@ -424,9 +380,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          Dashboard Overview
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900">Dashboard Overview</h1>
 
         <p className="text-gray-600 mt-1">
           Welcome back! Here's what's happening with your resort today.
@@ -441,28 +395,22 @@ export default function Dashboard() {
             className={`bg-gradient-to-br ${stat.color} rounded-xl p-6 text-white`}
           >
             <div className="flex items-center justify-between mb-3">
-  {stat.type === "peso" ? (
-    <span className="text-4xl font-semibold text-white leading-none">
-      ₱
-    </span>
-  ) : (
-    stat.icon && (
-      <stat.icon className="size-8 opacity-80" />
-    )
-  )}
+              {stat.type === "peso" ? (
+                <span className="text-4xl font-semibold text-white leading-none">
+                  ₱
+                </span>
+              ) : (
+                stat.icon && <stat.icon className="size-8 opacity-80" />
+              )}
 
-  <span className="text-xs font-medium bg-white/20 px-2 py-1 rounded">
-    Live
-  </span>
-</div>
+              <span className="text-xs font-medium bg-white/20 px-2 py-1 rounded">
+                Live
+              </span>
+            </div>
 
-            <p className="text-sm text-white/80 mb-1">
-              {stat.label}
-            </p>
+            <p className="text-sm text-white/80 mb-1">{stat.label}</p>
 
-            <p className="text-3xl font-bold">
-              {stat.value}
-            </p>
+            <p className="text-3xl font-bold">{stat.value}</p>
           </div>
         ))}
       </div>
@@ -492,22 +440,18 @@ export default function Dashboard() {
 
               <YAxis />
 
-             <YAxis
-  tickFormatter={(value) =>
-    `₱${Number(value).toLocaleString("en-PH")}`
-  }
-/>
+              <YAxis
+                tickFormatter={(value) =>
+                  `₱${Number(value).toLocaleString("en-PH")}`
+                }
+              />
 
-<Tooltip
-  formatter={(value: number, name: string) => [
-    name === "revenue"
-      ? formatPeso(Number(value))
-      : value,
-    name === "revenue"
-      ? "Revenue"
-      : "Bookings",
-  ]}
-/>
+              <Tooltip
+                formatter={(value: number, name: string) => [
+                  name === "revenue" ? formatPeso(Number(value)) : value,
+                  name === "revenue" ? "Revenue" : "Bookings",
+                ]}
+              />
 
               <Area
                 type="monotone"
@@ -544,8 +488,8 @@ export default function Dashboard() {
 
                   <p className="text-sm text-gray-900 flex-1">
                     {pendingBookings.length} booking
-                    {pendingBookings.length !== 1 ? "s are" : " is"}{" "}
-                    waiting for approval.
+                    {pendingBookings.length !== 1 ? "s are" : " is"} waiting for
+                    approval.
                   </p>
                 </div>
               </div>
@@ -558,8 +502,7 @@ export default function Dashboard() {
 
                   <p className="text-sm text-gray-900 flex-1">
                     {bookingsToday.length} check-in
-                    {bookingsToday.length !== 1 ? "s" : ""} scheduled
-                    today.
+                    {bookingsToday.length !== 1 ? "s" : ""} scheduled today.
                   </p>
                 </div>
               </div>
@@ -572,8 +515,7 @@ export default function Dashboard() {
 
                   <p className="text-sm text-gray-900 flex-1">
                     {completedToday.length} booking
-                    {completedToday.length !== 1 ? "s" : ""} completed
-                    today.
+                    {completedToday.length !== 1 ? "s" : ""} completed today.
                   </p>
                 </div>
               </div>
@@ -585,9 +527,7 @@ export default function Dashboard() {
                 <div className="p-4 rounded-lg bg-gray-50 text-center">
                   <CheckCircle className="size-6 text-green-600 mx-auto mb-2" />
 
-                  <p className="text-sm text-gray-600">
-                    No current alerts.
-                  </p>
+                  <p className="text-sm text-gray-600">No current alerts.</p>
                 </div>
               )}
           </div>
@@ -644,27 +584,16 @@ export default function Dashboard() {
           </h3>
 
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart
-              data={bookingStatusData}
-              layout="vertical"
-            >
+            <BarChart data={bookingStatusData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" />
 
               <XAxis type="number" />
 
-              <YAxis
-                dataKey="status"
-                type="category"
-                width={100}
-              />
+              <YAxis dataKey="status" type="category" width={100} />
 
               <Tooltip />
 
-              <Bar
-                dataKey="count"
-                fill="#0891b2"
-                name="Bookings"
-              />
+              <Bar dataKey="count" fill="#0891b2" name="Bookings" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -704,9 +633,7 @@ export default function Dashboard() {
                         {booking.status}
                       </span>
 
-                      <span className="text-xs text-gray-400">
-                        •
-                      </span>
+                      <span className="text-xs text-gray-400">•</span>
 
                       <span className="text-xs font-medium text-gray-700">
                         ₱{booking.total.toLocaleString()}
@@ -734,30 +661,20 @@ export default function Dashboard() {
             </h4>
           </div>
 
-          <p className="text-4xl font-bold mb-1">
-            {bookingsToday.length}
-          </p>
+          <p className="text-4xl font-bold mb-1">{bookingsToday.length}</p>
 
-          <p className="text-sm text-white/90">
-            From your Bookings collection
-          </p>
+          <p className="text-sm text-white/90">From your Bookings collection</p>
         </div>
 
         <div className="bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl p-6 text-white">
           <div className="flex items-center gap-3 mb-3">
             <UserRound className="size-6" />
-            <h4 className="text-sm font-medium text-white/80">
-              Active Staff
-            </h4>
+            <h4 className="text-sm font-medium text-white/80">Active Staff</h4>
           </div>
 
-          <p className="text-4xl font-bold mb-1">
-            {activeStaff}
-          </p>
+          <p className="text-4xl font-bold mb-1">{activeStaff}</p>
 
-          <p className="text-sm text-white/90">
-            From your Staff collection
-          </p>
+          <p className="text-sm text-white/90">From your Staff collection</p>
         </div>
 
         <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-6 text-white">
@@ -768,13 +685,9 @@ export default function Dashboard() {
             </h4>
           </div>
 
-          <p className="text-4xl font-bold mb-1">
-            {pendingBookings.length}
-          </p>
+          <p className="text-4xl font-bold mb-1">{pendingBookings.length}</p>
 
-          <p className="text-sm text-white/90">
-            Waiting for approval
-          </p>
+          <p className="text-sm text-white/90">Waiting for approval</p>
         </div>
       </div>
     </div>

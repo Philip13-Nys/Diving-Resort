@@ -22,7 +22,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 
-import { customerDb } from "../firebase";
+import { db, customerDb } from "../firebase";
 
 type Booking = {
   id: string;
@@ -58,48 +58,39 @@ export default function ManagerDashboard() {
     try {
       setLoading(true);
 
-      const [bookingSnapshot, staffSnapshot] =
-        await Promise.all([
-          getDocs(collection(customerDb, "Bookings")),
-          getDocs(collection(customerDb, "Staff")),
-        ]);
+      const [bookingSnapshot, staffSnapshot] = await Promise.all([
+        getDocs(collection(customerDb, "Bookings")),
+        getDocs(collection(db, "Staff")),
+      ]);
 
-      const bookingData: Booking[] =
-        bookingSnapshot.docs.map((bookingDoc) => {
-          const data = bookingDoc.data();
+      const bookingData: Booking[] = bookingSnapshot.docs.map((bookingDoc) => {
+        const data = bookingDoc.data();
 
-          return {
-            id: bookingDoc.id,
-            guest: data.customerName || "Unknown Guest",
-            room: data.roomName || "Unknown Room",
-            checkIn: data.checkIn || "",
-            checkOut: data.checkOut || "",
-            guests: Number(data.guests || 0),
-            total: Number(
-              data.totalPrice ??
-                data.totalAmount ??
-                data.total ??
-                0,
-            ),
-            status: data.status || "pending",
-            paymentStatus:
-              data.paymentStatus || "unpaid",
-          };
-        });
+        return {
+          id: bookingDoc.id,
+          guest: data.customerName || "Unknown Guest",
+          room: data.roomName || "Unknown Room",
+          checkIn: data.checkIn || "",
+          checkOut: data.checkOut || "",
+          guests: Number(data.guests || 0),
+          total: Number(data.totalPrice ?? data.totalAmount ?? data.total ?? 0),
+          status: data.status || "pending",
+          paymentStatus: data.paymentStatus || "unpaid",
+        };
+      });
 
-      const staffData: StaffMember[] =
-        staffSnapshot.docs.map((staffDoc) => {
-          const data = staffDoc.data();
+      const staffData: StaffMember[] = staffSnapshot.docs.map((staffDoc) => {
+        const data = staffDoc.data();
 
-          return {
-            id: staffDoc.id,
-            name: data.name || "Unknown Staff",
-            position: data.position || "",
-            department: data.department || "",
-            email: data.email || "",
-            status: data.status || "Inactive",
-          };
-        });
+        return {
+          id: staffDoc.id,
+          name: data.name || "Unknown Staff",
+          position: data.position || "",
+          department: data.department || "",
+          email: data.email || "",
+          status: data.status || "Inactive",
+        };
+      });
 
       setBookings(bookingData);
       setStaff(staffData);
@@ -127,9 +118,7 @@ export default function ManagerDashboard() {
   const isToday = (value: string) => {
     const date = getDate(value);
 
-    return date
-      ? date.getTime() === today.getTime()
-      : false;
+    return date ? date.getTime() === today.getTime() : false;
   };
 
   const formatPeso = (value: number) =>
@@ -148,36 +137,25 @@ export default function ManagerDashboard() {
 
   const revenueToday = bookings
     .filter(
-      (booking) =>
-        isToday(booking.checkIn) &&
-        booking.status !== "cancelled",
+      (booking) => isToday(booking.checkIn) && booking.status !== "cancelled",
     )
-    .reduce(
-      (sum, booking) => sum + booking.total,
-      0,
-    );
+    .reduce((sum, booking) => sum + booking.total, 0);
 
   const activeGuests = bookings
     .filter(
       (booking) =>
-        booking.status === "confirmed" ||
-        booking.status === "checked-in",
+        booking.status === "confirmed" || booking.status === "checked-in",
     )
-    .reduce(
-      (sum, booking) => sum + booking.guests,
-      0,
-    );
+    .reduce((sum, booking) => sum + booking.guests, 0);
 
   const pendingCheckouts = bookings.filter(
     (booking) =>
       isToday(booking.checkOut) &&
-      (booking.status === "confirmed" ||
-        booking.status === "checked-in"),
+      (booking.status === "confirmed" || booking.status === "checked-in"),
   ).length;
 
   const activeStaff = staff.filter(
-    (member) =>
-      (member.status || "").toLowerCase() === "active",
+    (member) => (member.status || "").toLowerCase() === "active",
   ).length;
 
   /*
@@ -213,10 +191,7 @@ export default function ManagerDashboard() {
           month: "short",
         }),
 
-        revenue: monthBookings.reduce(
-          (sum, booking) => sum + booking.total,
-          0,
-        ),
+        revenue: monthBookings.reduce((sum, booking) => sum + booking.total, 0),
       });
     }
 
@@ -230,33 +205,28 @@ export default function ManagerDashboard() {
     return [
       {
         activity: "Pending",
-        count: bookings.filter(
-          (booking) => booking.status === "pending",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "pending")
+          .length,
       },
       {
         activity: "Confirmed",
-        count: bookings.filter(
-          (booking) => booking.status === "confirmed",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "confirmed")
+          .length,
       },
       {
         activity: "Checked In",
-        count: bookings.filter(
-          (booking) => booking.status === "checked-in",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "checked-in")
+          .length,
       },
       {
         activity: "Checked Out",
-        count: bookings.filter(
-          (booking) => booking.status === "checked-out",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "checked-out")
+          .length,
       },
       {
         activity: "Cancelled",
-        count: bookings.filter(
-          (booking) => booking.status === "cancelled",
-        ).length,
+        count: bookings.filter((booking) => booking.status === "cancelled")
+          .length,
       },
     ];
   }, [bookings]);
@@ -266,15 +236,11 @@ export default function ManagerDashboard() {
    */
   const recentBookings = useMemo(() => {
     return [...bookings]
-      .filter(
-        (booking) => booking.status !== "cancelled",
-      )
+      .filter((booking) => booking.status !== "cancelled")
       .sort((a, b) => {
-        const dateA =
-          getDate(a.checkIn)?.getTime() || 0;
+        const dateA = getDate(a.checkIn)?.getTime() || 0;
 
-        const dateB =
-          getDate(b.checkIn)?.getTime() || 0;
+        const dateB = getDate(b.checkIn)?.getTime() || 0;
 
         return dateB - dateA;
       })
@@ -336,16 +302,12 @@ export default function ManagerDashboard() {
             className="bg-white rounded-xl p-6 border border-gray-200"
           >
             <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-gray-600">
-                {stat.label}
-              </span>
+              <span className="text-sm text-gray-600">{stat.label}</span>
 
               {stat.icon ? (
                 <stat.icon className="size-5 text-cyan-600" />
               ) : (
-                <span className="text-2xl font-bold text-green-600">
-                  ₱
-                </span>
+                <span className="text-2xl font-bold text-green-600">₱</span>
               )}
             </div>
 
@@ -368,10 +330,7 @@ export default function ManagerDashboard() {
             <TrendingUp className="size-5 text-cyan-600" />
           </div>
 
-          <ResponsiveContainer
-            width="100%"
-            height={300}
-          >
+          <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={revenueData}>
               <CartesianGrid strokeDasharray="3 3" />
 
@@ -379,16 +338,12 @@ export default function ManagerDashboard() {
 
               <YAxis
                 tickFormatter={(value) =>
-                  `₱${Number(value).toLocaleString(
-                    "en-PH",
-                  )}`
+                  `₱${Number(value).toLocaleString("en-PH")}`
                 }
               />
 
               <Tooltip
-                formatter={(value: number) =>
-                  formatPeso(Number(value))
-                }
+                formatter={(value: number) => formatPeso(Number(value))}
               />
 
               <Area
@@ -409,10 +364,7 @@ export default function ManagerDashboard() {
             Booking Activity
           </h3>
 
-          <ResponsiveContainer
-            width="100%"
-            height={300}
-          >
+          <ResponsiveContainer width="100%" height={300}>
             <BarChart data={activityData}>
               <CartesianGrid strokeDasharray="3 3" />
 
@@ -427,11 +379,7 @@ export default function ManagerDashboard() {
 
               <Tooltip />
 
-              <Bar
-                dataKey="count"
-                fill="#0891b2"
-                name="Bookings"
-              />
+              <Bar dataKey="count" fill="#0891b2" name="Bookings" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -463,28 +411,20 @@ export default function ManagerDashboard() {
                 className="flex items-start gap-4 pb-3 border-b border-gray-100 last:border-0"
               >
                 <div className="size-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 font-semibold">
-                  {booking.guest
-                    ? booking.guest.charAt(0).toUpperCase()
-                    : "G"}
+                  {booking.guest ? booking.guest.charAt(0).toUpperCase() : "G"}
                 </div>
 
                 <div className="flex-1">
-                  <p className="font-medium text-gray-900">
-                    {booking.guest}
-                  </p>
+                  <p className="font-medium text-gray-900">{booking.guest}</p>
 
-                  <p className="text-sm text-gray-600">
-                    Room {booking.room}
-                  </p>
+                  <p className="text-sm text-gray-600">Room {booking.room}</p>
 
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-sm text-gray-500 capitalize">
                       {booking.status}
                     </span>
 
-                    <span className="text-gray-400">
-                      •
-                    </span>
+                    <span className="text-gray-400">•</span>
 
                     <span className="text-sm font-medium text-gray-700">
                       {formatPeso(booking.total)}
@@ -522,8 +462,7 @@ export default function ManagerDashboard() {
             {
               bookings.filter(
                 (booking) =>
-                  isToday(booking.checkIn) &&
-                  booking.status !== "cancelled",
+                  isToday(booking.checkIn) && booking.status !== "cancelled",
               ).length
             }
           </p>
@@ -537,49 +476,30 @@ export default function ManagerDashboard() {
           <div className="flex items-center gap-3 mb-3">
             <Users className="size-6" />
 
-            <h4 className="text-sm font-medium text-white/80">
-              Active Staff
-            </h4>
+            <h4 className="text-sm font-medium text-white/80">Active Staff</h4>
           </div>
 
-          <p className="text-4xl font-bold">
-            {activeStaff}
-          </p>
+          <p className="text-4xl font-bold">{activeStaff}</p>
 
-          <p className="text-sm text-white/90 mt-1">
-            From Staff collection
-          </p>
+          <p className="text-sm text-white/90 mt-1">From Staff collection</p>
         </div>
 
         <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-6 text-white">
           <div className="flex items-center gap-3 mb-3">
-            <span className="text-2xl font-bold">
-              ₱
-            </span>
+            <span className="text-2xl font-bold">₱</span>
 
-            <h4 className="text-sm font-medium text-white/80">
-              Total Revenue
-            </h4>
+            <h4 className="text-sm font-medium text-white/80">Total Revenue</h4>
           </div>
 
           <p className="text-4xl font-bold">
             {formatPeso(
               bookings
-                .filter(
-                  (booking) =>
-                    booking.status !== "cancelled",
-                )
-                .reduce(
-                  (sum, booking) =>
-                    sum + booking.total,
-                  0,
-                ),
+                .filter((booking) => booking.status !== "cancelled")
+                .reduce((sum, booking) => sum + booking.total, 0),
             )}
           </p>
 
-          <p className="text-sm text-white/90 mt-1">
-            From booking records
-          </p>
+          <p className="text-sm text-white/90 mt-1">From booking records</p>
         </div>
       </div>
     </div>
