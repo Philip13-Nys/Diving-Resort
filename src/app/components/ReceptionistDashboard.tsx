@@ -6,9 +6,14 @@ import {
   Loader2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
-
 import { customerDb } from "../firebase";
+import {
+  collection,
+  getDocs,
+  updateDoc,
+  doc,
+  Timestamp,
+} from "firebase/firestore";
 
 type Booking = {
   id: string;
@@ -41,12 +46,18 @@ export default function ReceptionistDashboard() {
       const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
         const data = bookingDoc.data();
 
-        const checkIn = data.checkIn || "";
-        const checkOut = data.checkOut || "";
+        const checkIn =
+          data.checkIn instanceof Timestamp
+            ? data.checkIn.toDate().toISOString().split("T")[0]
+            : String(data.checkIn || "");
+
+        const checkOut =
+          data.checkOut instanceof Timestamp
+            ? data.checkOut.toDate().toISOString().split("T")[0]
+            : String(data.checkOut || "");
 
         let nights = Number(data.nights || 0);
 
-        // Calculate nights when the database does not contain it
         if (!nights && checkIn && checkOut) {
           const start = new Date(checkIn);
           const end = new Date(checkOut);
@@ -104,57 +115,41 @@ export default function ReceptionistDashboard() {
     }
   };
 
-  // Get today's date in local time
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const getDateOnly = (value: string) => {
     if (!value) return null;
-
-    // Handles YYYY-MM-DD safely
     const date = new Date(`${value}T00:00:00`);
-
     return isNaN(date.getTime()) ? null : date;
   };
 
   const isToday = (value: string) => {
     const date = getDateOnly(value);
-
     if (!date) return false;
-
     return date.getTime() === today.getTime();
   };
 
   const isTomorrow = (value: string) => {
     const date = getDateOnly(value);
-
     if (!date) return false;
-
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-
     return date.getTime() === tomorrow.getTime();
   };
 
-  // Pending check-ins = pending or confirmed bookings whose check-in is today
   const pendingCheckIns = useMemo(() => {
     return bookings.filter(
-      (booking) =>
-        (booking.status === "pending" || booking.status === "confirmed") &&
-        isToday(booking.checkIn),
+      (booking) => booking.status === "confirmed" && isToday(booking.checkIn),
     );
   }, [bookings]);
 
-  // Pending check-outs = checked-in/confirmed bookings whose check-out is today
   const pendingCheckOuts = useMemo(() => {
     return bookings.filter(
-      (booking) =>
-        (booking.status === "checked-in" || booking.status === "confirmed") &&
-        isToday(booking.checkOut),
+      (booking) => booking.status === "checked-in" && isToday(booking.checkOut),
     );
   }, [bookings]);
 
-  // Active reservations = confirmed or checked-in
   const activeReservations = useMemo(() => {
     return bookings.filter(
       (booking) =>
@@ -162,7 +157,6 @@ export default function ReceptionistDashboard() {
     );
   }, [bookings]);
 
-  // Completed today = checked-out bookings today
   const completedToday = useMemo(() => {
     return bookings.filter(
       (booking) =>
@@ -170,7 +164,6 @@ export default function ReceptionistDashboard() {
     );
   }, [bookings]);
 
-  // Recent bookings
   const recentTransactions = useMemo(() => {
     return [...bookings]
       .filter((booking) => booking.status !== "cancelled")
@@ -183,8 +176,7 @@ export default function ReceptionistDashboard() {
       .slice(0, 5);
   }, [bookings]);
 
-  // Upcoming check-ins
-  const upcomingReservations = useMemo(() => {
+  const upcomingCheckIns = useMemo(() => {
     return [...bookings]
       .filter((booking) => {
         const checkIn = getDateOnly(booking.checkIn);
@@ -192,7 +184,7 @@ export default function ReceptionistDashboard() {
         if (!checkIn) return false;
 
         return (
-          booking.status !== "cancelled" && checkIn.getTime() >= today.getTime()
+          booking.status === "confirmed" && checkIn.getTime() >= today.getTime()
         );
       })
       .sort((a, b) => {
@@ -253,6 +245,30 @@ export default function ReceptionistDashboard() {
     return formatDate(value);
   };
 
+  const handleCheckIn = async (bookingId: string) => {
+    try {
+      await updateDoc(doc(customerDb, "Bookings", bookingId), {
+        status: "checked-in",
+      });
+
+      await loadBookings();
+    } catch (error) {
+      console.error("Error checking in:", error);
+    }
+  };
+
+  const handleCheckOut = async (bookingId: string) => {
+    try {
+      await updateDoc(doc(customerDb, "Bookings", bookingId), {
+        status: "checked-out",
+      });
+
+      await loadBookings();
+    } catch (error) {
+      console.error("Error checking out:", error);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -265,175 +281,330 @@ export default function ReceptionistDashboard() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          Receptionist Dashboard Overview
-        </h1>
+    <div className="min-h-full bg-gray-50 p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* HEADER */}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">
+            Receptionist Dashboard
+          </h1>
 
-        <p className="text-gray-600 mt-1">
-          Oversee receptionist operations, reservations, and customer
-          transactions
-        </p>
-      </div>
+          <p className="mt-1 text-sm text-gray-500">
+            Manage today's arrivals, departures, reservations, and guest
+            activity.
+          </p>
+        </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className="bg-white rounded-xl p-6 border border-gray-200"
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 mb-1">{stat.label}</p>
+        {/* STAT CARDS */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+          {stats.map((stat) => (
+            <div
+              key={stat.label}
+              className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-500">
+                    {stat.label}
+                  </p>
 
-                <p className="text-3xl font-bold text-gray-900">{stat.value}</p>
-              </div>
+                  <p className="mt-2 text-3xl font-bold text-gray-900">
+                    {stat.value}
+                  </p>
+                </div>
 
-              <div
-                className={`size-12 rounded-full ${stat.color} flex items-center justify-center`}
-              >
-                <Calendar className="size-6" />
+                <div
+                  className={`size-11 rounded-xl ${stat.color} flex items-center justify-center`}
+                >
+                  <Calendar className="size-5" />
+                </div>
               </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      {/* Recent bookings + upcoming check-ins */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Transactions */}
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Recent Transactions
-            </h3>
+        {/* RECENT TRANSACTIONS */}
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+          <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">
+                Recent Transactions
+              </h2>
 
-            <span className="text-xs text-gray-500">
+              <p className="text-sm text-gray-500 mt-1">
+                Latest guest reservations and activity
+              </p>
+            </div>
+
+            <span className="text-xs font-medium text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full">
               {recentTransactions.length} records
             </span>
           </div>
 
-          <div className="space-y-3">
+          <div className="divide-y divide-gray-100">
             {recentTransactions.length > 0 ? (
               recentTransactions.map((booking) => (
                 <div
                   key={booking.id}
-                  className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg"
+                  className="flex items-center gap-4 px-6 py-4 hover:bg-gray-50 transition"
                 >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-medium text-gray-900 truncate">
-                        {booking.guest}
-                      </span>
+                  {/* Guest avatar */}
+                  <div className="size-10 rounded-full bg-cyan-100 text-cyan-700 flex items-center justify-center font-semibold shrink-0">
+                    {booking.guest.charAt(0).toUpperCase()}
+                  </div>
 
-                      <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded">
+                  {/* Details */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-gray-900 truncate">
+                        {booking.guest}
+                      </p>
+
+                      <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-md">
                         {booking.room}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-3 text-sm text-gray-600 flex-wrap">
-                      <span>Booking</span>
-
-                      <span>•</span>
-
-                      <span className="font-semibold text-gray-900">
-                        ₱{booking.total.toLocaleString()}
-                      </span>
-
-                      <span>•</span>
-
+                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
                       <span>{formatDate(booking.checkIn)}</span>
+                      <span>•</span>
+                      <span>{booking.nights} nights</span>
+                      <span>•</span>
+                      <span>
+                        {booking.guests} guest
+                        {booking.guests !== 1 ? "s" : ""}
+                      </span>
                     </div>
                   </div>
 
-                  {booking.status === "checked-out" ? (
-                    <CheckCircle className="size-5 text-green-600 shrink-0" />
-                  ) : (
-                    <Clock className="size-5 text-orange-600 shrink-0" />
-                  )}
-                </div>
-              ))
-            ) : (
-              <div className="py-8 text-center text-sm text-gray-500">
-                No recent bookings found.
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Upcoming Check-ins */}
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Upcoming Check-ins
-          </h3>
-
-          <div className="space-y-3">
-            {upcomingReservations.length > 0 ? (
-              upcomingReservations.map((reservation) => (
-                <div
-                  key={reservation.id}
-                  className="flex items-start gap-4 p-3 bg-gray-50 rounded-lg"
-                >
-                  <div className="size-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 font-semibold shrink-0">
-                    {reservation.guest
-                      ? reservation.guest.charAt(0).toUpperCase()
-                      : "G"}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900">
-                      {reservation.guest}
+                  {/* Amount */}
+                  <div className="text-right">
+                    <p className="font-semibold text-gray-900">
+                      ₱{booking.total.toLocaleString()}
                     </p>
 
-                    <p className="text-sm text-gray-600">{reservation.room}</p>
-
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      <Clock className="size-3 text-gray-500" />
-
-                      <span className="text-xs text-gray-500">
-                        {getCheckInLabel(reservation.checkIn)}
-                      </span>
-
-                      <span className="text-xs text-gray-400">•</span>
-
-                      <span className="text-xs text-gray-500">
-                        {reservation.nights} nights
-                      </span>
-
-                      <span className="text-xs text-gray-400">•</span>
-
-                      <span className="text-xs text-gray-500">
-                        {reservation.guests} guest
-                        {reservation.guests !== 1 ? "s" : ""}
-                      </span>
+                    <div className="flex items-center justify-end gap-1 mt-1">
+                      {booking.status === "checked-out" ? (
+                        <>
+                          <CheckCircle className="size-3.5 text-green-600" />
+                          <span className="text-xs text-green-600">
+                            Completed
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="size-3.5 text-orange-500" />
+                          <span className="text-xs text-orange-500">
+                            Active
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="py-8 text-center text-sm text-gray-500">
-                No upcoming check-ins.
+              <div className="px-6 py-12 text-center">
+                <Calendar className="size-8 mx-auto text-gray-300" />
+
+                <p className="mt-3 text-sm font-medium text-gray-600">
+                  No recent transactions
+                </p>
+
+                <p className="text-xs text-gray-400 mt-1">
+                  New reservations will appear here.
+                </p>
               </div>
             )}
           </div>
         </div>
-      </div>
 
-      {/* Quick Actions */}
-      <div className="bg-gradient-to-r from-cyan-500 to-blue-600 rounded-xl p-6 text-white">
-        <div className="flex items-center gap-4">
-          <AlertCircle className="size-12 shrink-0" />
+        {/* ARRIVALS + DEPARTURES */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* UPCOMING CHECK-INS */}
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Upcoming Check-ins
+                </h2>
 
-          <div>
-            <h3 className="text-lg font-semibold">Quick Actions Available</h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Guests arriving today and upcoming
+                </p>
+              </div>
 
-            <p className="text-cyan-50 mt-1">
-              Process check-ins, handle payments, manage reservations, and
-              assist guests.
-            </p>
+              <div className="size-9 rounded-lg bg-green-100 text-green-600 flex items-center justify-center">
+                <Clock className="size-4" />
+              </div>
+            </div>
+
+            <div className="p-4 space-y-3">
+              {upcomingCheckIns.length > 0 ? (
+                upcomingCheckIns.map((reservation) => (
+                  <div
+                    key={reservation.id}
+                    className="border border-gray-100 rounded-xl p-4 hover:border-gray-200 hover:bg-gray-50 transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="size-10 rounded-full bg-cyan-100 text-cyan-700 flex items-center justify-center font-semibold shrink-0">
+                        {reservation.guest.charAt(0).toUpperCase()}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 truncate">
+                          {reservation.guest}
+                        </p>
+
+                        <p className="text-sm text-gray-500">
+                          {reservation.room}
+                        </p>
+                      </div>
+
+                      {isToday(reservation.checkIn) ? (
+                        <span className="text-xs font-semibold text-green-700 bg-green-100 px-2.5 py-1 rounded-full">
+                          Today
+                        </span>
+                      ) : (
+                        <span className="text-xs font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-full">
+                          {formatDate(reservation.checkIn)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                      <div className="flex items-center gap-3 text-xs text-gray-500">
+                        <span>
+                          {reservation.nights} night
+                          {reservation.nights !== 1 ? "s" : ""}
+                        </span>
+
+                        <span>•</span>
+
+                        <span>
+                          {reservation.guests} guest
+                          {reservation.guests !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+
+                      {isToday(reservation.checkIn) && (
+                        <button
+                          onClick={() => handleCheckIn(reservation.id)}
+                          className="px-3 py-1.5 text-xs font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700 transition"
+                        >
+                          Check In
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-10 text-center">
+                  <CheckCircle className="size-8 mx-auto text-gray-300" />
+
+                  <p className="mt-3 text-sm font-medium text-gray-600">
+                    No upcoming check-ins
+                  </p>
+
+                  <p className="text-xs text-gray-400 mt-1">
+                    You're all caught up.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* PENDING CHECK-OUTS */}
+          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Pending Check-outs
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  Guests scheduled to leave today
+                </p>
+              </div>
+
+              <div className="size-9 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center">
+                <Clock className="size-4" />
+              </div>
+            </div>
+
+            <div className="p-4 space-y-3">
+              {pendingCheckOuts.length > 0 ? (
+                pendingCheckOuts.map((booking) => (
+                  <div
+                    key={booking.id}
+                    className="border border-gray-100 rounded-xl p-4 hover:border-gray-200 hover:bg-gray-50 transition"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="size-10 rounded-full bg-orange-100 text-orange-700 flex items-center justify-center font-semibold shrink-0">
+                        {booking.guest.charAt(0).toUpperCase()}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 truncate">
+                          {booking.guest}
+                        </p>
+
+                        <p className="text-sm text-gray-500">{booking.room}</p>
+                      </div>
+
+                      <span className="text-xs font-semibold text-orange-700 bg-orange-100 px-2.5 py-1 rounded-full">
+                        Today
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                      <div className="text-xs text-gray-500">
+                        Check-out: {formatDate(booking.checkOut)}
+                      </div>
+
+                      <button
+                        onClick={() => handleCheckOut(booking.id)}
+                        className="px-3 py-1.5 text-xs font-semibold text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition"
+                      >
+                        Check Out
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="py-10 text-center">
+                  <CheckCircle className="size-8 mx-auto text-gray-300" />
+
+                  <p className="mt-3 text-sm font-medium text-gray-600">
+                    No pending check-outs
+                  </p>
+
+                  <p className="text-xs text-gray-400 mt-1">
+                    No guests are scheduled to leave today.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* QUICK ACTION / INFO */}
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
+          <div className="flex items-center gap-4">
+            <div className="size-10 rounded-xl bg-cyan-100 text-cyan-600 flex items-center justify-center shrink-0">
+              <AlertCircle className="size-5" />
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-900">
+                Receptionist Tasks
+              </h3>
+
+              <p className="text-sm text-gray-500 mt-1">
+                Process check-ins and check-outs, monitor reservations, and
+                assist guests with their stay.
+              </p>
+            </div>
           </div>
         </div>
       </div>
