@@ -24,7 +24,10 @@ import {
   Legend,
 } from "recharts";
 
-import { collection, getDocs } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+} from "firebase/firestore";
 
 import { db } from "../firebase";
 
@@ -41,7 +44,13 @@ type Booking = {
   paymentMethod: string;
 };
 
-const COLORS = ["#0891b2", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"];
+const COLORS = [
+  "#0891b2",
+  "#06b6d4",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+];
 
 const months = [
   "January",
@@ -70,21 +79,28 @@ export default function SalesReports() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [showReportModal, setShowReportModal] = useState(false);
+  const [showReportModal, setShowReportModal] =
+    useState(false);
 
   const [reportPeriod, setReportPeriod] = useState<
     "monthly" | "quarterly" | "annual"
   >("monthly");
 
-  const [reportMonth, setReportMonth] = useState(new Date().getMonth());
+  const [reportMonth, setReportMonth] = useState(
+    new Date().getMonth(),
+  );
 
-  const [reportYear, setReportYear] = useState(currentYear);
+  const [reportYear, setReportYear] =
+    useState(currentYear);
 
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating] =
+    useState(false);
 
-  const [reportReady, setReportReady] = useState(false);
+  const [reportReady, setReportReady] =
+    useState(false);
 
-  const [successMsg, setSuccessMsg] = useState("");
+  const [successMsg, setSuccessMsg] =
+    useState("");
 
   useEffect(() => {
     loadBookings();
@@ -94,40 +110,61 @@ export default function SalesReports() {
     try {
       setLoading(true);
 
-      const snapshot = await getDocs(collection(db, "Bookings"));
+      const snapshot = await getDocs(
+        collection(db, "Bookings"),
+      );
 
-      const data: Booking[] = snapshot.docs.map((bookingDoc) => {
-        const value = bookingDoc.data();
+      const data: Booking[] =
+        snapshot.docs.map((bookingDoc) => {
+          const value = bookingDoc.data();
 
-        return {
-          id: bookingDoc.id,
+          return {
+            id: bookingDoc.id,
 
-          guest: value.customerName || "Unknown Guest",
+            guest:
+              value.customerName ||
+              "Unknown Guest",
 
-          room: value.roomName || "Unknown Room",
+            room:
+              value.roomName ||
+              "Unknown Room",
 
-          checkIn: value.checkIn || "",
+            checkIn:
+              value.checkIn || "",
 
-          checkOut: value.checkOut || "",
+            checkOut:
+              value.checkOut || "",
 
-          guests: Number(value.guests || 0),
+            guests:
+              Number(value.guests || 0),
 
-          total: Number(
-            value.totalPrice ?? value.totalAmount ?? value.total ?? 0,
-          ),
+            total:
+              Number(
+                value.totalPrice ??
+                  value.totalAmount ??
+                  value.total ??
+                  0,
+              ),
 
-          status: value.status || "pending",
+            status:
+              value.status || "pending",
 
-          paymentStatus: value.paymentStatus || "unpaid",
+            paymentStatus:
+              value.paymentStatus || "unpaid",
 
-          paymentMethod:
-            value.paymentMethod || value.paymentType || "Not specified",
-        };
-      });
+            paymentMethod:
+              value.paymentMethod ||
+              value.paymentType ||
+              "Not specified",
+          };
+        });
 
       setBookings(data);
     } catch (error) {
-      console.error("Error loading sales report:", error);
+      console.error(
+        "Error loading sales report:",
+        error,
+      );
     } finally {
       setLoading(false);
     }
@@ -136,16 +173,23 @@ export default function SalesReports() {
   const getDate = (value: string) => {
     if (!value) return null;
 
-    const date = new Date(`${value}T00:00:00`);
+    const date = new Date(
+      `${value}T00:00:00`,
+    );
 
-    return isNaN(date.getTime()) ? null : date;
+    return isNaN(date.getTime())
+      ? null
+      : date;
   };
 
   /*
    * Only non-cancelled bookings are included.
    */
   const validBookings = useMemo(() => {
-    return bookings.filter((booking) => booking.status !== "cancelled");
+    return bookings.filter(
+      (booking) =>
+        booking.status !== "cancelled",
+    );
   }, [bookings]);
 
   /*
@@ -154,32 +198,54 @@ export default function SalesReports() {
    */
   const reportBookings = useMemo(() => {
     return validBookings.filter((booking) => {
-      const date = getDate(booking.checkIn);
+      const date = getDate(
+        booking.checkIn,
+      );
 
       if (!date) return false;
 
-      const year = date.getFullYear();
+      const year =
+        date.getFullYear();
 
-      const month = date.getMonth();
+      const month =
+        date.getMonth();
 
       if (reportPeriod === "annual") {
         return year === reportYear;
       }
 
       if (reportPeriod === "quarterly") {
-        const selectedQuarter = Math.floor(reportMonth / 3);
+        const selectedQuarter =
+          Math.floor(reportMonth / 3);
 
-        const bookingQuarter = Math.floor(month / 3);
+        const bookingQuarter =
+          Math.floor(month / 3);
 
-        return year === reportYear && bookingQuarter === selectedQuarter;
+        return (
+          year === reportYear &&
+          bookingQuarter ===
+            selectedQuarter
+        );
       }
 
-      return year === reportYear && month === reportMonth;
+      return (
+        year === reportYear &&
+        month === reportMonth
+      );
     });
-  }, [validBookings, reportPeriod, reportMonth, reportYear]);
+  }, [
+    validBookings,
+    reportPeriod,
+    reportMonth,
+    reportYear,
+  ]);
 
   const totalRevenue = useMemo(() => {
-    return reportBookings.reduce((sum, booking) => sum + booking.total, 0);
+    return reportBookings.reduce(
+      (sum, booking) =>
+        sum + booking.total,
+      0,
+    );
   }, [reportBookings]);
 
   /*
@@ -188,18 +254,30 @@ export default function SalesReports() {
    */
   const totalExpenses = 0;
 
-  const netProfit = totalRevenue - totalExpenses;
+  const netProfit =
+    totalRevenue - totalExpenses;
 
-  const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+  const profitMargin =
+    totalRevenue > 0
+      ? (netProfit / totalRevenue) *
+        100
+      : 0;
 
-  const paidBookings = reportBookings.filter(
-    (booking) => booking.paymentStatus === "paid",
-  ).length;
+  const paidBookings =
+    reportBookings.filter(
+      (booking) =>
+        booking.paymentStatus ===
+        "paid",
+    ).length;
 
-  const pendingPayments = reportBookings.filter(
-    (booking) =>
-      booking.paymentStatus === "unpaid" || booking.paymentStatus === "partial",
-  ).length;
+  const pendingPayments =
+    reportBookings.filter(
+      (booking) =>
+        booking.paymentStatus ===
+          "unpaid" ||
+        booking.paymentStatus ===
+          "partial",
+    ).length;
 
   /*
    * Revenue trend for the last 6 months
@@ -209,40 +287,68 @@ export default function SalesReports() {
     const result = [];
 
     for (let i = 5; i >= 0; i--) {
-      const date = new Date(reportYear, reportMonth, 1);
-
-      date.setMonth(date.getMonth() - i);
-
-      const month = date.getMonth();
-
-      const year = date.getFullYear();
-
-      const monthBookings = validBookings.filter((booking) => {
-        const bookingDate = getDate(booking.checkIn);
-
-        if (!bookingDate) return false;
-
-        return (
-          bookingDate.getMonth() === month && bookingDate.getFullYear() === year
-        );
-      });
-
-      const revenue = monthBookings.reduce(
-        (sum, booking) => sum + booking.total,
-        0,
+      const date = new Date(
+        reportYear,
+        reportMonth,
+        1,
       );
 
+      date.setMonth(
+        date.getMonth() - i,
+      );
+
+      const month =
+        date.getMonth();
+
+      const year =
+        date.getFullYear();
+
+      const monthBookings =
+        validBookings.filter(
+          (booking) => {
+            const bookingDate =
+              getDate(
+                booking.checkIn,
+              );
+
+            if (!bookingDate)
+              return false;
+
+            return (
+              bookingDate.getMonth() ===
+                month &&
+              bookingDate.getFullYear() ===
+                year
+            );
+          },
+        );
+
+      const revenue =
+        monthBookings.reduce(
+          (sum, booking) =>
+            sum + booking.total,
+          0,
+        );
+
       result.push({
-        month: date.toLocaleDateString(undefined, {
-          month: "short",
-        }),
+        month:
+          date.toLocaleDateString(
+            undefined,
+            {
+              month: "short",
+            },
+          ),
 
         revenue,
       });
     }
 
     return result;
-  }, [validBookings, reportMonth, reportYear]);
+  }, [
+    validBookings,
+    reportMonth,
+    reportYear,
+  ]);
 
   /*
    * Category distribution.
@@ -250,20 +356,24 @@ export default function SalesReports() {
    * service/category fields, so bookings are
    * honestly grouped as Accommodations.
    */
-  const revenueByCategory = useMemo(() => {
-    if (reportBookings.length === 0) {
-      return [];
-    }
+  const revenueByCategory =
+    useMemo(() => {
+      if (reportBookings.length === 0) {
+        return [];
+      }
 
-    return [
-      {
-        id: 1,
-        name: "Accommodations",
-        value: totalRevenue,
-        percentage: 100,
-      },
-    ];
-  }, [reportBookings, totalRevenue]);
+      return [
+        {
+          id: 1,
+          name: "Accommodations",
+          value: totalRevenue,
+          percentage: 100,
+        },
+      ];
+    }, [
+      reportBookings,
+      totalRevenue,
+    ]);
 
   /*
    * Payment methods.
@@ -272,48 +382,67 @@ export default function SalesReports() {
    * it will be used. Otherwise, records appear
    * under "Not specified".
    */
-  const paymentMethods = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        method: string;
-        amount: number;
-        transactions: number;
-      }
-    >();
+  const paymentMethods =
+    useMemo(() => {
+      const map = new Map<
+        string,
+        {
+          method: string;
+          amount: number;
+          transactions: number;
+        }
+      >();
 
-    reportBookings.forEach((booking) => {
-      const method = booking.paymentMethod || "Not specified";
+      reportBookings.forEach(
+        (booking) => {
+          const method =
+            booking.paymentMethod ||
+            "Not specified";
 
-      const existing = map.get(method);
+          const existing =
+            map.get(method);
 
-      if (existing) {
-        existing.amount += booking.total;
-        existing.transactions += 1;
-      } else {
-        map.set(method, {
-          method,
-          amount: booking.total,
-          transactions: 1,
-        });
-      }
-    });
+          if (existing) {
+            existing.amount +=
+              booking.total;
+            existing.transactions +=
+              1;
+          } else {
+            map.set(method, {
+              method,
+              amount:
+                booking.total,
+              transactions: 1,
+            });
+          }
+        },
+      );
 
-    const total = reportBookings.reduce(
-      (sum, booking) => sum + booking.total,
-      0,
-    );
+      const total =
+        reportBookings.reduce(
+          (sum, booking) =>
+            sum + booking.total,
+          0,
+        );
 
-    return Array.from(map.values()).map((item) => ({
-      ...item,
-      percentage: total > 0 ? (item.amount / total) * 100 : 0,
-    }));
-  }, [reportBookings]);
+      return Array.from(
+        map.values(),
+      ).map((item) => ({
+        ...item,
+        percentage:
+          total > 0
+            ? (item.amount /
+                total) *
+              100
+            : 0,
+      }));
+    }, [reportBookings]);
 
   const reportLabel =
     reportPeriod === "monthly"
       ? `${months[reportMonth]} ${reportYear}`
-      : reportPeriod === "quarterly"
+      : reportPeriod ===
+          "quarterly"
         ? `Q${Math.floor(reportMonth / 3) + 1} ${reportYear}`
         : `Annual ${reportYear}`;
 
@@ -322,12 +451,17 @@ export default function SalesReports() {
     setShowReportModal(true);
   };
 
-  const handleGenerate = async (e: React.FormEvent) => {
+  const handleGenerate = async (
+    e: React.FormEvent,
+  ) => {
     e.preventDefault();
 
     setGenerating(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise(
+      (resolve) =>
+        setTimeout(resolve, 500),
+    );
 
     setGenerating(false);
     setReportReady(true);
@@ -349,7 +483,10 @@ export default function SalesReports() {
       "",
       "Monthly Revenue",
       "Month,Revenue",
-      ...revenueData.map((item) => `${item.month},${formatPeso(item.revenue)}`),
+      ...revenueData.map(
+        (item) =>
+          `${item.month},${formatPeso(item.revenue)}`,
+      ),
       "",
       "Revenue by Category",
       "Category,Revenue,Percentage",
@@ -376,14 +513,21 @@ export default function SalesReports() {
     return lines.join("\n");
   };
 
-  const downloadCsv = (filename: string) => {
-    const blob = new Blob([createCsv()], {
-      type: "text/csv;charset=utf-8;",
-    });
+  const downloadCsv = (
+    filename: string,
+  ) => {
+    const blob = new Blob(
+      [createCsv()],
+      {
+        type: "text/csv;charset=utf-8;",
+      },
+    );
 
-    const url = URL.createObjectURL(blob);
+    const url =
+      URL.createObjectURL(blob);
 
-    const link = document.createElement("a");
+    const link =
+      document.createElement("a");
 
     link.href = url;
     link.download = filename;
@@ -399,7 +543,9 @@ export default function SalesReports() {
 
   const handleDownloadReport = () => {
     downloadCsv(
-      `financial-report-${reportLabel.toLowerCase().replace(/\s+/g, "-")}.csv`,
+      `financial-report-${reportLabel
+        .toLowerCase()
+        .replace(/\s+/g, "-")}.csv`,
     );
 
     setShowReportModal(false);
@@ -408,15 +554,25 @@ export default function SalesReports() {
       `Financial report for ${reportLabel} downloaded successfully.`,
     );
 
-    setTimeout(() => setSuccessMsg(""), 3500);
+    setTimeout(
+      () => setSuccessMsg(""),
+      3500,
+    );
   };
 
   const handleExportData = () => {
-    downloadCsv("sales-financial-data.csv");
+    downloadCsv(
+      "sales-financial-data.csv",
+    );
 
-    setSuccessMsg("Financial data exported to CSV.");
+    setSuccessMsg(
+      "Financial data exported to CSV.",
+    );
 
-    setTimeout(() => setSuccessMsg(""), 3500);
+    setTimeout(
+      () => setSuccessMsg(""),
+      3500,
+    );
   };
 
   if (loading) {
@@ -446,7 +602,8 @@ export default function SalesReports() {
         </h1>
 
         <p className="text-gray-600 mt-1">
-          Monitor revenue, sales performance, and financial records from your
+          Monitor revenue, sales performance,
+          and financial records from your
           database.
         </p>
       </div>
@@ -455,9 +612,13 @@ export default function SalesReports() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <div className="flex items-center gap-3 mb-2">
-            <span className="text-2xl font-bold text-green-600">₱</span>
+            <span className="text-2xl font-bold text-green-600">
+              ₱
+            </span>
 
-            <p className="text-sm text-gray-600">Total Revenue</p>
+            <p className="text-sm text-gray-600">
+              Total Revenue
+            </p>
           </div>
 
           <p className="text-3xl font-bold text-gray-900">
@@ -466,7 +627,9 @@ export default function SalesReports() {
         </div>
 
         <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-2">Total Expenses</p>
+          <p className="text-sm text-gray-600 mb-2">
+            Total Expenses
+          </p>
 
           <p className="text-3xl font-bold text-red-600">
             {formatPeso(totalExpenses)}
@@ -478,7 +641,9 @@ export default function SalesReports() {
         </div>
 
         <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-2">Net Profit</p>
+          <p className="text-sm text-gray-600 mb-2">
+            Net Profit
+          </p>
 
           <p className="text-3xl font-bold text-green-600">
             {formatPeso(netProfit)}
@@ -490,7 +655,9 @@ export default function SalesReports() {
         </div>
 
         <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-2">Profit Margin</p>
+          <p className="text-sm text-gray-600 mb-2">
+            Profit Margin
+          </p>
 
           <p className="text-3xl font-bold text-gray-900">
             {profitMargin.toFixed(1)}%
@@ -509,7 +676,10 @@ export default function SalesReports() {
             Revenue Trend
           </h3>
 
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer
+            width="100%"
+            height={300}
+          >
             <AreaChart data={revenueData}>
               <CartesianGrid strokeDasharray="3 3" />
 
@@ -522,7 +692,11 @@ export default function SalesReports() {
               />
 
               <Tooltip
-                formatter={(value: number) => formatPeso(Number(value))}
+                formatter={(value: number) =>
+                  formatPeso(
+                    Number(value),
+                  )
+                }
               />
 
               <Legend />
@@ -545,28 +719,46 @@ export default function SalesReports() {
           </h3>
 
           {revenueByCategory.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer
+              width="100%"
+              height={300}
+            >
               <RePieChart>
                 <Pie
                   data={revenueByCategory}
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, percentage }) => `${name}: ${percentage}%`}
+                  label={({ name, percentage }) =>
+                    `${name}: ${percentage}%`
+                  }
                   outerRadius={80}
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {revenueByCategory.map((entry, index) => (
-                    <Cell
-                      key={`cell-${entry.id}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
-                  ))}
+                  {revenueByCategory.map(
+                    (entry, index) => (
+                      <Cell
+                        key={`cell-${entry.id}`}
+                        fill={
+                          COLORS[
+                            index %
+                              COLORS.length
+                          ]
+                        }
+                      />
+                    ),
+                  )}
                 </Pie>
 
                 <Tooltip
-                  formatter={(value: number) => formatPeso(Number(value))}
+                  formatter={(
+                    value: number,
+                  ) =>
+                    formatPeso(
+                      Number(value),
+                    )
+                  }
                 />
               </RePieChart>
             </ResponsiveContainer>
@@ -593,44 +785,59 @@ export default function SalesReports() {
         <div className="p-6">
           {revenueByCategory.length > 0 ? (
             <div className="space-y-4">
-              {revenueByCategory.map((category, index) => (
-                <div key={category.id}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
+              {revenueByCategory.map(
+                (category, index) => (
+                  <div key={category.id}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="size-3 rounded-full"
+                          style={{
+                            backgroundColor:
+                              COLORS[
+                                index %
+                                  COLORS.length
+                              ],
+                          }}
+                        />
+
+                        <span className="font-medium text-gray-900">
+                          {category.name}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-4">
+                        <span className="text-sm text-gray-600">
+                          {category.percentage.toFixed(
+                            1,
+                          )}
+                          %
+                        </span>
+
+                        <span className="font-semibold text-gray-900">
+                          {formatPeso(
+                            category.value,
+                          )}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="w-full bg-gray-200 rounded-full h-2">
                       <div
-                        className="size-3 rounded-full"
+                        className="h-2 rounded-full"
                         style={{
-                          backgroundColor: COLORS[index % COLORS.length],
+                          width: `${category.percentage}%`,
+                          backgroundColor:
+                            COLORS[
+                              index %
+                                COLORS.length
+                            ],
                         }}
                       />
-
-                      <span className="font-medium text-gray-900">
-                        {category.name}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-gray-600">
-                        {category.percentage.toFixed(1)}%
-                      </span>
-
-                      <span className="font-semibold text-gray-900">
-                        {formatPeso(category.value)}
-                      </span>
                     </div>
                   </div>
-
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full"
-                      style={{
-                        width: `${category.percentage}%`,
-                        backgroundColor: COLORS[index % COLORS.length],
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+                ),
+              )}
             </div>
           ) : (
             <p className="text-sm text-gray-500 text-center py-6">
@@ -648,7 +855,8 @@ export default function SalesReports() {
           </h3>
 
           <p className="text-sm text-gray-500 mt-1">
-            Based on the payment method stored in your booking records.
+            Based on the payment method stored in
+            your booking records.
           </p>
         </div>
 
@@ -675,46 +883,56 @@ export default function SalesReports() {
             </thead>
 
             <tbody className="divide-y divide-gray-200">
-              {paymentMethods.map((method) => (
-                <tr key={method.method} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-3">
-                      <CreditCard className="size-5 text-gray-400" />
+              {paymentMethods.map(
+                (method) => (
+                  <tr
+                    key={method.method}
+                    className="hover:bg-gray-50"
+                  >
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-3">
+                        <CreditCard className="size-5 text-gray-400" />
 
-                      <span className="font-medium text-gray-900">
-                        {method.method}
-                      </span>
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <span className="font-semibold text-gray-900">
-                      {formatPeso(method.amount)}
-                    </span>
-                  </td>
-
-                  <td className="px-6 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="w-24 bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-cyan-500 h-2 rounded-full"
-                          style={{
-                            width: `${method.percentage}%`,
-                          }}
-                        />
+                        <span className="font-medium text-gray-900">
+                          {method.method}
+                        </span>
                       </div>
+                    </td>
 
-                      <span className="text-sm text-gray-600">
-                        {method.percentage.toFixed(1)}%
+                    <td className="px-6 py-4">
+                      <span className="font-semibold text-gray-900">
+                        {formatPeso(
+                          method.amount,
+                        )}
                       </span>
-                    </div>
-                  </td>
+                    </td>
 
-                  <td className="px-6 py-4 text-sm text-gray-600">
-                    {method.transactions}
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-6 py-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-24 bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-cyan-500 h-2 rounded-full"
+                            style={{
+                              width: `${method.percentage}%`,
+                            }}
+                          />
+                        </div>
+
+                        <span className="text-sm text-gray-600">
+                          {method.percentage.toFixed(
+                            1,
+                          )}
+                          %
+                        </span>
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {method.transactions}
+                    </td>
+                  </tr>
+                ),
+              )}
 
               {paymentMethods.length === 0 && (
                 <tr>
@@ -737,7 +955,10 @@ export default function SalesReports() {
           onClick={openReportModal}
           className="flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700"
         >
-          <span className="font-bold">₱</span>
+          <span className="font-bold">
+            ₱
+          </span>
+
           Generate Financial Report
         </button>
 
@@ -746,6 +967,7 @@ export default function SalesReports() {
           className="flex items-center gap-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50"
         >
           <Download className="size-4" />
+
           Export Data
         </button>
       </div>
@@ -760,7 +982,11 @@ export default function SalesReports() {
               </h2>
 
               <button
-                onClick={() => setShowReportModal(false)}
+                onClick={() =>
+                  setShowReportModal(
+                    false,
+                  )
+                }
                 className="text-white/80 hover:text-white"
               >
                 <X className="size-5" />
@@ -769,10 +995,15 @@ export default function SalesReports() {
 
             <div className="p-6">
               {!reportReady ? (
-                <form onSubmit={handleGenerate} className="space-y-4">
+                <form
+                  onSubmit={handleGenerate}
+                  className="space-y-4"
+                >
                   <p className="text-sm text-gray-600">
-                    Configure the reporting period. The report uses your actual
-                    Firebase booking records.
+                    Configure the reporting
+                    period. The report uses
+                    your actual Firebase booking
+                    records.
                   </p>
 
                   <div>
@@ -781,26 +1012,36 @@ export default function SalesReports() {
                     </label>
 
                     <div className="flex gap-2">
-                      {(["monthly", "quarterly", "annual"] as const).map(
-                        (type) => (
-                          <button
-                            key={type}
-                            type="button"
-                            onClick={() => setReportPeriod(type)}
-                            className={`flex-1 py-2 text-sm rounded-lg border capitalize ${
-                              reportPeriod === type
-                                ? "bg-cyan-600 text-white border-cyan-600"
-                                : "border-gray-300 text-gray-700 hover:bg-gray-50"
-                            }`}
-                          >
-                            {type}
-                          </button>
-                        ),
-                      )}
+                      {(
+                        [
+                          "monthly",
+                          "quarterly",
+                          "annual",
+                        ] as const
+                      ).map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() =>
+                            setReportPeriod(
+                              type,
+                            )
+                          }
+                          className={`flex-1 py-2 text-sm rounded-lg border capitalize ${
+                            reportPeriod ===
+                            type
+                              ? "bg-cyan-600 text-white border-cyan-600"
+                              : "border-gray-300 text-gray-700 hover:bg-gray-50"
+                          }`}
+                        >
+                          {type}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
-                  {reportPeriod === "monthly" && (
+                  {reportPeriod ===
+                    "monthly" && (
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -808,17 +1049,36 @@ export default function SalesReports() {
                         </label>
 
                         <select
-                          value={reportMonth}
+                          value={
+                            reportMonth
+                          }
                           onChange={(e) =>
-                            setReportMonth(Number(e.target.value))
+                            setReportMonth(
+                              Number(
+                                e.target
+                                  .value,
+                              ),
+                            )
                           }
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                         >
-                          {months.map((month, index) => (
-                            <option key={month} value={index}>
-                              {month}
-                            </option>
-                          ))}
+                          {months.map(
+                            (
+                              month,
+                              index,
+                            ) => (
+                              <option
+                                key={
+                                  month
+                                }
+                                value={
+                                  index
+                                }
+                              >
+                                {month}
+                              </option>
+                            ),
+                          )}
                         </select>
                       </div>
 
@@ -828,23 +1088,44 @@ export default function SalesReports() {
                         </label>
 
                         <select
-                          value={reportYear}
+                          value={
+                            reportYear
+                          }
                           onChange={(e) =>
-                            setReportYear(Number(e.target.value))
+                            setReportYear(
+                              Number(
+                                e.target
+                                  .value,
+                              ),
+                            )
                           }
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                         >
-                          {[currentYear - 1, currentYear].map((year) => (
-                            <option key={year} value={year}>
-                              {year}
-                            </option>
-                          ))}
+                          {[
+                            currentYear -
+                              1,
+                            currentYear,
+                          ].map(
+                            (year) => (
+                              <option
+                                key={
+                                  year
+                                }
+                                value={
+                                  year
+                                }
+                              >
+                                {year}
+                              </option>
+                            ),
+                          )}
                         </select>
                       </div>
                     </div>
                   )}
 
-                  {reportPeriod === "quarterly" && (
+                  {reportPeriod ===
+                    "quarterly" && (
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -852,19 +1133,37 @@ export default function SalesReports() {
                         </label>
 
                         <select
-                          value={Math.floor(reportMonth / 3) + 1}
+                          value={Math.floor(
+                            reportMonth /
+                              3,
+                          ) + 1}
                           onChange={(e) =>
-                            setReportMonth((Number(e.target.value) - 1) * 3)
+                            setReportMonth(
+                              (Number(
+                                e.target
+                                  .value,
+                              ) -
+                                1) *
+                                3,
+                            )
                           }
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                         >
-                          <option value={1}>Q1 (Jan–Mar)</option>
+                          <option value={1}>
+                            Q1 (Jan–Mar)
+                          </option>
 
-                          <option value={2}>Q2 (Apr–Jun)</option>
+                          <option value={2}>
+                            Q2 (Apr–Jun)
+                          </option>
 
-                          <option value={3}>Q3 (Jul–Sep)</option>
+                          <option value={3}>
+                            Q3 (Jul–Sep)
+                          </option>
 
-                          <option value={4}>Q4 (Oct–Dec)</option>
+                          <option value={4}>
+                            Q4 (Oct–Dec)
+                          </option>
                         </select>
                       </div>
 
@@ -874,38 +1173,77 @@ export default function SalesReports() {
                         </label>
 
                         <select
-                          value={reportYear}
+                          value={
+                            reportYear
+                          }
                           onChange={(e) =>
-                            setReportYear(Number(e.target.value))
+                            setReportYear(
+                              Number(
+                                e.target
+                                  .value,
+                              ),
+                            )
                           }
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                         >
-                          {[currentYear - 1, currentYear].map((year) => (
-                            <option key={year} value={year}>
-                              {year}
-                            </option>
-                          ))}
+                          {[
+                            currentYear -
+                              1,
+                            currentYear,
+                          ].map(
+                            (year) => (
+                              <option
+                                key={
+                                  year
+                                }
+                                value={
+                                  year
+                                }
+                              >
+                                {year}
+                              </option>
+                            ),
+                          )}
                         </select>
                       </div>
                     </div>
                   )}
 
-                  {reportPeriod === "annual" && (
+                  {reportPeriod ===
+                    "annual" && (
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Year
                       </label>
 
                       <select
-                        value={reportYear}
-                        onChange={(e) => setReportYear(Number(e.target.value))}
+                        value={
+                          reportYear
+                        }
+                        onChange={(e) =>
+                          setReportYear(
+                            Number(
+                              e.target
+                                .value,
+                            ),
+                          )
+                        }
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                       >
-                        {[currentYear - 1, currentYear].map((year) => (
-                          <option key={year} value={year}>
-                            {year}
-                          </option>
-                        ))}
+                        {[
+                          currentYear -
+                            1,
+                          currentYear,
+                        ].map(
+                          (year) => (
+                            <option
+                              key={year}
+                              value={year}
+                            >
+                              {year}
+                            </option>
+                          ),
+                        )}
                       </select>
                     </div>
                   )}
@@ -913,7 +1251,11 @@ export default function SalesReports() {
                   <div className="flex justify-end gap-3 pt-2">
                     <button
                       type="button"
-                      onClick={() => setShowReportModal(false)}
+                      onClick={() =>
+                        setShowReportModal(
+                          false,
+                        )
+                      }
                       className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700"
                     >
                       Cancel
@@ -921,7 +1263,9 @@ export default function SalesReports() {
 
                     <button
                       type="submit"
-                      disabled={generating}
+                      disabled={
+                        generating
+                      }
                       className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg disabled:opacity-60"
                     >
                       {generating ? (
@@ -943,59 +1287,88 @@ export default function SalesReports() {
                   <div className="flex items-center gap-3 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
                     <Check className="size-5 text-green-600" />
 
-                    <span>Financial report is ready.</span>
+                    <span>
+                      Financial report is
+                      ready.
+                    </span>
                   </div>
 
                   <div className="bg-gray-50 rounded-lg p-4 space-y-3 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Report Period</span>
+                      <span className="text-gray-600">
+                        Report Period
+                      </span>
 
-                      <span className="font-medium">{reportLabel}</span>
-                    </div>
-
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Total Revenue</span>
-
-                      <span className="font-medium text-green-600">
-                        {formatPeso(totalRevenue)}
+                      <span className="font-medium">
+                        {reportLabel}
                       </span>
                     </div>
 
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Total Expenses</span>
+                      <span className="text-gray-600">
+                        Total Revenue
+                      </span>
+
+                      <span className="font-medium text-green-600">
+                        {formatPeso(
+                          totalRevenue,
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">
+                        Total Expenses
+                      </span>
 
                       <span className="font-medium text-red-600">
-                        {formatPeso(totalExpenses)}
+                        {formatPeso(
+                          totalExpenses,
+                        )}
                       </span>
                     </div>
 
                     <div className="flex justify-between border-t pt-2">
-                      <span className="font-medium">Net Profit</span>
+                      <span className="font-medium">
+                        Net Profit
+                      </span>
 
                       <span className="font-bold text-green-600">
-                        {formatPeso(netProfit)}
+                        {formatPeso(
+                          netProfit,
+                        )}
                       </span>
                     </div>
 
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Total Transactions</span>
+                      <span className="text-gray-600">
+                        Total Transactions
+                      </span>
 
                       <span className="font-medium">
-                        {reportBookings.length}
+                        {
+                          reportBookings.length
+                        }
                       </span>
                     </div>
                   </div>
 
                   <div className="flex justify-end gap-3">
                     <button
-                      onClick={() => setShowReportModal(false)}
+                      onClick={() =>
+                        setShowReportModal(
+                          false,
+                        )
+                      }
                       className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700"
                     >
                       Close
                     </button>
 
                     <button
-                      onClick={handleDownloadReport}
+                      onClick={
+                        handleDownloadReport
+                      }
                       className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg"
                     >
                       <Download className="size-4" />
