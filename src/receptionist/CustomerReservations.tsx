@@ -6,9 +6,11 @@ import {
   addDoc,
   updateDoc,
   doc,
+  getDoc,
 } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
 
-import { customerDb } from "../app/firebase"; // change the path if necessary
+import { auth, db, customerDb } from "../app/firebase";
 
 type BookingStatus =
   | "confirmed"
@@ -32,6 +34,9 @@ interface Booking {
   amount: number;
   paid: number;
   notes: string;
+
+  acceptedBy?: string;
+  acceptedByUid?: string;
 }
 
 const STATUS: Record<
@@ -177,6 +182,9 @@ export default function Reservations() {
   const [modal, setModal] = useState<Partial<Booking> | null>(null);
   const [detail, setDetail] = useState<Booking | null>(null);
 
+  const [receptionistName, setReceptionistName] = useState("Receptionist");
+  const [receptionistUid, setReceptionistUid] = useState("");
+
   const filtered = bookings.filter((b) => {
     const q = search.toLowerCase();
     const matchSearch =
@@ -187,6 +195,37 @@ export default function Reservations() {
     const matchStatus = statusFilter === "all" || b.status === statusFilter;
     return matchSearch && matchStatus;
   });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        setReceptionistName("Receptionist");
+        setReceptionistUid("");
+        return;
+      }
+
+      setReceptionistUid(user.uid);
+
+      try {
+        const userRef = doc(db, "Users", user.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+          const data = userSnap.data();
+
+          setReceptionistName(
+            String(data.name || user.displayName || "Receptionist"),
+          );
+        } else {
+          setReceptionistName(user.displayName || "Receptionist");
+        }
+      } catch (error) {
+        console.error("Error loading receptionist:", error);
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
 
   useEffect(() => {
     loadBookings();
@@ -203,21 +242,13 @@ export default function Reservations() {
           id: bookingDoc.id,
 
           guest: data.customerName || "Unknown Guest",
-
           email: data.customerEmail || "",
-
           phone: data.customerPhone || "",
-
           room: data.roomName || "",
-
           roomType: data.roomType || "",
-
           checkIn: data.checkIn || "",
-
           checkOut: data.checkOut || "",
-
           nights: Number(data.nights || 0),
-
           pax: Number(data.guests || 0),
 
           status:
@@ -241,6 +272,8 @@ export default function Reservations() {
           paid: Number(data.amountPaid ?? data.paid ?? 0),
 
           notes: data.notes || "",
+          acceptedBy: data.acceptedBy || "",
+          acceptedByUid: data.acceptedByUid || "",
         };
       });
 
@@ -249,6 +282,7 @@ export default function Reservations() {
       console.error("Error loading bookings:", error);
     }
   };
+
   const saveBooking = async (booking: Booking) => {
     try {
       if (booking.id) {
@@ -282,16 +316,45 @@ export default function Reservations() {
           amountPaid: booking.paid,
           status: "pending",
           notes: booking.notes,
+
+          // Receptionist who created the booking
+          receptionistName,
+          receptionistUid,
         });
       }
 
-      loadBookings();
+      await loadBookings();
       setModal(null);
     } catch (error) {
-      console.error(error);
+      console.error("Error saving booking:", error);
     }
   };
 
+  const acceptBooking = async (id: string) => {
+    try {
+      if (
+        !receptionistUid ||
+        !receptionistName ||
+        receptionistName === "Receptionist"
+      ) {
+        alert(
+          "Receptionist information is not available. Please log in again.",
+        );
+        return;
+      }
+
+      await updateDoc(doc(customerDb, "Bookings", id), {
+        status: "confirmed",
+        acceptedBy: receptionistName,
+        acceptedByUid: receptionistUid,
+      });
+
+      await loadBookings();
+    } catch (error) {
+      console.error("Error accepting booking:", error);
+      alert("Failed to accept booking.");
+    }
+  };
   const cancel = async (id: string) => {
     try {
       await updateDoc(doc(customerDb, "Bookings", id), {
@@ -378,6 +441,7 @@ export default function Reservations() {
                 {[
                   "Booking ID",
                   "Guest",
+                  "Receptionist",
                   "Room",
                   "Check-in",
                   "Check-out",
@@ -421,6 +485,16 @@ export default function Reservations() {
                       </p>
                       <p className="text-xs" style={{ color: "#4a7a7a" }}>
                         {b.email}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="text-sm" style={{ color: "#0a2e2e" }}>
+                        {b.acceptedBy || "Not yet accepted"}
+                      </p>
+                      <p className="text-xs" style={{ color: "#4a7a7a" }}>
+                        {b.acceptedBy
+                          ? "Accepted / Accommodated"
+                          : "Pending acceptance"}
                       </p>
                     </td>
                     <td className="px-4 py-3">
@@ -471,6 +545,16 @@ export default function Reservations() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1">
+                        {b.status === "pending" && (
+                          <button
+                            onClick={() => acceptBooking(b.id)}
+                            className="p-1.5 rounded-lg"
+                            style={{ color: "#0d7377" }}
+                            title="Accept Booking"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => setDetail(b)}
                           className="p-1.5 rounded-lg"
@@ -546,6 +630,10 @@ export default function Reservations() {
                 { label: "Guest", value: detail.guest },
                 { label: "Contact", value: detail.phone },
                 { label: "Email", value: detail.email },
+                {
+                  label: "Accepted / Accommodated By",
+                  value: detail.acceptedBy || "Not yet accepted",
+                },
                 {
                   label: "Room",
                   value: `${detail.roomType} (Rm ${detail.room})`,

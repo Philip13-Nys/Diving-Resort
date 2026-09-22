@@ -269,15 +269,7 @@ export default function RoomManagement() {
       const type = String(data.get("roomType") || "");
       const condition = String(data.get("condition") || "good").toLowerCase();
 
-      // Prevent duplicate physical room numbers
-      const duplicateRoom = rooms.find(
-        (room) => room.roomNumber === roomNumber,
-      );
-
-      if (duplicateRoom) {
-        alert(`Room ${roomNumber} already exists.`);
-        return;
-      }
+ 
 
       // Generate application Room ID
       const roomId = generateRoomId(rooms);
@@ -486,17 +478,6 @@ export default function RoomManagement() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
-                      Room Number
-                    </label>
-                    <input
-                      name="roomNumber"
-                      type="number"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="e.g. 501"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 block mb-1">
                       Floor
                     </label>
                     <input
@@ -684,18 +665,7 @@ export default function RoomManagement() {
                 </button>
               </div>
               <form onSubmit={handleSaveRoom} className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Room Number
-                  </label>
-                  <input
-                    type="number"
-                    name="roomNumber"
-                    defaultValue={editingRoom.roomNumber}
-                    required
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50"
-                  />
-                </div>
+                
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Room Type
@@ -883,9 +853,7 @@ export default function RoomManagement() {
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
                     Room ID
                   </th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                    Room Number
-                  </th>
+                 
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
                     Room Type
                   </th>
@@ -914,10 +882,7 @@ export default function RoomManagement() {
                       {room.roomId}
                     </td>
 
-                    {/* Room Number */}
-                    <td className="py-3 px-4 text-sm text-gray-700">
-                      {room.roomNumber}
-                    </td>
+                  
 
                     {/* Room Type */}
                     <td className="py-3 px-4 text-sm text-gray-700">

@@ -15,6 +15,7 @@ import {
   Menu,
   X,
   LogOut,
+  ClipboardCheck,
 } from "lucide-react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
@@ -26,10 +27,10 @@ import { auth, db } from "../app/firebase";
 const navigation = [
   { name: "Dashboard", href: "/manager", icon: LayoutDashboard },
   {
-    name: "Receptionist Dashboard",
-    href: "/manager/receptionist-dashboard",
-    icon: Users,
-  },
+  name: "Receptionist Dashboard",
+  href: "/manager/receptionist-dashboard",
+  icon: ClipboardCheck,
+},
   { name: "Room Management", href: "/manager/rooms", icon: Hotel },
   {
     name: "Room Availability",
