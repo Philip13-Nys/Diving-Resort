@@ -24,20 +24,26 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../app/firebase";
 
+const PesoIcon = () => (
+  <span className="w-5 h-5 flex items-center justify-center text-lg font-bold">
+    ₱
+  </span>
+);
+
 const navigation = [
   { name: "Dashboard", href: "/manager", icon: LayoutDashboard },
   {
-  name: "Receptionist Dashboard",
-  href: "/manager/receptionist-dashboard",
-  icon: ClipboardCheck,
-},
+    name: "Receptionist Dashboard",
+    href: "/manager/receptionist-dashboard",
+    icon: ClipboardCheck,
+  },
   { name: "Room Management", href: "/manager/rooms", icon: Hotel },
   {
     name: "Room Availability",
     href: "/manager/room-availability",
     icon: CalendarCheck,
   },
-  { name: "Pricing Management", href: "/manager/pricing", icon: DollarSign },
+  { name: "Pricing Management", href: "/manager/pricing", icon: PesoIcon },
   {
     name: "Sales Analytics",
     href: "/manager/sales-analytics",
