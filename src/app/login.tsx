@@ -7,11 +7,11 @@ import { loginUser } from "./auth";
 ========================================================= */
 
 const BACKGROUND_VIDEOS = [
-"https://cdn.pixabay.com/video/2025/03/15/265145_large.mp4",
-"https://cdn.pixabay.com/video/2015/10/18/1084-142790263_medium.mp4",
-"https://cdn.pixabay.com/video/2019/04/23/23011-332483109_large.mp4",
-"https://cdn.pixabay.com/video/2022/11/22/140111-774507949_large.mp4",
-"https://cdn.pixabay.com/video/2024/02/29/202391-918066363_large.mp4",
+  "https://cdn.pixabay.com/video/2025/03/15/265145_large.mp4",
+  "https://cdn.pixabay.com/video/2015/10/18/1084-142790263_medium.mp4",
+  "https://cdn.pixabay.com/video/2019/04/23/23011-332483109_large.mp4",
+  "https://cdn.pixabay.com/video/2022/11/22/140111-774507949_large.mp4",
+  "https://cdn.pixabay.com/video/2024/02/29/202391-918066363_large.mp4",
 ];
 
 /* =========================================================
@@ -36,13 +36,7 @@ function EyeIcon({ visible }: { visible: boolean }) {
           strokeLinejoin="round"
         />
 
-        <circle
-          cx="12"
-          cy="12"
-          r="3"
-          stroke="currentColor"
-          strokeWidth="1.8"
-        />
+        <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
       </svg>
     );
   }
@@ -133,11 +127,9 @@ export default function Login() {
       return;
     }
 
-    const nextIndex =
-      (currentVideoIndex + 1) % BACKGROUND_VIDEOS.length;
+    const nextIndex = (currentVideoIndex + 1) % BACKGROUND_VIDEOS.length;
 
-    const currentVideo =
-      videoRefs.current[currentVideoIndex];
+    const currentVideo = videoRefs.current[currentVideoIndex];
 
     const nextVideo = videoRefs.current[nextIndex];
 
@@ -164,9 +156,7 @@ export default function Login() {
      LOGIN
   ======================================================= */
 
-  const handleLogin = async (
-    event: React.FormEvent<HTMLFormElement>,
-  ) => {
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     setError("");
@@ -190,10 +180,7 @@ export default function Login() {
 
       /* Firebase login */
 
-      const user = await loginUser(
-        email.trim(),
-        password,
-      );
+      const user = await loginUser(email.trim(), password);
 
       /* Get role */
 
@@ -203,10 +190,7 @@ export default function Login() {
          ROLE-BASED REDIRECT
       =================================================== */
 
-      if (
-        role === "administrator" ||
-        role === "admin"
-      ) {
+      if (role === "administrator" || role === "admin") {
         navigate("/admin");
       } else if (role === "manager") {
         navigate("/manager");
@@ -215,9 +199,7 @@ export default function Login() {
       } else if (role === "staff") {
         navigate("/staff");
       } else {
-        setError(
-          "Your account does not have a valid role.",
-        );
+        setError("Your account does not have a valid role.");
       }
     } catch (error: any) {
       console.error("Login error:", error);
@@ -230,9 +212,7 @@ export default function Login() {
         error?.code === "auth/user-not-found" ||
         error?.code === "auth/wrong-password"
       ) {
-        setError(
-          "Invalid email or password. Please try again.",
-        );
+        setError("Invalid email or password. Please try again.");
       } else {
         setError(
           error?.message ||
@@ -251,45 +231,40 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-zinc-950">
-
       {/* =================================================
     BACKGROUND VIDEOS
 ================================================= */}
 
-<div className="absolute inset-0 overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden">
+        {BACKGROUND_VIDEOS.map((video, index) => (
+          <video
+            key={video}
+            ref={(element) => {
+              videoRefs.current[index] = element;
+            }}
+            src={video}
+            muted
+            playsInline
+            preload="auto"
+            onEnded={() => handleVideoEnded(index)}
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{
+              opacity: index === currentVideoIndex ? 1 : 0,
+              transition: "opacity 2.5s ease-in-out",
+            }}
+          />
+        ))}
+      </div>
 
-  {BACKGROUND_VIDEOS.map((video, index) => (
-    <video
-      key={video}
-      ref={(element) => {
-        videoRefs.current[index] = element;
-      }}
-      src={video}
-      muted
-      playsInline
-      preload="auto"
-      onEnded={() => handleVideoEnded(index)}
-      className="absolute inset-0 w-full h-full object-cover"
-      style={{
-        opacity:
-          index === currentVideoIndex ? 1 : 0,
-        transition: "opacity 2.5s ease-in-out",
-      }}
-    />
-  ))}
+      {/* DARK OVERLAY — NO BLUR */}
 
-</div>
-
-{/* DARK OVERLAY — NO BLUR */}
-
-<div className="absolute inset-0 bg-black/40 z-10" />
+      <div className="absolute inset-0 bg-black/40 z-10" />
 
       {/* =================================================
           LOGIN CARD
       ================================================= */}
 
       <div className="w-[calc(100%-32px)] max-w-md bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl p-7 sm:p-8 relative z-20 border border-white/20 transform transition-all duration-300">
-
         {/* =================================================
             TITLE
         ================================================= */}
@@ -316,11 +291,7 @@ export default function Login() {
             FORM
         ================================================= */}
 
-        <form
-          onSubmit={handleLogin}
-          className="space-y-5"
-        >
-
+        <form onSubmit={handleLogin} className="space-y-5">
           {/* =================================================
               EMAIL
           ================================================= */}
@@ -338,9 +309,7 @@ export default function Login() {
               type="email"
               required
               value={email}
-              onChange={(event) =>
-                setEmail(event.target.value)
-              }
+              onChange={(event) => setEmail(event.target.value)}
               placeholder="Enter your email"
               autoComplete="email"
               disabled={loading}
@@ -361,19 +330,12 @@ export default function Login() {
             </label>
 
             <div className="relative">
-
               <input
                 id="password"
-                type={
-                  showPassword
-                    ? "text"
-                    : "password"
-                }
+                type={showPassword ? "text" : "password"}
                 required
                 value={password}
-                onChange={(event) =>
-                  setPassword(event.target.value)
-                }
+                onChange={(event) => setPassword(event.target.value)}
                 placeholder="Enter your password"
                 autoComplete="current-password"
                 disabled={loading}
@@ -386,24 +348,13 @@ export default function Login() {
 
               <button
                 type="button"
-                aria-label={
-                  showPassword
-                    ? "Hide password"
-                    : "Show password"
-                }
-                onClick={() =>
-                  setShowPassword(
-                    (previous) => !previous,
-                  )
-                }
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                onClick={() => setShowPassword((previous) => !previous)}
                 disabled={loading}
                 className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-gray-300 hover:text-white transition-colors disabled:opacity-50"
               >
-                <EyeIcon
-                  visible={showPassword}
-                />
+                <EyeIcon visible={showPassword} />
               </button>
-
             </div>
           </div>
 
@@ -425,7 +376,6 @@ export default function Login() {
               "Login"
             )}
           </button>
-
         </form>
 
         {/* =================================================
@@ -435,9 +385,7 @@ export default function Login() {
         <p className="text-center text-gray-400/70 text-xs mt-6">
           Secure Resort Management System
         </p>
-
       </div>
-
     </div>
   );
 }
