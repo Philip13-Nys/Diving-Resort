@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
-  LineChart,
-  Line,
   PieChart,
   Pie,
   Cell,
@@ -14,7 +12,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { Download, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 
 import { collection, getDocs } from "firebase/firestore";
 import { customerDb } from "../app/firebase";
@@ -82,12 +80,6 @@ const startOfDay = (date: Date) => {
   return result;
 };
 
-const endOfDay = (date: Date) => {
-  const result = new Date(date);
-  result.setHours(23, 59, 59, 999);
-  return result;
-};
-
 const isSameDay = (a: Date, b: Date) =>
   a.getFullYear() === b.getFullYear() &&
   a.getMonth() === b.getMonth() &&
@@ -135,21 +127,13 @@ export default function Reports() {
 
         return {
           id: docSnap.id,
-
           guest: data.customerName ?? data.guest ?? "Unknown Guest",
-
           email: data.customerEmail ?? data.email ?? "",
-
           room: data.roomName ?? data.room ?? "",
-
           roomType: data.roomType ?? "",
-
           checkIn: data.checkIn ?? "",
-
           checkOut: data.checkOut ?? "",
-
           guests: Number(data.guests ?? data.pax ?? 0),
-
           total: Number(
             data.totalPrice ??
               data.totalAmount ??
@@ -157,11 +141,8 @@ export default function Reports() {
               data.total ??
               0,
           ),
-
           status: data.status ?? "pending",
-
           paymentStatus: data.paymentStatus ?? "unpaid",
-
           amountPaid: Number(data.amountPaid ?? data.paid ?? 0),
         };
       });
@@ -171,23 +152,14 @@ export default function Reports() {
 
         return {
           id: docSnap.id,
-
           bookingId: data.bookingId ?? "",
-
           guest: data.guest ?? data.customerName ?? "",
-
           room: data.room ?? data.roomName ?? "",
-
           amount: Number(data.amount ?? 0),
-
           method: data.method ?? "cash",
-
           type: data.type ?? "full",
-
           date: data.date ?? "",
-
           time: data.time ?? "",
-
           status: data.status ?? "completed",
         };
       });
@@ -203,9 +175,6 @@ export default function Reports() {
 
   const today = useMemo(() => startOfDay(new Date()), []);
 
-  /*
-   * Only non-cancelled bookings are counted.
-   */
   const validBookings = useMemo(
     () =>
       bookings.filter(
@@ -214,9 +183,6 @@ export default function Reports() {
     [bookings],
   );
 
-  /*
-   * BOOKING FILTER FOR CURRENT PERIOD
-   */
   const periodBookings = useMemo(() => {
     if (period === "daily") {
       return validBookings.filter((booking) => {
@@ -265,9 +231,6 @@ export default function Reports() {
     });
   }, [period, validBookings, today]);
 
-  /*
-   * TOTAL REVENUE
-   */
   const totalRevenue = useMemo(
     () =>
       periodBookings.reduce(
@@ -277,19 +240,10 @@ export default function Reports() {
     [periodBookings],
   );
 
-  /*
-   * TOTAL BOOKINGS
-   */
   const totalBookings = periodBookings.length;
 
-  /*
-   * AVERAGE REVENUE
-   */
   const averageRevenue = totalBookings > 0 ? totalRevenue / totalBookings : 0;
 
-  /*
-   * ROOM TYPE DISTRIBUTION
-   */
   const roomTypeData = useMemo(() => {
     const map = new Map<string, number>();
 
@@ -311,9 +265,6 @@ export default function Reports() {
       .sort((a, b) => b.value - a.value);
   }, [periodBookings]);
 
-  /*
-   * PAYMENT METHOD DISTRIBUTION
-   */
   const paymentMethodData = useMemo(() => {
     const map = new Map<
       string,
@@ -332,7 +283,6 @@ export default function Reports() {
       };
 
       current.amount += Number(payment.amount || 0);
-
       current.count += 1;
 
       map.set(method, current);
@@ -344,17 +294,12 @@ export default function Reports() {
           method === "gcash"
             ? "GCash"
             : method.charAt(0).toUpperCase() + method.slice(1),
-
         amount: data.amount,
-
         count: data.count,
       }))
       .sort((a, b) => b.amount - a.amount);
   }, [payments]);
 
-  /*
-   * TOP GUESTS
-   */
   const topGuests = useMemo(() => {
     const map = new Map<
       string,
@@ -373,7 +318,6 @@ export default function Reports() {
       };
 
       current.visits += 1;
-
       current.spent += Number(booking.total || 0);
 
       map.set(name, current);
@@ -389,9 +333,6 @@ export default function Reports() {
       .slice(0, 5);
   }, [validBookings]);
 
-  /*
-   * MONTHLY REVENUE
-   */
   const monthlyRevenue = useMemo(() => {
     const now = new Date();
 
@@ -424,60 +365,6 @@ export default function Reports() {
     });
   }, [validBookings]);
 
-  /*
-   * OCCUPANCY / BOOKING RATE
-   *
-   * Since there is currently no Rooms collection in
-   * the database code you provided, this uses the number
-   * of unique rooms appearing in Bookings as the available
-   * room reference.
-   */
-  const uniqueRooms = useMemo(() => {
-    return new Set(
-      validBookings.map((booking) => booking.room?.trim()).filter(Boolean),
-    ).size;
-  }, [validBookings]);
-
-  const occupancyData = useMemo(() => {
-    const result = [];
-
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-
-      date.setDate(date.getDate() - i);
-
-      const dateKey = date.toISOString().split("T")[0];
-
-      const dayBookings = validBookings.filter((booking) => {
-        const checkIn = parseDate(booking.checkIn);
-
-        return checkIn && checkIn.toISOString().split("T")[0] === dateKey;
-      });
-
-      const bookedRooms = new Set(
-        dayBookings.map((booking) => booking.room).filter(Boolean),
-      ).size;
-
-      const rate =
-        uniqueRooms > 0
-          ? Math.min(100, Math.round((bookedRooms / uniqueRooms) * 100))
-          : 0;
-
-      result.push({
-        day: date.toLocaleDateString("en-US", {
-          weekday: "short",
-        }),
-
-        rate,
-      });
-    }
-
-    return result;
-  }, [today, validBookings, uniqueRooms]);
-
-  /*
-   * EXPORT
-   */
   const exportReport = () => {
     const lines = [
       "Resort Management System Report",
@@ -581,9 +468,7 @@ export default function Reports() {
                 className="px-4 py-2 rounded-lg text-sm capitalize border transition-all"
                 style={{
                   background: period === p ? "#0d7377" : "white",
-
                   color: period === p ? "white" : "#4a7a7a",
-
                   borderColor:
                     period === p ? "#0d7377" : "rgba(13,115,119,0.2)",
                 }}
@@ -608,7 +493,7 @@ export default function Reports() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div
           className="bg-white rounded-xl border p-5"
           style={{
@@ -658,37 +543,6 @@ export default function Reports() {
             }}
           >
             Total Bookings
-          </p>
-        </div>
-
-        <div
-          className="bg-white rounded-xl border p-5"
-          style={{
-            borderColor: "rgba(13,115,119,0.1)",
-          }}
-        >
-          <p
-            className="text-3xl mb-1"
-            style={{
-              color: "#06b6d4",
-              fontFamily: "Georgia, serif",
-            }}
-          >
-            {uniqueRooms > 0
-              ? `${Math.round(
-                  occupancyData.reduce((sum, item) => sum + item.rate, 0) /
-                    occupancyData.length,
-                )}%`
-              : "0%"}
-          </p>
-
-          <p
-            className="text-xs"
-            style={{
-              color: "#4a7a7a",
-            }}
-          >
-            Avg. Booking Occupancy
           </p>
         </div>
 
@@ -758,7 +612,6 @@ export default function Reports() {
               <Tooltip
                 formatter={(value: number, name: string) => [
                   name === "revenue" ? formatPeso(Number(value)) : value,
-
                   name === "revenue" ? "Revenue" : "Bookings",
                 ]}
               />
@@ -869,184 +722,139 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Occupancy + Payments + Top Guests */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Payments + Top Guests */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Payments */}
         <div
-          className="lg:col-span-2 bg-white rounded-xl border p-5"
+          className="bg-white rounded-xl border p-5"
           style={{
             borderColor: "rgba(13,115,119,0.1)",
           }}
         >
           <h3
-            className="font-medium mb-5"
+            className="font-medium mb-4"
             style={{
               color: "#0a2e2e",
               fontFamily: "Georgia, serif",
             }}
           >
-            Booking Occupancy Rate
+            Payment Methods
           </h3>
 
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={occupancyData}>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="rgba(13,115,119,0.08)"
-              />
+          {paymentMethodData.length === 0 ? (
+            <p className="text-sm text-gray-500">No payment records found.</p>
+          ) : (
+            <div className="space-y-4">
+              {paymentMethodData.map((payment) => {
+                const total = paymentMethodData.reduce(
+                  (sum, item) => sum + item.amount,
+                  0,
+                );
 
-              <XAxis dataKey="day" />
+                const percentage =
+                  total > 0 ? Math.round((payment.amount / total) * 100) : 0;
 
-              <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
-
-              <Tooltip
-                formatter={(value: number) => [`${value}%`, "Occupancy"]}
-              />
-
-              <Line
-                type="monotone"
-                dataKey="rate"
-                stroke="#0d7377"
-                strokeWidth={2.5}
-                dot={{
-                  fill: "#0d7377",
-                  r: 4,
-                }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-
-          <p className="text-xs text-gray-500 mt-2">
-            Based on unique rooms appearing in the Bookings collection.
-          </p>
-        </div>
-
-        <div className="space-y-4">
-          {/* Payments */}
-          <div
-            className="bg-white rounded-xl border p-5"
-            style={{
-              borderColor: "rgba(13,115,119,0.1)",
-            }}
-          >
-            <h3
-              className="font-medium mb-4"
-              style={{
-                color: "#0a2e2e",
-                fontFamily: "Georgia, serif",
-              }}
-            >
-              Payment Methods
-            </h3>
-
-            {paymentMethodData.length === 0 ? (
-              <p className="text-sm text-gray-500">No payment records found.</p>
-            ) : (
-              <div className="space-y-3">
-                {paymentMethodData.map((payment) => {
-                  const total = paymentMethodData.reduce(
-                    (sum, item) => sum + item.amount,
-                    0,
-                  );
-
-                  const percentage =
-                    total > 0 ? Math.round((payment.amount / total) * 100) : 0;
-
-                  return (
-                    <div key={payment.method}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span
-                          style={{
-                            color: "#0a2e2e",
-                          }}
-                        >
-                          {payment.method}
-                        </span>
-
-                        <span
-                          style={{
-                            color: "#4a7a7a",
-                          }}
-                        >
-                          {formatPeso(payment.amount)} ({payment.count} txns)
-                        </span>
-                      </div>
-
-                      <div
-                        className="h-2 rounded-full"
+                return (
+                  <div key={payment.method}>
+                    <div className="flex justify-between text-sm mb-1">
+                      <span
                         style={{
-                          background: "#e2f3f2",
+                          color: "#0a2e2e",
                         }}
                       >
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${percentage}%`,
-                            background: "#0d7377",
-                          }}
-                        />
-                      </div>
+                        {payment.method}
+                      </span>
+
+                      <span
+                        style={{
+                          color: "#4a7a7a",
+                        }}
+                      >
+                        {formatPeso(payment.amount)} ({payment.count} txns)
+                      </span>
                     </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
 
-          {/* Top Guests */}
-          <div
-            className="bg-white rounded-xl border p-5"
-            style={{
-              borderColor: "rgba(13,115,119,0.1)",
-            }}
-          >
-            <h3
-              className="font-medium mb-4"
-              style={{
-                color: "#0a2e2e",
-                fontFamily: "Georgia, serif",
-              }}
-            >
-              Top Guests
-            </h3>
-
-            {topGuests.length === 0 ? (
-              <p className="text-sm text-gray-500">No guest records found.</p>
-            ) : (
-              <div className="space-y-2">
-                {topGuests.map((guest, index) => (
-                  <div key={guest.name} className="flex items-center gap-3">
-                    <span
-                      className="w-5 h-5 rounded-full text-xs flex items-center justify-center"
+                    <div
+                      className="h-2 rounded-full"
                       style={{
-                        background: index === 0 ? "#f97316" : "#e2f3f2",
-                        color: index === 0 ? "#fff" : "#0d7377",
+                        background: "#e2f3f2",
                       }}
                     >
-                      {index + 1}
-                    </span>
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${percentage}%`,
+                          background: "#0d7377",
+                        }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-                    <span
-                      className="flex-1 text-sm"
+        {/* Top Guests */}
+        <div
+          className="bg-white rounded-xl border p-5"
+          style={{
+            borderColor: "rgba(13,115,119,0.1)",
+          }}
+        >
+          <h3
+            className="font-medium mb-4"
+            style={{
+              color: "#0a2e2e",
+              fontFamily: "Georgia, serif",
+            }}
+          >
+            Top Guests
+          </h3>
+
+          {topGuests.length === 0 ? (
+            <p className="text-sm text-gray-500">No guest records found.</p>
+          ) : (
+            <div className="space-y-3">
+              {topGuests.map((guest, index) => (
+                <div key={guest.name} className="flex items-center gap-3">
+                  <span
+                    className="w-7 h-7 rounded-full text-xs flex items-center justify-center"
+                    style={{
+                      background: index === 0 ? "#f97316" : "#e2f3f2",
+                      color: index === 0 ? "#fff" : "#0d7377",
+                    }}
+                  >
+                    {index + 1}
+                  </span>
+
+                  <div className="flex-1">
+                    <p
+                      className="text-sm"
                       style={{
                         color: "#0a2e2e",
                       }}
                     >
                       {guest.name}
-                    </span>
+                    </p>
 
-                    <span
-                      className="text-xs"
-                      style={{
-                        color: "#0d7377",
-                      }}
-                    >
-                      {formatPeso(guest.spent)}
-                    </span>
+                    <p className="text-xs text-gray-500">
+                      {guest.visits} {guest.visits === 1 ? "visit" : "visits"}
+                    </p>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+
+                  <span
+                    className="text-sm font-medium"
+                    style={{
+                      color: "#0d7377",
+                    }}
+                  >
+                    {formatPeso(guest.spent)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
