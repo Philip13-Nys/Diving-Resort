@@ -66,27 +66,16 @@ export default function ReceptionistDashboards() {
 
           return {
             id: bookingDoc.id,
-
             guest: String(data.guest ?? data.customerName ?? "Unknown Guest"),
-
             email: data.email ?? data.customerEmail,
-
             phone: data.phone ?? data.customerPhone,
-
             room: data.room ?? data.roomName,
-
             roomType: data.roomType,
-
             checkIn: data.checkIn,
-
             checkOut: data.checkOut,
-
             nights: Number(data.nights ?? 0),
-
             pax: Number(data.pax ?? data.guests ?? 0),
-
             status: String(data.status ?? "pending").toLowerCase(),
-
             amount: Number(
               data.amount ??
                 data.totalPrice ??
@@ -94,25 +83,15 @@ export default function ReceptionistDashboards() {
                 data.totalAmount ??
                 0,
             ),
-
             paid: Number(data.paid ?? data.amountPaid ?? 0),
-
             notes: data.notes,
-
             acceptedBy: String(data.acceptedBy ?? ""),
-
             acceptedByUid: String(data.acceptedByUid ?? ""),
-
             cancelledBy: String(data.cancelledBy ?? ""),
-
             cancelledByUid: String(data.cancelledByUid ?? ""),
-
             cancelledAt: data.cancelledAt,
-
             receptionist: data.receptionist,
-
             createdBy: data.createdBy,
-
             createdAt: data.createdAt,
           };
         });
@@ -176,13 +155,10 @@ export default function ReceptionistDashboards() {
         if (!booking.createdAt) {
           return 0;
         }
-
         if (booking.createdAt?.toDate) {
           return booking.createdAt.toDate().getTime();
         }
-
         const parsed = new Date(booking.createdAt).getTime();
-
         return Number.isNaN(parsed) ? 0 : parsed;
       };
 
@@ -250,10 +226,6 @@ export default function ReceptionistDashboards() {
       <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <ClipboardCheck className="w-6 h-6 text-blue-600" />
-            </div>
-
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
                 Receptionist Dashboard

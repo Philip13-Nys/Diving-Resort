@@ -4,6 +4,7 @@ import { Edit, TrendingUp, Calendar, X, Save, AlertCircle } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { db } from "../app/firebase";
+import { createActivityLog } from "../app/activitylogss";
 
 type RoomType = {
   id: string;
@@ -123,8 +124,6 @@ export default function PricingManagement() {
     loadPricingRules();
   }, []);
 
-  /*ROOM PRICE EDIT*/
-
   const startEditingRoom = (room: RoomType) => {
     setEditingRate(room.id);
     setEditingPrice(String(room.basePrice));
@@ -134,8 +133,6 @@ export default function PricingManagement() {
     setEditingRate(null);
     setEditingPrice("");
   };
-
-  /*SAVE ROOM PRICE*/
 
   const saveRoomPrice = async (roomId: string) => {
     const newPrice = Number(editingPrice);
@@ -154,6 +151,16 @@ export default function PricingManagement() {
         basePrice: newPrice,
       });
 
+      const room = roomTypes.find((item) => item.id === roomId);
+
+      await createActivityLog({
+        action: "Updated Room Price",
+        details: room
+          ? `Updated the price of "${room.name}" from ₱${room.basePrice.toLocaleString()} to ₱${newPrice.toLocaleString()} per night.`
+          : `Updated room price to ₱${newPrice.toLocaleString()} per night.`,
+        status: "success",
+      });
+
       setRoomTypes((previous) =>
         previous.map((room) =>
           room.id === roomId
@@ -164,7 +171,6 @@ export default function PricingManagement() {
             : room,
         ),
       );
-
       alert("Room price updated successfully.");
 
       cancelEditingRoom();
@@ -176,8 +182,6 @@ export default function PricingManagement() {
       setSavingRoomPrice(false);
     }
   };
-
-  /*PRICING RULE EDIT*/
 
   const startEditingRule = (rule: PricingRule) => {
     setEditingRule(rule.id);
@@ -192,14 +196,11 @@ export default function PricingManagement() {
     setEditingRuleData(null);
   };
 
-  /*UPDATE PRICING RULE FIELD*/
-
   const updateRuleField = (field: keyof PricingRule, value: string) => {
     setEditingRuleData((previous) => {
       if (!previous) {
         return previous;
       }
-
       return {
         ...previous,
         [field]: value,
@@ -207,33 +208,26 @@ export default function PricingManagement() {
     });
   };
 
-  /*SAVE PRICING RULE*/
-
   const savePricingRule = async () => {
     if (!editingRuleData) {
       return;
     }
-
     if (!editingRuleData.name.trim()) {
       alert("Please enter a rule name.");
       return;
     }
-
     if (!editingRuleData.period.trim()) {
       alert("Please enter a period.");
       return;
     }
-
     if (!editingRuleData.multiplier.trim()) {
       alert("Please enter a price multiplier.");
       return;
     }
-
     if (!editingRuleData.affectedRooms.trim()) {
       alert("Please enter the affected rooms.");
       return;
     }
-
     try {
       setSavingRule(true);
 
@@ -245,6 +239,12 @@ export default function PricingManagement() {
         multiplier: editingRuleData.multiplier,
         status: editingRuleData.status,
         affectedRooms: editingRuleData.affectedRooms,
+      });
+
+      await createActivityLog({
+        action: "Updated Pricing Rule",
+        details: `Updated pricing rule "${editingRuleData.name}" for ${editingRuleData.affectedRooms}. Multiplier: ${editingRuleData.multiplier}, Period: ${editingRuleData.period}.`,
+        status: "success",
       });
 
       setPricingRules((previous) =>
@@ -265,12 +265,8 @@ export default function PricingManagement() {
     }
   };
 
-  /*RENDER*/
-
   return (
     <div className="p-8">
-      {/*HEADER*/}
-
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
@@ -292,8 +288,6 @@ export default function PricingManagement() {
         </div>
       </div>
 
-      {/*CURRENT ROOM RATES*/}
-
       <Card className="p-6 mb-6">
         <div className="flex items-center gap-2 mb-4">
           <TrendingUp className="w-5 h-5 text-blue-600" />
@@ -303,15 +297,11 @@ export default function PricingManagement() {
           </h2>
         </div>
 
-        {/* LOADING */}
-
         {loadingRooms && (
           <div className="py-10 text-center text-gray-500">
             Loading room types...
           </div>
         )}
-
-        {/* ERROR */}
 
         {!loadingRooms && roomError && (
           <div className="py-10 flex flex-col items-center justify-center text-red-500">
@@ -321,15 +311,11 @@ export default function PricingManagement() {
           </div>
         )}
 
-        {/* EMPTY */}
-
         {!loadingRooms && !roomError && roomTypes.length === 0 && (
           <div className="py-10 text-center text-gray-500">
             No room types found.
           </div>
         )}
-
-        {/* TABLE */}
 
         {!loadingRooms && !roomError && roomTypes.length > 0 && (
           <div className="overflow-x-auto">
@@ -361,11 +347,7 @@ export default function PricingManagement() {
               <tbody>
                 {roomTypes.map((room) => (
                   <Fragment key={room.id}>
-                    {/* ROOM ROW */}
-
                     <tr className="border-b border-gray-100 hover:bg-gray-50">
-                      {/* ROOM TYPE */}
-
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-3">
                           {room.image ? (
@@ -394,8 +376,6 @@ export default function PricingManagement() {
                         </div>
                       </td>
 
-                      {/* PRICE */}
-
                       <td className="py-3 px-4">
                         <span className="text-blue-600 font-semibold">
                           ₱{room.basePrice.toLocaleString()}
@@ -406,17 +386,11 @@ export default function PricingManagement() {
                         </span>
                       </td>
 
-                      {/* AVAILABLE ROOMS */}
-
                       <td className="py-3 px-4 text-gray-700">{room.count}</td>
-
-                      {/* MAX GUESTS */}
 
                       <td className="py-3 px-4 text-gray-700">
                         {room.maxGuests}
                       </td>
-
-                      {/* ACTION */}
 
                       <td className="py-3 px-4">
                         <Button
@@ -437,8 +411,6 @@ export default function PricingManagement() {
                         </Button>
                       </td>
                     </tr>
-
-                    {/* ROOM PRICE EDIT */}
 
                     {editingRate === room.id && (
                       <tr className="bg-blue-50 border-b border-blue-100">
@@ -489,8 +461,6 @@ export default function PricingManagement() {
         )}
       </Card>
 
-      {/* PRICING RULES */}
-
       <Card className="p-6">
         <div className="flex items-center gap-2 mb-4">
           <Calendar className="w-5 h-5 text-blue-600" />
@@ -500,15 +470,11 @@ export default function PricingManagement() {
           </h2>
         </div>
 
-        {/* LOADING */}
-
         {loadingRules && (
           <div className="py-10 text-center text-gray-500">
             Loading pricing rules...
           </div>
         )}
-
-        {/* ERROR */}
 
         {!loadingRules && ruleError && (
           <div className="py-10 flex flex-col items-center justify-center text-red-500">
@@ -518,15 +484,11 @@ export default function PricingManagement() {
           </div>
         )}
 
-        {/* EMPTY */}
-
         {!loadingRules && !ruleError && pricingRules.length === 0 && (
           <div className="py-10 text-center text-gray-500">
             No pricing rules found.
           </div>
         )}
-
-        {/* RULES */}
 
         {!loadingRules && !ruleError && pricingRules.length > 0 && (
           <div className="space-y-4">
@@ -539,13 +501,9 @@ export default function PricingManagement() {
                     : "border-gray-200 hover:border-blue-300"
                 }`}
               >
-                {/*EDITING RULE*/}
-
                 {editingRule === rule.id ? (
                   <div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      {/* NAME */}
-
                       <div>
                         <label className="text-xs font-medium text-gray-600 block mb-1">
                           Rule Name
@@ -560,8 +518,6 @@ export default function PricingManagement() {
                         />
                       </div>
 
-                      {/* PERIOD */}
-
                       <div>
                         <label className="text-xs font-medium text-gray-600 block mb-1">
                           Period
@@ -575,8 +531,6 @@ export default function PricingManagement() {
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
-
-                      {/* MULTIPLIER */}
 
                       <div>
                         <label className="text-xs font-medium text-gray-600 block mb-1">
@@ -593,8 +547,6 @@ export default function PricingManagement() {
                         />
                       </div>
 
-                      {/* AFFECTED ROOMS */}
-
                       <div>
                         <label className="text-xs font-medium text-gray-600 block mb-1">
                           Affected Rooms
@@ -608,8 +560,6 @@ export default function PricingManagement() {
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
                       </div>
-
-                      {/* STATUS */}
 
                       <div>
                         <label className="text-xs font-medium text-gray-600 block mb-1">
@@ -631,8 +581,6 @@ export default function PricingManagement() {
                         </select>
                       </div>
                     </div>
-
-                    {/* SAVE / CANCEL */}
 
                     <div className="flex gap-2">
                       <Button
@@ -679,17 +627,12 @@ export default function PricingManagement() {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
-                        {/* PERIOD */}
-
                         <div>
                           <p className="text-xs text-gray-500">Period</p>
-
                           <p className="text-sm text-gray-900 mt-1">
                             {rule.period}
                           </p>
                         </div>
-
-                        {/* MULTIPLIER */}
 
                         <div>
                           <p className="text-xs text-gray-500">
@@ -700,8 +643,6 @@ export default function PricingManagement() {
                             {rule.multiplier}
                           </p>
                         </div>
-
-                        {/* ROOMS */}
 
                         <div>
                           <p className="text-xs text-gray-500">
@@ -714,8 +655,6 @@ export default function PricingManagement() {
                         </div>
                       </div>
                     </div>
-
-                    {/* EDIT */}
 
                     <div className="flex gap-2">
                       <Button

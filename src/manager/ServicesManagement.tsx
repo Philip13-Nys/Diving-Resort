@@ -19,7 +19,7 @@ import {
   doc,
   serverTimestamp,
 } from "firebase/firestore";
-
+import { createActivityLog } from "../app/activitylogss";
 import { db } from "../app/firebase";
 
 type Service = {
@@ -102,7 +102,17 @@ export default function ServicesManagement() {
     }
 
     try {
+      const service = services.find((item) => item.id === id);
+
       await deleteDoc(doc(db, "services", id));
+
+      if (service) {
+        await createActivityLog({
+          action: "Deleted Service",
+          details: `Deleted service "${service.name}" from the ${service.category} category.`,
+          status: "warning",
+        });
+      }
 
       await loadServices();
 
@@ -119,19 +129,31 @@ export default function ServicesManagement() {
       const form = e.currentTarget;
       const data = new FormData(form);
 
-      await addDoc(collection(db, "services"), {
-        name: data.get("name") as string,
-        category: data.get("category") as string,
-        description: data.get("description") as string,
-        price: Number(data.get("price")),
-        maxParticipants: Number(data.get("maxParticipants")),
-        duration: data.get("duration") as string,
-        status: (data.get("status") as string).toLowerCase(),
+      const serviceName = data.get("name") as string;
+      const category = data.get("category") as string;
+      const price = Number(data.get("price"));
+      const maxParticipants = Number(data.get("maxParticipants"));
+      const duration = data.get("duration") as string;
+      const status = (data.get("status") as string).toLowerCase();
 
-        // Image will be connected to Cloudinary later
+      await addDoc(collection(db, "services"), {
+        name: serviceName,
+        category,
+        description: data.get("description") as string,
+        price,
+        maxParticipants,
+        duration,
+        status,
+
         image: "",
 
         createdAt: serverTimestamp(),
+      });
+
+      await createActivityLog({
+        action: "Added Service",
+        details: `Added service "${serviceName}" under ${category} with a price of ₱${price.toLocaleString()} and duration of ${duration}.`,
+        status: "success",
       });
 
       await loadServices();
@@ -166,6 +188,11 @@ export default function ServicesManagement() {
         duration: data.get("duration") as string,
         status: (data.get("status") as string).toLowerCase(),
       });
+      await createActivityLog({
+        action: "Updated Service",
+        details: `Updated service "${data.get("name") as string}" under ${data.get("category") as string}. Price: ₱${Number(data.get("price")).toLocaleString()}, Duration: ${data.get("duration") as string}.`,
+        status: "success",
+      });
 
       await loadServices();
 
@@ -184,7 +211,17 @@ export default function ServicesManagement() {
     }
 
     try {
+      const pkg = packages.find((item) => item.id === id);
+
       await deleteDoc(doc(db, "packages", id));
+
+      if (pkg) {
+        await createActivityLog({
+          action: "Deleted Package",
+          details: `Deleted package "${pkg.name}".`,
+          status: "warning",
+        });
+      }
 
       await loadPackages();
 
@@ -193,6 +230,7 @@ export default function ServicesManagement() {
       console.error("Error deleting package:", error);
     }
   };
+
   const handleSavePackage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
@@ -208,19 +246,20 @@ export default function ServicesManagement() {
 
       await updateDoc(packageRef, {
         name: data.get("name") as string,
-
         description: data.get("description") as string,
-
         services: (data.get("services") as string)
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
 
         originalPrice: Number(data.get("originalPrice")),
-
         packagePrice: Number(data.get("packagePrice")),
-
         discount: Number(data.get("discount")),
+      });
+      await createActivityLog({
+        action: "Updated Package",
+        details: `Updated package "${data.get("name") as string}". Package price: ₱${Number(data.get("packagePrice")).toLocaleString()}, Discount: ${Number(data.get("discount"))}%.`,
+        status: "success",
       });
 
       await loadPackages();
@@ -239,8 +278,12 @@ export default function ServicesManagement() {
     try {
       const data = new FormData(e.currentTarget);
 
+      const packageName = data.get("name") as string;
+      const packagePrice = Number(data.get("packagePrice"));
+      const discount = Number(data.get("discount"));
+
       await addDoc(collection(db, "packages"), {
-        name: data.get("name") as string,
+        name: packageName,
 
         description: data.get("description") as string,
 
@@ -251,13 +294,19 @@ export default function ServicesManagement() {
 
         originalPrice: Number(data.get("originalPrice")),
 
-        packagePrice: Number(data.get("packagePrice")),
+        packagePrice,
 
-        discount: Number(data.get("discount")),
+        discount,
 
         status: "active",
 
         createdAt: serverTimestamp(),
+      });
+
+      await createActivityLog({
+        action: "Added Package",
+        details: `Added package "${packageName}" with a package price of ₱${packagePrice.toLocaleString()} and ${discount}% discount.`,
+        status: "success",
       });
 
       await loadPackages();

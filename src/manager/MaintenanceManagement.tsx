@@ -5,16 +5,18 @@ import { useSearchParams } from "react-router";
 import { useState, useEffect } from "react";
 import {
   collection,
-  getDocs,
   addDoc,
+  getDocs,
   updateDoc,
   doc,
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../app/firebase";
+import { createActivityLog } from "../app/activitylogss";
 
 type MaintenanceRequest = {
   id: string;
+  requestNumber: number;
   room: string;
   issue: string;
   priority: string;
@@ -39,21 +41,24 @@ export default function MaintenanceManagement() {
     try {
       const snapshot = await getDocs(collection(db, "maintenanceRequests"));
 
-      const requests: MaintenanceRequest[] = snapshot.docs.map((item) => {
-        const data = item.data();
+      const requests: MaintenanceRequest[] = snapshot.docs
+        .map((item) => {
+          const data = item.data();
 
-        return {
-          id: item.id,
-          room: data.room || "",
-          issue: data.issue || "",
-          priority: data.priority || "medium",
-          status: data.status || "pending",
-          reportedBy: data.reportedBy || "",
-          assignedTo: data.assignedTo || "Unassigned",
-          reportedDate: data.reportedDate || "",
-          estimatedCompletion: data.estimatedCompletion || "",
-        };
-      });
+          return {
+            id: item.id,
+            requestNumber: Number(data.requestNumber || 1),
+            room: data.room || "",
+            issue: data.issue || "",
+            priority: data.priority || "medium",
+            status: data.status || "pending",
+            reportedBy: data.reportedBy || "",
+            assignedTo: data.assignedTo || "Unassigned",
+            reportedDate: data.reportedDate || "",
+            estimatedCompletion: data.estimatedCompletion || "",
+          };
+        })
+        .sort((a, b) => a.requestNumber - b.requestNumber);
 
       setMaintenanceRequests(requests);
     } catch (error) {
@@ -75,10 +80,25 @@ export default function MaintenanceManagement() {
 
   const updateStatus = async (id: string, status: string) => {
     try {
+      const request = maintenanceRequests.find((item) => item.id === id);
+
       await updateDoc(doc(db, "maintenanceRequests", id), {
         status,
         updatedAt: serverTimestamp(),
       });
+
+      if (request) {
+        const statusText =
+          status === "in_progress"
+            ? "In Progress"
+            : status.charAt(0).toUpperCase() + status.slice(1);
+
+        await createActivityLog({
+          action: "Updated Maintenance Request",
+          details: `Changed REQ-${request.requestNumber} for Room ${request.room} to ${statusText}.`,
+          status: "success",
+        });
+      }
 
       await loadMaintenanceRequests();
     } catch (error) {
@@ -116,7 +136,17 @@ export default function MaintenanceManagement() {
     }
 
     try {
+      const snapshot = await getDocs(collection(db, "maintenanceRequests"));
+
+      const requestNumbers = snapshot.docs
+        .map((item) => Number(item.data().requestNumber || 0))
+        .filter((number) => number > 0);
+
+      const nextRequestNumber =
+        requestNumbers.length > 0 ? Math.max(...requestNumbers) + 1 : 1;
+
       await addDoc(collection(db, "maintenanceRequests"), {
+        requestNumber: nextRequestNumber,
         room: newRequest.room,
         issue: newRequest.issue,
         priority: newRequest.priority.toLowerCase(),
@@ -126,6 +156,11 @@ export default function MaintenanceManagement() {
         reportedDate: new Date().toLocaleString(),
         estimatedCompletion: newRequest.estimatedCompletion || "",
         createdAt: serverTimestamp(),
+      });
+      await createActivityLog({
+        action: "Created Maintenance Request",
+        details: `Created maintenance request REQ-${nextRequestNumber} for Room ${newRequest.room}.`,
+        status: "success",
       });
 
       await loadMaintenanceRequests();
@@ -140,8 +175,9 @@ export default function MaintenanceManagement() {
       });
 
       closeForm();
-
-      alert("Maintenance request submitted successfully.");
+      alert(
+        `Maintenance request REQ-${nextRequestNumber} submitted successfully.`,
+      );
     } catch (error) {
       console.error("Error adding maintenance request:", error);
       alert("Failed to add maintenance request.");
@@ -168,7 +204,6 @@ export default function MaintenanceManagement() {
         </Button>
       </div>
 
-      {/* New Request Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <Card className="w-full max-w-md p-6 m-4">
@@ -307,7 +342,6 @@ export default function MaintenanceManagement() {
         </div>
       )}
 
-      {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <Card className="p-6">
           <div className="flex items-center gap-3">
@@ -361,7 +395,6 @@ export default function MaintenanceManagement() {
         </Card>
       </div>
 
-      {/* Filters */}
       <div className="flex gap-2 mb-6">
         <Button
           variant={filter === "all" ? "default" : "outline"}
@@ -407,7 +440,6 @@ export default function MaintenanceManagement() {
         </Button>
       </div>
 
-      {/* Maintenance Requests Table */}
       <Card className="p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">
           Maintenance Requests
@@ -452,7 +484,7 @@ export default function MaintenanceManagement() {
                   className="border-b border-gray-100 hover:bg-gray-50"
                 >
                   <td className="py-3 px-4 font-medium text-gray-900">
-                    {request.id}
+                    REQ-{request.requestNumber}
                   </td>
                   <td className="py-3 px-4 text-sm text-gray-900">
                     Room {request.room}
@@ -502,36 +534,42 @@ export default function MaintenanceManagement() {
                     </span>
                   </td>
                   <td className="py-3 px-4">
-                    {request.status === "pending" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-orange-600 border-orange-300 hover:bg-orange-50 text-xs"
-                        onClick={() => updateStatus(request.id, "in_progress")}
-                      >
-                        Start
-                      </Button>
-                    )}
-                    {request.status === "in_progress" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-green-600 border-green-300 hover:bg-green-50 text-xs"
-                        onClick={() => updateStatus(request.id, "completed")}
-                      >
-                        Complete
-                      </Button>
-                    )}
-                    {request.status === "completed" && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-gray-500 hover:text-gray-700 text-xs"
-                        onClick={() => updateStatus(request.id, "pending")}
-                      >
-                        Reopen
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {request.status === "pending" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-orange-600 border-orange-300 hover:bg-orange-50 text-xs"
+                          onClick={() =>
+                            updateStatus(request.id, "in_progress")
+                          }
+                        >
+                          Start
+                        </Button>
+                      )}
+
+                      {request.status === "in_progress" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-green-600 border-green-300 hover:bg-green-50 text-xs"
+                          onClick={() => updateStatus(request.id, "completed")}
+                        >
+                          Complete
+                        </Button>
+                      )}
+
+                      {request.status === "completed" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-gray-500 hover:text-gray-700 text-xs"
+                          onClick={() => updateStatus(request.id, "pending")}
+                        >
+                          Reopen
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

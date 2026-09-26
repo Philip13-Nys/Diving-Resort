@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Bell,
   Search,
+  CalendarCheck,
 } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -47,30 +48,65 @@ const NAV_ITEMS: {
   { id: "reports", label: "Reports", icon: BarChart3 },
 ];
 
+type Notification = {
+  id: string;
+  type: "inquiry" | "booking";
+  title: string;
+  message: string;
+  timestamp: number;
+  unread: boolean;
+  bookingId?: string;
+};
+
 export default function ReceptionistLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [unreadInquiryCount, setUnreadInquiryCount] = useState(0);
+
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  const [inquiries, setInquiries] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<any[]>([]);
 
   const [userName, setUserName] = useState("Receptionist");
   const [userEmail, setUserEmail] = useState("");
   const [userInitial, setUserInitial] = useState("R");
 
+  /*
+   * Store the IDs that the receptionist has already viewed.
+   *
+   * localStorage is used so refreshing the receptionist page
+   * does not immediately make all old notifications unread again.
+   */
+  const [readNotificationIds, setReadNotificationIds] = useState<string[]>(
+    () => {
+      try {
+        const saved = localStorage.getItem("receptionistReadNotifications");
+
+        return saved ? JSON.parse(saved) : [];
+      } catch {
+        return [];
+      }
+    },
+  );
+
+  /*
+   * REAL-TIME INQUIRIES
+   */
   useEffect(() => {
     const inquiriesRef = collection(customerDb, "Inquiries");
 
     const unsubscribe = onSnapshot(
       inquiriesRef,
       (snapshot) => {
-        const unreadCount = snapshot.docs.filter((inquiryDoc) => {
-          const data = inquiryDoc.data();
-          return data.read !== true;
-        }).length;
+        const inquiryData = snapshot.docs.map((inquiryDoc) => ({
+          id: inquiryDoc.id,
+          ...inquiryDoc.data(),
+        }));
 
-        setUnreadInquiryCount(unreadCount);
+        setInquiries(inquiryData);
       },
       (error) => {
         console.error("Error loading inquiry notifications:", error);
@@ -80,6 +116,37 @@ export default function ReceptionistLayout() {
     return () => unsubscribe();
   }, []);
 
+  /*
+   * REAL-TIME BOOKINGS
+   *
+   * Your BookingPage saves bookings here:
+   *
+   * customerDb -> Bookings
+   */
+  useEffect(() => {
+    const bookingsRef = collection(customerDb, "Bookings");
+
+    const unsubscribe = onSnapshot(
+      bookingsRef,
+      (snapshot) => {
+        const bookingData = snapshot.docs.map((bookingDoc) => ({
+          id: bookingDoc.id,
+          ...bookingDoc.data(),
+        }));
+
+        setBookings(bookingData);
+      },
+      (error) => {
+        console.error("Error loading booking notifications:", error);
+      },
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  /*
+   * USER PROFILE
+   */
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
@@ -126,6 +193,120 @@ export default function ReceptionistLayout() {
     return () => unsubscribe();
   }, []);
 
+  /*
+   * CONVERT INQUIRIES + BOOKINGS INTO ONE NOTIFICATION LIST
+   */
+  const notifications: Notification[] = [
+    ...inquiries.map((inquiry) => {
+      const createdAt =
+        inquiry.createdAt?.toMillis?.() ||
+        inquiry.createdAt?.seconds * 1000 ||
+        0;
+
+      return {
+        id: `inquiry-${inquiry.id}`,
+        type: "inquiry" as const,
+        title: inquiry.name || inquiry.customerName || "New Customer Inquiry",
+        message:
+          inquiry.message ||
+          inquiry.subject ||
+          "A customer sent a new inquiry.",
+        timestamp: createdAt,
+        unread:
+          inquiry.read !== true &&
+          !readNotificationIds.includes(`inquiry-${inquiry.id}`),
+      };
+    }),
+
+    ...bookings
+      .filter((booking) => booking.status !== "cancelled")
+      .map((booking) => {
+        const createdAt =
+          booking.createdAt?.toMillis?.() ||
+          booking.createdAt?.seconds * 1000 ||
+          0;
+
+        const bookingRef = booking.bookingRef || booking.id;
+
+        return {
+          id: `booking-${booking.id}`,
+          type: "booking" as const,
+          title: booking.customerName || "New Booking",
+          message: `Booking ${bookingRef} • ${booking.roomName || "Room"}`,
+          timestamp: createdAt,
+          unread: !readNotificationIds.includes(`booking-${booking.id}`),
+          bookingId: booking.id,
+        };
+      }),
+  ].sort((a, b) => b.timestamp - a.timestamp);
+
+  /*
+   * ONLY SHOW THE LATEST 10 NOTIFICATIONS
+   */
+  const displayedNotifications = notifications.slice(0, 10);
+
+  /*
+   * TOTAL UNREAD
+   */
+  const unreadNotificationCount = notifications.filter(
+    (notification) => notification.unread,
+  ).length;
+
+  /*
+   * MARK ONE NOTIFICATION AS READ
+   */
+  const markNotificationAsRead = (notificationId: string) => {
+    setReadNotificationIds((previous) => {
+      if (previous.includes(notificationId)) {
+        return previous;
+      }
+
+      const updated = [...previous, notificationId];
+
+      localStorage.setItem(
+        "receptionistReadNotifications",
+        JSON.stringify(updated),
+      );
+
+      return updated;
+    });
+  };
+
+  /*
+   * MARK ALL AS READ
+   */
+  const markAllNotificationsAsRead = () => {
+    const allIds = notifications.map((notification) => notification.id);
+
+    setReadNotificationIds(allIds);
+
+    localStorage.setItem(
+      "receptionistReadNotifications",
+      JSON.stringify(allIds),
+    );
+  };
+
+  /*
+   * CLICK NOTIFICATION
+   */
+  const handleNotificationClick = (notification: Notification) => {
+    markNotificationAsRead(notification.id);
+    setNotificationsOpen(false);
+
+    if (notification.type === "inquiry") {
+      navigate("/receptionist/inquiries");
+      return;
+    }
+
+    if (notification.type === "booking") {
+      navigate("/receptionist/reservations");
+      return;
+    }
+  };
+
+  /*
+   * LOGOUT
+   */
   const handleLogout = async () => {
     const confirmLogout = window.confirm("Are you sure you want to log out?");
 
@@ -140,6 +321,9 @@ export default function ReceptionistLayout() {
     }
   };
 
+  /*
+   * NAVIGATION
+   */
   const handleNavigation = (id: (typeof NAV_ITEMS)[number]["id"]) => {
     if (id === "dashboard") {
       navigate("/receptionist");
@@ -193,7 +377,9 @@ export default function ReceptionistLayout() {
           <div className="min-w-0 flex-1">
             <div
               className="truncate text-sm font-medium leading-tight text-white sm:text-base"
-              style={{ fontFamily: "Georgia, serif" }}
+              style={{
+                fontFamily: "Georgia, serif",
+              }}
             >
               Sabang Diving Resort
             </div>
@@ -221,6 +407,15 @@ export default function ReceptionistLayout() {
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const active = currentPage === item.id;
+
+              const inquiryCount =
+                item.id === "inquiries"
+                  ? inquiries.filter(
+                      (inquiry) =>
+                        inquiry.read !== true &&
+                        !readNotificationIds.includes(`inquiry-${inquiry.id}`),
+                    ).length
+                  : 0;
 
               return (
                 <button
@@ -255,7 +450,7 @@ export default function ReceptionistLayout() {
                     {item.label}
                   </span>
 
-                  {item.id === "inquiries" && unreadInquiryCount > 0 && (
+                  {item.id === "inquiries" && inquiryCount > 0 && (
                     <span
                       className="flex min-w-[20px] flex-shrink-0 items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-medium"
                       style={{
@@ -263,7 +458,7 @@ export default function ReceptionistLayout() {
                         color: "#fff",
                       }}
                     >
-                      {unreadInquiryCount}
+                      {inquiryCount}
                     </span>
                   )}
 
@@ -374,20 +569,277 @@ export default function ReceptionistLayout() {
           </div>
 
           <div className="ml-auto flex flex-shrink-0 items-center gap-1 sm:gap-3">
-            <button
-              type="button"
-              className="relative rounded-lg p-2"
-              style={{ color: "#0d7377" }}
-              aria-label="Notifications"
-            >
-              <Bell className="h-5 w-5" />
+            {/* ========================= */}
+            {/* NOTIFICATION BELL */}
+            {/* ========================= */}
 
-              <span
-                className="absolute right-1 top-1 h-2 w-2 rounded-full"
-                style={{ background: "#f97316" }}
-              />
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                className="relative rounded-lg p-2 transition-colors hover:bg-[#f0f9f8]"
+                style={{
+                  color: "#0d7377",
+                }}
+                aria-label="Notifications"
+                onClick={() => setNotificationsOpen((previous) => !previous)}
+              >
+                <Bell className="h-5 w-5" />
 
+                {unreadNotificationCount > 0 && (
+                  <span
+                    className="absolute -right-1 -top-1 flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold text-white"
+                    style={{
+                      background: "#f97316",
+                    }}
+                  >
+                    {unreadNotificationCount > 99
+                      ? "99+"
+                      : unreadNotificationCount}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div
+                  className="absolute right-0 top-12 z-[100] w-[360px] max-w-[calc(100vw-24px)] overflow-hidden rounded-xl border bg-white shadow-xl"
+                  style={{
+                    borderColor: "rgba(13,115,119,0.15)",
+                  }}
+                >
+                  {/* HEADER */}
+                  <div
+                    className="flex items-center justify-between border-b px-4 py-3"
+                    style={{
+                      borderColor: "rgba(13,115,119,0.12)",
+                    }}
+                  >
+                    <div>
+                      <h3
+                        className="text-sm font-semibold"
+                        style={{
+                          color: "#0a2e2e",
+                        }}
+                      >
+                        Notifications
+                      </h3>
+
+                      <p
+                        className="text-xs"
+                        style={{
+                          color: "#4a7a7a",
+                        }}
+                      >
+                        {unreadNotificationCount > 0
+                          ? `${unreadNotificationCount} unread notification${
+                              unreadNotificationCount !== 1 ? "s" : ""
+                            }`
+                          : "You're all caught up"}
+                      </p>
+                    </div>
+
+                    {unreadNotificationCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={markAllNotificationsAsRead}
+                        className="text-xs font-medium"
+                        style={{
+                          color: "#0d7377",
+                        }}
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+
+                  {/* NOTIFICATION LIST */}
+                  <div className="max-h-[380px] overflow-y-auto">
+                    {displayedNotifications.length === 0 ? (
+                      <div className="px-4 py-10 text-center">
+                        <Bell
+                          className="mx-auto mb-2 h-8 w-8"
+                          style={{
+                            color: "#a0c4c4",
+                          }}
+                        />
+
+                        <p
+                          className="text-sm"
+                          style={{
+                            color: "#4a7a7a",
+                          }}
+                        >
+                          No notifications yet
+                        </p>
+                      </div>
+                    ) : (
+                      displayedNotifications.map((notification) => (
+                        <button
+                          key={notification.id}
+                          type="button"
+                          onClick={() => handleNotificationClick(notification)}
+                          className="flex w-full items-start gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-[#f0f9f8]"
+                          style={{
+                            borderColor: "rgba(13,115,119,0.08)",
+                            background: notification.unread
+                              ? "rgba(20,184,166,0.06)"
+                              : "#fff",
+                          }}
+                        >
+                          {/* ICON */}
+                          <div
+                            className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
+                            style={{
+                              background:
+                                notification.type === "booking"
+                                  ? "rgba(20,184,166,0.12)"
+                                  : "rgba(249,115,22,0.12)",
+                            }}
+                          >
+                            {notification.type === "booking" ? (
+                              <CalendarCheck
+                                className="h-4 w-4"
+                                style={{
+                                  color: "#0d7377",
+                                }}
+                              />
+                            ) : (
+                              <MessageSquare
+                                className="h-4 w-4"
+                                style={{
+                                  color: "#f97316",
+                                }}
+                              />
+                            )}
+                          </div>
+
+                          {/* CONTENT */}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p
+                                className="truncate text-sm font-medium"
+                                style={{
+                                  color: "#0a2e2e",
+                                }}
+                              >
+                                {notification.type === "booking"
+                                  ? "New Booking"
+                                  : "New Inquiry"}
+                              </p>
+
+                              {notification.unread && (
+                                <span
+                                  className="h-2 w-2 flex-shrink-0 rounded-full"
+                                  style={{
+                                    background: "#f97316",
+                                  }}
+                                />
+                              )}
+                            </div>
+
+                            <p
+                              className="mt-0.5 truncate text-sm"
+                              style={{
+                                color: "#0a2e2e",
+                              }}
+                            >
+                              {notification.title}
+                            </p>
+
+                            <p
+                              className="mt-0.5 line-clamp-2 text-xs"
+                              style={{
+                                color: "#4a7a7a",
+                              }}
+                            >
+                              {notification.message}
+                            </p>
+
+                            {notification.type === "booking" &&
+                              (() => {
+                                const booking = bookings.find(
+                                  (item) => item.id === notification.bookingId,
+                                );
+
+                                if (!booking) return null;
+
+                                return (
+                                  <div className="mt-1.5 flex flex-wrap gap-x-2 text-[11px]">
+                                    <span
+                                      style={{
+                                        color: "#0d7377",
+                                      }}
+                                    >
+                                      {booking.checkIn || "No check-in"}
+                                    </span>
+
+                                    <span
+                                      style={{
+                                        color: "#a0a0a0",
+                                      }}
+                                    >
+                                      →
+                                    </span>
+
+                                    <span
+                                      style={{
+                                        color: "#0d7377",
+                                      }}
+                                    >
+                                      {booking.checkOut || "No check-out"}
+                                    </span>
+
+                                    {booking.status && (
+                                      <span
+                                        className="rounded-full px-1.5 py-0.5"
+                                        style={{
+                                          background:
+                                            booking.status === "pending"
+                                              ? "#fff7ed"
+                                              : "#f0f9f8",
+                                          color:
+                                            booking.status === "pending"
+                                              ? "#c2410c"
+                                              : "#0d7377",
+                                        }}
+                                      >
+                                        {booking.status}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+
+                  {/* FOOTER */}
+                  <div
+                    className="border-t p-2"
+                    style={{
+                      borderColor: "rgba(13,115,119,0.12)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="w-full rounded-lg py-2 text-center text-sm font-medium transition-colors hover:bg-[#f0f9f8]"
+                      style={{
+                        color: "#0d7377",
+                      }}
+                      onClick={() => {
+                        setNotificationsOpen(false);
+                        navigate("/receptionist/reservations");
+                      }}
+                    >
+                      View reservations
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* USER */}
             <div className="hidden items-center gap-2 sm:flex">
               <div
                 className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-medium"
@@ -401,7 +853,9 @@ export default function ReceptionistLayout() {
 
               <span
                 className="max-w-[140px] truncate text-sm"
-                style={{ color: "#0a2e2e" }}
+                style={{
+                  color: "#0a2e2e",
+                }}
               >
                 {userName}
               </span>

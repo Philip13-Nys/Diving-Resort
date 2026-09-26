@@ -29,26 +29,20 @@ import { collection, getDocs, query, orderBy, limit } from "firebase/firestore";
 type Booking = {
   id: string;
   bookingRef?: string;
-
   guestName?: string;
   guest?: string;
   customerName?: string;
   customerEmail?: string;
   customerPhone?: string;
-
   room?: string;
   roomName?: string;
   roomType?: string;
-
   checkIn?: any;
   checkOut?: any;
-
   total?: number;
   totalAmount?: number;
   amount?: number;
-
   status?: string;
-
   createdAt?: any;
 };
 
@@ -115,21 +109,16 @@ const convertToDate = (value: any): Date | null => {
   if (value?.toDate) {
     return value.toDate();
   }
-
   if (value instanceof Date) {
     return value;
   }
-
   const date = new Date(value);
-
   return isNaN(date.getTime()) ? null : date;
 };
 
 export default function Dashboard() {
   const navigate = useNavigate();
-
   const [loading, setLoading] = useState(true);
-
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [totalBookings, setTotalBookings] = useState(0);
   const [occupancyRate, setOccupancyRate] = useState(0);
@@ -159,14 +148,10 @@ export default function Dashboard() {
   const loadDashboard = async () => {
     try {
       setLoading(true);
-
       console.log("Loading dashboard data...");
-
       const bookingSnapshot = await getDocs(collection(customerDb, "Bookings"));
-
       const bookings: Booking[] = bookingSnapshot.docs.map((doc) => {
         const data = doc.data();
-
         console.log("Booking:", doc.id, data);
 
         return {
@@ -176,9 +161,7 @@ export default function Dashboard() {
       });
 
       console.log("Total bookings:", bookings.length);
-
       setTotalBookings(bookings.length);
-
       const revenue = bookings.reduce((sum, booking) => {
         const amount =
           Number(booking.total) ||
@@ -205,7 +188,6 @@ export default function Dashboard() {
           }
 
           const difference = checkOut.getTime() - checkIn.getTime();
-
           const nights = Math.max(
             1,
             Math.ceil(difference / (1000 * 60 * 60 * 24)),
@@ -291,12 +273,7 @@ export default function Dashboard() {
 
       setRecentBookings(sortedBookings.slice(0, 10));
 
-      // ==========================================
-      // OCCUPANCY
-      // ==========================================
-
       const roomSnapshot = await getDocs(collection(db, "rooms"));
-
       const totalRooms = roomSnapshot.size;
 
       console.log("=================================");
@@ -311,7 +288,6 @@ export default function Dashboard() {
       if (totalRooms > 0) {
         const today = new Date();
 
-        // Remove time from today's date
         today.setHours(0, 0, 0, 0);
 
         const occupiedRooms = bookings.filter((booking) => {
@@ -339,10 +315,6 @@ export default function Dashboard() {
         console.log("Occupied rooms:", occupiedRooms);
         console.log("Available rooms:", totalRooms - occupiedRooms);
         console.log("Occupancy rate:", rate);
-
-        // ==========================================
-        // WEEKLY OCCUPANCY
-        // ==========================================
 
         const weeklyData: OccupancyData[] = [];
 
@@ -402,18 +374,14 @@ export default function Dashboard() {
         <p className="text-gray-500 mt-2">Business operations overview</p>
       </div>
 
-      {/* Key Metrics */}
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* Revenue */}
-
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Total Revenue</p>
 
               <p className="text-2xl font-bold text-gray-900 mt-1">
-                ₱{totalRevenue.toLocaleString()}
+                {totalRevenue.toLocaleString()}
               </p>
 
               <p className="text-sm text-gray-500 mt-1">From all bookings</p>
@@ -424,8 +392,6 @@ export default function Dashboard() {
             </div>
           </div>
         </Card>
-
-        {/* Occupancy */}
 
         <Card className="p-6">
           <div className="flex items-center justify-between">
@@ -445,8 +411,6 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        {/* Bookings */}
-
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -465,15 +429,13 @@ export default function Dashboard() {
           </div>
         </Card>
 
-        {/* ADR */}
-
         <Card className="p-6">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-500">Avg. Daily Rate</p>
 
               <p className="text-2xl font-bold text-gray-900 mt-1">
-                ₱{Math.round(averageDailyRate).toLocaleString()}
+                {Math.round(averageDailyRate).toLocaleString()}
               </p>
 
               <p className="text-sm text-green-600 mt-1">Average per night</p>
@@ -485,90 +447,6 @@ export default function Dashboard() {
           </div>
         </Card>
       </div>
-
-      {/* Charts */}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Revenue Chart */}
-
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Revenue & Bookings
-          </h2>
-
-          {revenueData.length === 0 ? (
-            <div className="h-[300px] flex items-center justify-center text-gray-500">
-              No booking data available
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={revenueData}>
-                <CartesianGrid strokeDasharray="3 3" />
-
-                <XAxis dataKey="month" />
-
-                <YAxis yAxisId="left" />
-
-                <YAxis yAxisId="right" orientation="right" />
-
-                <Tooltip />
-
-                <Legend />
-
-                <Line
-                  yAxisId="left"
-                  type="monotone"
-                  dataKey="revenue"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                />
-
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="bookings"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
-
-        {/* Occupancy Chart */}
-
-        <Card className="p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Weekly Occupancy
-          </h2>
-
-          {occupancyData.length === 0 ? (
-            <div className="h-[300px] flex items-center justify-center text-gray-500">
-              No room data available
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={occupancyData}>
-                <CartesianGrid strokeDasharray="3 3" />
-
-                <XAxis dataKey="day" />
-
-                <YAxis />
-
-                <Tooltip />
-
-                <Legend />
-
-                <Bar dataKey="occupied" fill="#3b82f6" />
-
-                <Bar dataKey="available" fill="#e5e7eb" />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
-      </div>
-
-      {/* Quick Actions */}
 
       <div className="mb-8">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">
@@ -600,7 +478,75 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Recent Reservations */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            Revenue & Bookings
+          </h2>
+
+          {revenueData.length === 0 ? (
+            <div className="h-[300px] flex items-center justify-center text-gray-500">
+              No booking data available
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={revenueData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis yAxisId="left" />
+                <YAxis yAxisId="right" orientation="right" />
+                <Tooltip />
+                <Legend />
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                />
+
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="bookings"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+
+        <Card className="p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+            Weekly Occupancy
+          </h2>
+
+          {occupancyData.length === 0 ? (
+            <div className="h-[300px] flex items-center justify-center text-gray-500">
+              No room data available
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={occupancyData}>
+                <CartesianGrid strokeDasharray="3 3" />
+
+                <XAxis dataKey="day" />
+
+                <YAxis />
+
+                <Tooltip />
+
+                <Legend />
+
+                <Bar dataKey="occupied" fill="#3b82f6" />
+
+                <Bar dataKey="available" fill="#e5e7eb" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </Card>
+      </div>
 
       <Card className="p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">

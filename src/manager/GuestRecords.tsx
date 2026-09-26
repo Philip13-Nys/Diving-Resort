@@ -10,7 +10,6 @@ type Guest = {
   name: string;
   email: string;
   phone: string;
-  nationality: string;
   totalStays: number;
   totalSpent: number;
   lastVisit: string;
@@ -37,8 +36,6 @@ export default function GuestRecords() {
   const [guests, setGuests] = useState<GuestWithHistory[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // LOAD GUESTS FROM FIREBASE
-
   useEffect(() => {
     const fetchGuests = async () => {
       try {
@@ -51,45 +48,30 @@ export default function GuestRecords() {
         snapshot.docs.forEach((bookingDoc) => {
           const data = bookingDoc.data();
 
-          // Get customer information
-
           const name =
             data.guestName ||
             data.customerName ||
             data.guest ||
             data.name ||
             "Unknown Guest";
-
           const email =
             data.email || data.guestEmail || data.customerEmail || "";
-
           const phone =
             data.phone ||
             data.phoneNumber ||
             data.contactNumber ||
             data.guestPhone ||
             "";
-
-          const nationality =
-            data.nationality || data.country || "Not specified";
-
-          // Room
           const room =
             data.room || data.roomName || data.roomType || "Unknown Room";
-
-          // Dates
           const checkIn =
             data.checkIn || data.checkInDate || data.startDate || "";
-
           const checkOut =
             data.checkOut || data.checkOutDate || data.endDate || "";
-
-          // Total amount
           const total = Number(
             data.total || data.totalAmount || data.amount || data.price || 0,
           );
 
-          // Calculate number of nights
           let nights = Number(
             data.nights || data.numberOfNights || data.stayDuration || 0,
           );
@@ -112,9 +94,6 @@ export default function GuestRecords() {
             nights = 1;
           }
 
-          // Use email as primary guest identifier.
-          // If email doesn't exist, use name.
-
           const guestKey =
             email.toLowerCase().trim() || name.toLowerCase().trim();
 
@@ -128,7 +107,6 @@ export default function GuestRecords() {
             amount: total,
           };
 
-          // Existing guest?
           if (guestMap.has(guestKey)) {
             const existingGuest = guestMap.get(guestKey)!;
 
@@ -137,33 +115,21 @@ export default function GuestRecords() {
 
             existingGuest.history.push(bookingRecord);
 
-            // Update last visit if this booking is newer
             if (
               getDateValue(bookingDate) > getDateValue(existingGuest.lastVisit)
             ) {
               existingGuest.lastVisit = formatDate(bookingDate);
             }
 
-            // Keep missing information updated
             if (existingGuest.phone === "" && phone) {
               existingGuest.phone = phone;
             }
-
-            if (
-              existingGuest.nationality === "Not specified" &&
-              nationality !== "Not specified"
-            ) {
-              existingGuest.nationality = nationality;
-            }
           } else {
-            // Create new guest
-
             guestMap.set(guestKey, {
               id: `G-${String(guestMap.size + 1).padStart(3, "0")}`,
               name,
               email,
               phone,
-              nationality,
               totalStays: 1,
               totalSpent: total,
               lastVisit: formatDate(bookingDate),
@@ -172,8 +138,6 @@ export default function GuestRecords() {
             });
           }
         });
-
-        // Calculate guest status
 
         const guestList = Array.from(guestMap.values()).map((guest) => {
           let status: Guest["status"];
@@ -192,7 +156,6 @@ export default function GuestRecords() {
           };
         });
 
-        // Sort newest visitors first
         guestList.sort(
           (a, b) => getDateValue(b.lastVisit) - getDateValue(a.lastVisit),
         );
@@ -208,13 +171,9 @@ export default function GuestRecords() {
     fetchGuests();
   }, []);
 
-  // HELPER FUNCTIONS
-
   function getDateValue(value: string): number {
     if (!value) return 0;
-
     const date = new Date(value);
-
     if (!isNaN(date.getTime())) {
       return date.getTime();
     }
@@ -225,7 +184,6 @@ export default function GuestRecords() {
   function formatDate(value: unknown): string {
     if (!value) return "Not available";
 
-    // Firebase Timestamp
     if (typeof value === "object" && value !== null && "toDate" in value) {
       const timestamp = value as {
         toDate: () => Date;
@@ -251,8 +209,6 @@ export default function GuestRecords() {
     });
   }
 
-  // SEARCH
-
   const filtered = guests.filter((guest) => {
     const q = search.toLowerCase().trim();
 
@@ -260,12 +216,9 @@ export default function GuestRecords() {
       !q ||
       guest.name.toLowerCase().includes(q) ||
       guest.email.toLowerCase().includes(q) ||
-      guest.phone.toLowerCase().includes(q) ||
-      guest.nationality.toLowerCase().includes(q)
+      guest.phone.toLowerCase().includes(q)
     );
   });
-
-  // STATUS BADGE
 
   const statusBadge = (status: Guest["status"]) => {
     const map = {
@@ -281,8 +234,6 @@ export default function GuestRecords() {
     );
   };
 
-  // LOADING
-
   if (loading) {
     return (
       <div className="p-8">
@@ -293,14 +244,9 @@ export default function GuestRecords() {
     );
   }
 
-  // STATISTICS
-
   const totalGuests = guests.length;
-
   const vipGuests = guests.filter((guest) => guest.status === "vip").length;
-
   const newGuests = guests.filter((guest) => guest.status === "new").length;
-
   const averageLifetimeValue =
     totalGuests > 0
       ? Math.round(
@@ -311,8 +257,6 @@ export default function GuestRecords() {
 
   return (
     <div className="p-8">
-      {/* Header */}
-
       <div className="mb-8 flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">
@@ -325,8 +269,6 @@ export default function GuestRecords() {
         </div>
       </div>
 
-      {/* Search */}
-
       <Card className="p-4 mb-6">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -335,7 +277,7 @@ export default function GuestRecords() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search guests by name, email, phone, or nationality..."
+            placeholder="Search guests by name, email, or phone..."
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           />
 
@@ -356,8 +298,6 @@ export default function GuestRecords() {
           </p>
         )}
       </Card>
-
-      {/* Statistics */}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
         <Card className="p-6">
@@ -387,8 +327,6 @@ export default function GuestRecords() {
         </Card>
       </div>
 
-      {/* Guest List */}
-
       <Card className="p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">
           Guest Directory
@@ -402,7 +340,6 @@ export default function GuestRecords() {
                   "Guest ID",
                   "Name",
                   "Contact",
-                  "Nationality",
                   "Total Stays",
                   "Total Spent",
                   "Last Visit",
@@ -448,10 +385,6 @@ export default function GuestRecords() {
                   </td>
 
                   <td className="py-3 px-4 text-sm text-gray-700">
-                    {guest.nationality}
-                  </td>
-
-                  <td className="py-3 px-4 text-sm text-gray-700">
                     {guest.totalStays}
                   </td>
 
@@ -484,7 +417,7 @@ export default function GuestRecords() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-8 text-center text-gray-400">
+                  <td colSpan={8} className="py-8 text-center text-gray-400">
                     {guests.length === 0
                       ? "No guest records found in Firebase."
                       : `No guests found matching "${search}".`}
@@ -496,8 +429,6 @@ export default function GuestRecords() {
         </div>
       </Card>
 
-      {/* Guest Detail Modal */}
-
       {viewingGuest && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
@@ -507,8 +438,6 @@ export default function GuestRecords() {
             className="w-full max-w-2xl p-6 m-4 max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Modal Header */}
-
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -530,13 +459,10 @@ export default function GuestRecords() {
               </button>
             </div>
 
-            {/* Guest Information */}
-
             <div className="grid grid-cols-2 gap-4 mb-6">
               {[
                 ["Email", viewingGuest.email || "Not available"],
                 ["Phone", viewingGuest.phone || "Not available"],
-                ["Nationality", viewingGuest.nationality],
                 ["Last Visit", viewingGuest.lastVisit],
                 ["Total Stays", String(viewingGuest.totalStays)],
                 ["Total Spent", `₱${viewingGuest.totalSpent.toLocaleString()}`],
@@ -548,8 +474,6 @@ export default function GuestRecords() {
                 </div>
               ))}
             </div>
-
-            {/* Booking History */}
 
             <h3 className="font-semibold text-gray-900 mb-3">
               Booking History
@@ -599,8 +523,6 @@ export default function GuestRecords() {
                 </table>
               </div>
             )}
-
-            {/* Close */}
 
             <div className="mt-4 flex justify-end">
               <Button variant="outline" onClick={() => setViewingGuest(null)}>

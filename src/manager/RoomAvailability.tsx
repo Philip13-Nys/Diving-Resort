@@ -53,8 +53,8 @@ const statusIcons = {
 
 interface RoomAvailabilityData {
   id: string;
-  roomId: string; // display code, e.g. "R-001"
-  roomTypeId: string; // resolved roomTypes document id, used to match bookings
+  roomId: string;
+  roomTypeId: string;
   room: string;
   type: string;
   status: string;
@@ -62,7 +62,8 @@ interface RoomAvailabilityData {
 
 interface BookingData {
   id: string;
-  roomId: string; // this is a roomTypes document id (set in Booking.tsx as room.id)
+  roomId: string;
+  roomTypeId: string;
   checkIn: string;
   checkOut: string;
   status: string;
@@ -138,10 +139,6 @@ export default function RoomAvailability() {
     const fetchData = async () => {
       try {
         setLoading(true);
-
-        // Fetch roomTypes first so we can resolve each room's "type" name
-        // (e.g. "Bahay ni cunag") into the roomTypes document ID that
-        // Booking.tsx actually stores on each booking as roomId.
         const roomTypesSnapshot = await getDocs(collection(db, "roomTypes"));
         const nameToRoomTypeId: Record<string, string> = {};
 
@@ -186,6 +183,7 @@ export default function RoomAvailability() {
             return {
               id: bookingDoc.id,
               roomId: String(data.roomId || ""),
+              roomTypeId: String(data.roomTypeId || data.roomId || ""),
               checkIn: String(data.checkIn || ""),
               checkOut: String(data.checkOut || ""),
               status: String(data.status || "").toLowerCase(),
@@ -221,29 +219,65 @@ export default function RoomAvailability() {
         </p>
       </div>
 
-      <Card className="p-6 mb-6">
-        <h3 className="font-semibold text-gray-900 mb-4">Status Legend</h3>
-        <div className="flex flex-wrap gap-4">
-          <div className="flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-green-600" />
-            <span className="text-sm text-gray-700">Available</span>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <CheckCircle className="w-5 h-5 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Available</p>
+              <p className="text-xl font-bold text-gray-900">
+                {availableCount} rooms
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <XCircle className="w-5 h-5 text-blue-600" />
-            <span className="text-sm text-gray-700">Occupied</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Clock className="w-5 h-5 text-yellow-600" />
-            <span className="text-sm text-gray-700">Reserved</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Wrench className="w-5 h-5 text-red-600" />
-            <span className="text-sm text-gray-700">Maintenance</span>
-          </div>
-        </div>
-      </Card>
+        </Card>
 
-      <Card className="p-6">
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <XCircle className="w-5 h-5 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Occupied</p>
+              <p className="text-xl font-bold text-gray-900">
+                {occupiedCount} rooms
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
+              <Clock className="w-5 h-5 text-yellow-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Reserved</p>
+              <p className="text-xl font-bold text-gray-900">
+                {reservedCount} rooms
+              </p>
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
+              <Wrench className="w-5 h-5 text-red-600" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Maintenance</p>
+              <p className="text-xl font-bold text-gray-900">
+                {maintenanceCount} rooms
+              </p>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <Card className="p-6 mt-6">
         <div className="flex items-center gap-2 mb-6">
           <Calendar className="w-5 h-5 text-blue-600" />
           <div>
@@ -335,64 +369,6 @@ export default function RoomAvailability() {
           </table>
         </div>
       </Card>
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mt-6">
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <CheckCircle className="w-5 h-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Available</p>
-              <p className="text-xl font-bold text-gray-900">
-                {availableCount} rooms
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <XCircle className="w-5 h-5 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Occupied</p>
-              <p className="text-xl font-bold text-gray-900">
-                {occupiedCount} rooms
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-yellow-100 rounded-lg flex items-center justify-center">
-              <Clock className="w-5 h-5 text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Reserved</p>
-              <p className="text-xl font-bold text-gray-900">
-                {reservedCount} rooms
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card className="p-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-              <Wrench className="w-5 h-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Maintenance</p>
-              <p className="text-xl font-bold text-gray-900">
-                {maintenanceCount} rooms
-              </p>
-            </div>
-          </div>
-        </Card>
-      </div>
     </div>
   );
 }

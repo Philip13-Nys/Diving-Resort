@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BedDouble, Waves, Trees, Anchor, Loader2 } from "lucide-react";
-
 import { collection, getDocs } from "firebase/firestore";
-
-import { customerDb } from "../app/firebase";
-// If your firebase.ts is one folder higher instead, use:
-// import { customerDb } from "../firebase";
+import { db, customerDb } from "../app/firebase";
 
 type RoomStatus =
   | "available"
@@ -16,6 +12,7 @@ type RoomStatus =
 
 interface Room {
   id: string;
+  firestoreId: string;
   type: string;
   capacity: number;
   floor: number;
@@ -29,6 +26,8 @@ interface Room {
 interface BookingRecord {
   id: string;
   room: string;
+  roomId?: string;
+  roomType?: string;
   guest: string;
   checkIn: string;
   checkOut: string;
@@ -80,7 +79,12 @@ const STATUS_CONFIG: Record<
   },
 };
 
-const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+const TYPE_ICON: Record<
+  string,
+  React.ComponentType<{
+    className?: string;
+  }>
+> = {
   "Beachfront Suite": Waves,
   "Ocean View": Waves,
   "Garden Room": Trees,
@@ -92,9 +96,10 @@ function getRoomIcon(type: string) {
 }
 
 function normalizeDate(value: unknown): Date | null {
-  if (!value) return null;
+  if (!value) {
+    return null;
+  }
 
-  // Firestore Timestamp
   if (
     typeof value === "object" &&
     value !== null &&
@@ -118,7 +123,25 @@ function normalizeDate(value: unknown): Date | null {
     return isNaN(value.getTime()) ? null : value;
   }
 
-  const stringValue = String(value);
+  if (typeof value === "object" && value !== null && "seconds" in value) {
+    const seconds = Number(
+      (
+        value as {
+          seconds: number;
+        }
+      ).seconds,
+    );
+
+    if (!isNaN(seconds)) {
+      return new Date(seconds * 1000);
+    }
+  }
+
+  const stringValue = String(value).trim();
+
+  if (!stringValue) {
+    return null;
+  }
 
   let date = new Date(`${stringValue}T00:00:00`);
 
@@ -161,23 +184,57 @@ function isDateToday(value: string, today: Date) {
   return startOfDay(date).getTime() === today.getTime();
 }
 
-function isBookingActive(booking: BookingRecord) {
-  const status = booking.status.toLowerCase();
-
-  return status !== "cancelled" && status !== "checked-out";
+function normalizeRoomValue(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
-function getBookingForRoom(
-  roomId: string,
-  bookings: BookingRecord[],
-  today: Date,
-) {
+function isBookingCancelledOrFinished(booking: BookingRecord) {
+  const status = booking.status.toLowerCase().trim();
+
+  return (
+    status === "cancelled" || status === "checked-out" || status === "completed"
+  );
+}
+
+function isBookingCurrentlyCheckedIn(booking: BookingRecord) {
+  return booking.status.toLowerCase().trim() === "checked-in";
+}
+
+function isBookingConfirmed(booking: BookingRecord) {
+  const status = booking.status.toLowerCase().trim();
+
+  return status === "confirmed" || status === "pending";
+}
+
+function roomMatchesBooking(room: Room, booking: BookingRecord) {
+  const roomIdentifiers = [room.id, room.firestoreId];
+
+  const roomDataIdentifiers = [room.id];
+
+  const bookingIdentifiers = [booking.room, booking.roomId];
+
+  const normalizedRoomIdentifiers = [...roomIdentifiers, ...roomDataIdentifiers]
+    .filter(Boolean)
+    .map(normalizeRoomValue);
+
+  const normalizedBookingIdentifiers = bookingIdentifiers
+    .filter(Boolean)
+    .map(normalizeRoomValue);
+
+  return normalizedBookingIdentifiers.some((bookingIdentifier) =>
+    normalizedRoomIdentifiers.includes(bookingIdentifier),
+  );
+}
+
+function getBookingForRoom(room: Room, bookings: BookingRecord[], today: Date) {
   return bookings.find((booking) => {
-    if (booking.room !== roomId) {
+    if (!roomMatchesBooking(room, booking)) {
       return false;
     }
 
-    if (!isBookingActive(booking)) {
+    if (isBookingCancelledOrFinished(booking)) {
       return false;
     }
 
@@ -195,22 +252,30 @@ function getBookingForRoom(
 
     const checkOutTime = startOfDay(checkOut).getTime();
 
-    return todayTime >= checkInTime && todayTime <= checkOutTime;
+    if (isBookingCurrentlyCheckedIn(booking)) {
+      return todayTime >= checkInTime && todayTime < checkOutTime;
+    }
+
+    if (isBookingConfirmed(booking)) {
+      return todayTime >= checkInTime && todayTime < checkOutTime;
+    }
+
+    return false;
   });
 }
 
 function getFutureBookingForRoom(
-  roomId: string,
+  room: Room,
   bookings: BookingRecord[],
   today: Date,
 ) {
   return [...bookings]
     .filter((booking) => {
-      if (booking.room !== roomId) {
+      if (!roomMatchesBooking(room, booking)) {
         return false;
       }
 
-      if (!isBookingActive(booking)) {
+      if (isBookingCancelledOrFinished(booking)) {
         return false;
       }
 
@@ -256,7 +321,7 @@ export default function RoomAvailability() {
       setError("");
 
       const [roomSnapshot, bookingSnapshot] = await Promise.all([
-        getDocs(collection(customerDb, "Rooms")),
+        getDocs(collection(db, "rooms")),
         getDocs(collection(customerDb, "Bookings")),
       ]);
 
@@ -271,13 +336,21 @@ export default function RoomAvailability() {
               data.room ?? data.roomName ?? data.roomNumber ?? "",
             ).trim(),
 
-            guest: data.guest ?? data.customerName ?? "Unknown Guest",
+            roomId: data.roomId ? String(data.roomId).trim() : undefined,
+
+            roomType: data.roomType ? String(data.roomType) : undefined,
+
+            guest:
+              data.guest ??
+              data.guestName ??
+              data.customerName ??
+              "Unknown Guest",
 
             checkIn: data.checkIn ?? "",
 
             checkOut: data.checkOut ?? "",
 
-            status: data.status ?? "pending",
+            status: String(data.status ?? "pending").toLowerCase(),
           };
         },
       );
@@ -289,12 +362,8 @@ export default function RoomAvailability() {
       let roomData: Room[] = roomSnapshot.docs.map((docSnap) => {
         const data = docSnap.data();
 
-        const id = String(
-          data.roomNumber ??
-            data.room ??
-            data.roomName ??
-            data.number ??
-            docSnap.id,
+        const roomNumber = String(
+          data.roomNumber ?? data.room ?? data.number ?? docSnap.id,
         ).trim();
 
         const roomType = String(
@@ -308,13 +377,20 @@ export default function RoomAvailability() {
         const floor = Number(data.floor ?? data.floorNumber ?? 0);
 
         const rate = Number(
-          data.rate ?? data.roomRate ?? data.price ?? data.pricePerNight ?? 0,
+          data.rate ??
+            data.roomRate ??
+            data.basePrice ??
+            data.price ??
+            data.pricePerNight ??
+            0,
         );
 
         let features: string[] = [];
 
         if (Array.isArray(data.features)) {
           features = data.features.map((feature: unknown) => String(feature));
+        } else if (Array.isArray(data.amenities)) {
+          features = data.amenities.map((feature: unknown) => String(feature));
         } else if (typeof data.features === "string") {
           features = data.features
             .split(",")
@@ -322,18 +398,34 @@ export default function RoomAvailability() {
             .filter(Boolean);
         }
 
-        const databaseStatus = String(data.status ?? "").toLowerCase();
+        const databaseStatus = String(data.status ?? "")
+          .toLowerCase()
+          .trim();
 
-        const currentBooking = getBookingForRoom(id, bookingData, today);
+        const room: Room = {
+          id: roomNumber,
 
-        const futureBooking = getFutureBookingForRoom(id, bookingData, today);
+          firestoreId: docSnap.id,
+
+          type: roomType,
+
+          capacity,
+
+          floor,
+
+          rate,
+
+          status: "available",
+
+          features,
+        };
+
+        const currentBooking = getBookingForRoom(room, bookingData, today);
+
+        const futureBooking = getFutureBookingForRoom(room, bookingData, today);
 
         let status: RoomStatus = "available";
 
-        /*
-         * Maintenance from the Rooms collection
-         * has highest priority.
-         */
         if (
           databaseStatus === "maintenance" ||
           databaseStatus === "under-maintenance"
@@ -345,35 +437,21 @@ export default function RoomAvailability() {
           status = checkoutToday ? "checkout-today" : "occupied";
         } else if (futureBooking) {
           status = "reserved";
-        } else if (databaseStatus === "reserved") {
-          status = "reserved";
         } else {
           status = "available";
         }
 
-        const guest = currentBooking?.guest;
-
-        const checkOut = currentBooking?.checkOut;
-
         return {
-          id,
-          type: roomType,
-          capacity,
-          floor,
-          rate,
+          ...room,
+
           status,
-          guest,
-          checkOut,
-          features,
+
+          guest: currentBooking?.guest,
+
+          checkOut: currentBooking?.checkOut,
         };
       });
 
-      /*
-       * Fallback:
-       * If you do not have a Rooms collection yet,
-       * create room records from the rooms appearing
-       * in Bookings.
-       */
       if (roomData.length === 0) {
         const roomMap = new Map<string, Room>();
 
@@ -382,31 +460,77 @@ export default function RoomAvailability() {
             return;
           }
 
-          if (roomMap.has(booking.room)) {
+          const roomId = booking.room;
+
+          if (roomMap.has(roomId)) {
             return;
           }
 
-          roomMap.set(booking.room, {
-            id: booking.room,
-            type: "Room",
+          roomMap.set(roomId, {
+            id: roomId,
+
+            firestoreId: roomId,
+
+            type: booking.roomType || "Room",
+
             capacity: 0,
+
             floor: 0,
+
             rate: 0,
+
             status: "available",
+
             features: [],
           });
         });
 
-        roomData = Array.from(roomMap.values());
+        roomData = Array.from(roomMap.values()).map((room) => {
+          const currentBooking = getBookingForRoom(room, bookingData, today);
+
+          const futureBooking = getFutureBookingForRoom(
+            room,
+            bookingData,
+            today,
+          );
+
+          let status: RoomStatus = "available";
+
+          if (currentBooking) {
+            status = isDateToday(currentBooking.checkOut, today)
+              ? "checkout-today"
+              : "occupied";
+          } else if (futureBooking) {
+            status = "reserved";
+          }
+
+          return {
+            ...room,
+
+            status,
+
+            guest: currentBooking?.guest,
+
+            checkOut: currentBooking?.checkOut,
+          };
+        });
       }
 
-      setRooms(
-        roomData.sort((a, b) =>
-          a.id.localeCompare(b.id, undefined, {
-            numeric: true,
-          }),
-        ),
+      roomData.sort((a, b) =>
+        a.id.localeCompare(b.id, undefined, {
+          numeric: true,
+        }),
       );
+
+      setRooms(roomData);
+
+      setSelected((previous) => {
+        if (!previous) {
+          return null;
+        }
+
+        return roomData.find((room) => room.id === previous.id) || null;
+      });
     } catch (err) {
       console.error("Error loading rooms:", err);
 
@@ -416,19 +540,22 @@ export default function RoomAvailability() {
     }
   };
 
-  const roomTypes = useMemo(() => {
-    return ["all", ...Array.from(new Set(rooms.map((room) => room.type)))];
-  }, [rooms]);
+  const roomTypes = useMemo(
+    () => ["all", ...Array.from(new Set(rooms.map((room) => room.type)))],
+    [rooms],
+  );
 
-  const filtered = useMemo(() => {
-    return rooms.filter((room) => {
-      const matchStatus = filter === "all" || room.status === filter;
+  const filtered = useMemo(
+    () =>
+      rooms.filter((room) => {
+        const matchStatus = filter === "all" || room.status === filter;
 
-      const matchType = typeFilter === "all" || room.type === typeFilter;
+        const matchType = typeFilter === "all" || room.type === typeFilter;
 
-      return matchStatus && matchType;
-    });
-  }, [rooms, filter, typeFilter]);
+        return matchStatus && matchType;
+      }),
+    [rooms, filter, typeFilter],
+  );
 
   const counts = {
     available: rooms.filter((room) => room.status === "available").length,
@@ -444,7 +571,7 @@ export default function RoomAvailability() {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="flex items-center gap-3 text-gray-500">
-          <Loader2 className="w-5 h-5 animate-spin" />
+          <Loader2 className="h-5 w-5 animate-spin" />
           Loading room availability...
         </div>
       </div>
@@ -454,13 +581,12 @@ export default function RoomAvailability() {
   return (
     <div className="space-y-5">
       {error && (
-        <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           {error}
         </div>
       )}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {[
           {
             label: "Available",
@@ -494,7 +620,7 @@ export default function RoomAvailability() {
           <button
             key={s.label}
             onClick={() => setFilter(filter === s.status ? "all" : s.status)}
-            className="p-4 rounded-xl border text-left transition-all"
+            className="rounded-xl border p-4 text-left transition-all"
             style={{
               background: filter === s.status ? s.bg : "white",
 
@@ -503,7 +629,7 @@ export default function RoomAvailability() {
             }}
           >
             <div
-              className="text-3xl mb-1"
+              className="mb-1 text-3xl"
               style={{
                 color: s.color,
                 fontFamily: "Georgia, serif",
@@ -524,10 +650,9 @@ export default function RoomAvailability() {
         ))}
       </div>
 
-      {/* Type filters */}
-      <div className="flex gap-3 flex-wrap">
+      <div className="flex flex-wrap gap-3">
         <span
-          className="text-sm self-center"
+          className="self-center text-sm"
           style={{
             color: "#4a7a7a",
           }}
@@ -539,7 +664,7 @@ export default function RoomAvailability() {
           <button
             key={type}
             onClick={() => setTypeFilter(type)}
-            className="px-3 py-1.5 rounded-lg text-xs border transition-all"
+            className="rounded-lg border px-3 py-1.5 text-xs transition-all"
             style={{
               background: typeFilter === type ? "#0d7377" : "white",
 
@@ -554,9 +679,8 @@ export default function RoomAvailability() {
         ))}
       </div>
 
-      {/* Room grid */}
       <div className="flex gap-6">
-        <div className="flex-1 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 content-start">
+        <div className="grid flex-1 content-start grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {filtered.map((room) => {
             const status = STATUS_CONFIG[room.status];
 
@@ -564,9 +688,9 @@ export default function RoomAvailability() {
 
             return (
               <button
-                key={room.id}
+                key={room.firestoreId}
                 onClick={() => setSelected(room === selected ? null : room)}
-                className="p-4 rounded-xl border-2 text-left transition-all hover:shadow-md"
+                className="rounded-xl border-2 p-4 text-left transition-all hover:shadow-md"
                 style={{
                   borderColor:
                     selected?.id === room.id ? status.border : "transparent",
@@ -579,12 +703,11 @@ export default function RoomAvailability() {
                       : undefined,
                 }}
               >
-                <div className="flex items-start justify-between mb-2">
+                <div className="mb-2 flex items-start justify-between">
                   <span
                     className="text-2xl font-medium"
                     style={{
                       color: status.color,
-
                       fontFamily: "Georgia, serif",
                     }}
                   >
@@ -592,7 +715,7 @@ export default function RoomAvailability() {
                   </span>
 
                   <Icon
-                    className="w-4 h-4 mt-1"
+                    className="mt-1 h-4 w-4"
                     style={{
                       color: status.color,
                     }}
@@ -600,7 +723,7 @@ export default function RoomAvailability() {
                 </div>
 
                 <p
-                  className="text-xs font-medium mb-0.5 truncate"
+                  className="mb-0.5 truncate text-xs font-medium"
                   style={{
                     color: "#0a2e2e",
                   }}
@@ -621,7 +744,7 @@ export default function RoomAvailability() {
 
                 <div className="mt-2">
                   <span
-                    className="text-xs px-1.5 py-0.5 rounded"
+                    className="rounded px-1.5 py-0.5 text-xs"
                     style={{
                       background: `${status.color}20`,
                       color: status.color,
@@ -641,22 +764,19 @@ export default function RoomAvailability() {
           )}
         </div>
 
-        {/* Detail panel */}
         {selected && (
           <div
-            className="w-72 flex-shrink-0 bg-white rounded-xl border self-start"
+            className="w-72 flex-shrink-0 self-start rounded-xl border bg-white"
             style={{
               borderColor: "rgba(13,115,119,0.1)",
             }}
           >
             <div
-              className="p-5 border-b"
+              className="rounded-t-xl border-b p-5"
               style={{
                 background: STATUS_CONFIG[selected.status].bg,
 
                 borderColor: "rgba(13,115,119,0.1)",
-
-                borderRadius: "0.75rem 0.75rem 0 0",
               }}
             >
               <div className="flex items-center justify-between">
@@ -673,7 +793,7 @@ export default function RoomAvailability() {
 
                 <button
                   onClick={() => setSelected(null)}
-                  className="text-xs px-2 py-1 rounded"
+                  className="rounded px-2 py-1 text-xs"
                   style={{
                     color: "#4a7a7a",
                   }}
@@ -683,7 +803,7 @@ export default function RoomAvailability() {
               </div>
 
               <p
-                className="text-sm mt-1"
+                className="mt-1 text-sm"
                 style={{
                   color: "#0a2e2e",
                 }}
@@ -692,7 +812,7 @@ export default function RoomAvailability() {
               </p>
 
               <span
-                className="text-xs px-2 py-0.5 rounded-full inline-block mt-2"
+                className="mt-2 inline-block rounded-full px-2 py-0.5 text-xs"
                 style={{
                   background: STATUS_CONFIG[selected.status].color,
 
@@ -703,7 +823,7 @@ export default function RoomAvailability() {
               </span>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="space-y-4 p-5">
               <div className="grid grid-cols-2 gap-3">
                 {[
                   {
@@ -737,7 +857,7 @@ export default function RoomAvailability() {
                 ].map((field) => (
                   <div
                     key={field.label}
-                    className="p-2 rounded-lg"
+                    className="rounded-lg p-2"
                     style={{
                       background: "#f0f9f8",
                     }}
@@ -765,13 +885,13 @@ export default function RoomAvailability() {
 
               {selected.guest && (
                 <div
-                  className="p-3 rounded-lg"
+                  className="rounded-lg p-3"
                   style={{
                     background: "#fef2f2",
                   }}
                 >
                   <p
-                    className="text-xs mb-0.5"
+                    className="mb-0.5 text-xs"
                     style={{
                       color: "#4a7a7a",
                     }}
@@ -790,7 +910,7 @@ export default function RoomAvailability() {
 
                   {selected.checkOut && (
                     <p
-                      className="text-xs mt-0.5"
+                      className="mt-0.5 text-xs"
                       style={{
                         color: "#d4183d",
                       }}
@@ -803,7 +923,7 @@ export default function RoomAvailability() {
 
               <div>
                 <p
-                  className="text-xs mb-2"
+                  className="mb-2 text-xs"
                   style={{
                     color: "#4a7a7a",
                   }}
@@ -816,7 +936,7 @@ export default function RoomAvailability() {
                     {selected.features.map((feature) => (
                       <span
                         key={feature}
-                        className="text-xs px-2 py-1 rounded-lg"
+                        className="rounded-lg px-2 py-1 text-xs"
                         style={{
                           background: "#e2f3f2",
                           color: "#0d7377",
@@ -838,9 +958,37 @@ export default function RoomAvailability() {
                 )}
               </div>
 
+              {selected.status === "checkout-today" && (
+                <div
+                  className="rounded-lg border p-3"
+                  style={{
+                    background: "#fff7ed",
+                    borderColor: "#fed7aa",
+                  }}
+                >
+                  <p
+                    className="text-xs font-medium"
+                    style={{
+                      color: "#c2410c",
+                    }}
+                  >
+                    Checkout Today
+                  </p>
+
+                  <p
+                    className="mt-1 text-xs"
+                    style={{
+                      color: "#9a3412",
+                    }}
+                  >
+                    This room is occupied until the guest completes checkout.
+                  </p>
+                </div>
+              )}
+
               {selected.status === "available" && (
                 <button
-                  className="w-full py-2.5 rounded-lg text-sm text-white"
+                  className="w-full rounded-lg py-2.5 text-sm text-white"
                   style={{
                     background: "#0d7377",
                   }}

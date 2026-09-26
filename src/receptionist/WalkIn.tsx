@@ -5,10 +5,11 @@ import {
   collection,
   doc,
   getDocs,
+  runTransaction,
   serverTimestamp,
-  updateDoc,
 } from "firebase/firestore";
 import { db, customerDb } from "../app/firebase";
+import { createActivityLog } from "../app/activitylogss";
 
 type Room = {
   id: string;
@@ -20,26 +21,42 @@ type Room = {
   status: string;
 };
 
+type FormData = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  checkIn: string;
+  nights: number;
+  pax: number;
+  selectedRoom: string;
+  paymentMethod: string;
+  downPayment: string;
+  specialRequests: string;
+};
+
+const initialForm = (): FormData => ({
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  checkIn: new Date().toLocaleDateString("en-CA"),
+  nights: 1,
+  pax: 2,
+  selectedRoom: "",
+  paymentMethod: "cash",
+  downPayment: "",
+  specialRequests: "",
+});
+
 export default function WalkIn() {
   const [step, setStep] = useState(1);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
-  const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    checkIn: new Date().toISOString().split("T")[0],
-    nights: 1,
-    pax: 2,
-    selectedRoom: "",
-    paymentMethod: "cash",
-    downPayment: "",
-    specialRequests: "",
-  });
-
+  const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [bookingReference, setBookingReference] = useState("");
+  const [form, setForm] = useState<FormData>(initialForm);
 
   useEffect(() => {
     const loadRooms = async () => {
@@ -72,11 +89,10 @@ export default function WalkIn() {
           };
         });
 
-        console.log("Rooms from admin database:", loadedRooms);
-
         setRooms(loadedRooms);
       } catch (error) {
         console.error("Error loading rooms:", error);
+        alert("Failed to load rooms. Please refresh the page.");
       } finally {
         setLoadingRooms(false);
       }
@@ -85,8 +101,12 @@ export default function WalkIn() {
     loadRooms();
   }, []);
 
-  const update = (k: string, v: string | number) =>
-    setForm((f) => ({ ...f, [k]: v }));
+  const update = <K extends keyof FormData>(key: K, value: FormData[K]) => {
+    setForm((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
 
   const selectedRoom = rooms.find((room) => room.id === form.selectedRoom);
 
@@ -96,31 +116,78 @@ export default function WalkIn() {
   );
 
   const total = selectedRoom ? selectedRoom.rate * form.nights : 0;
-  const balance = total - Number(form.downPayment || 0);
-  const checkoutDate = new Date(form.checkIn);
+
+  const payment = Number(form.downPayment || 0);
+  const balance = total - payment;
+
+  const checkoutDate = new Date(`${form.checkIn}T12:00:00`);
+
   checkoutDate.setDate(checkoutDate.getDate() + Number(form.nights));
-  const checkOut = checkoutDate.toISOString().split("T")[0];
+
+  const checkOut = [
+    checkoutDate.getFullYear(),
+    String(checkoutDate.getMonth() + 1).padStart(2, "0"),
+    String(checkoutDate.getDate()).padStart(2, "0"),
+  ].join("-");
 
   const handleSubmit = async () => {
+    if (submitting) return;
+
     if (!selectedRoom) {
       alert("Please select a room.");
+      setStep(2);
       return;
     }
 
     if (!form.firstName.trim() || !form.lastName.trim()) {
       alert("Please enter the guest's first and last name.");
+      setStep(1);
       return;
     }
 
     if (!form.phone.trim()) {
       alert("Please enter the guest's phone number.");
+      setStep(1);
       return;
     }
 
-    const payment = Number(form.downPayment || 0);
+    if (
+      form.email.trim() &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
+    ) {
+      alert("Please enter a valid email address.");
+      setStep(1);
+      return;
+    }
 
-    if (payment < 0) {
-      alert("Payment cannot be negative.");
+    if (!Number.isInteger(form.nights) || form.nights < 1) {
+      alert("Number of nights must be at least 1.");
+      setStep(2);
+      return;
+    }
+
+    if (!Number.isInteger(form.pax) || form.pax < 1) {
+      alert("Number of guests must be at least 1.");
+      setStep(2);
+      return;
+    }
+
+    if (form.pax > selectedRoom.capacity) {
+      alert("The selected room cannot accommodate this many guests.");
+      setStep(2);
+      return;
+    }
+
+    const checkInDate = new Date(`${form.checkIn}T12:00:00`);
+
+    if (!form.checkIn || Number.isNaN(checkInDate.getTime())) {
+      alert("Please enter a valid check-in date.");
+      setStep(2);
+      return;
+    }
+
+    if (!Number.isFinite(payment) || payment < 0) {
+      alert("Please enter a valid payment amount.");
       return;
     }
 
@@ -129,80 +196,158 @@ export default function WalkIn() {
       return;
     }
 
+    setSubmitting(true);
+
+    const roomRef = doc(db, "rooms", selectedRoom.id);
+
+    const bookingRef = `CBR-${new Date().getFullYear()}-${Math.floor(
+      100000 + Math.random() * 900000,
+    )}`;
+
+    const bookingData = {
+      bookingRef,
+      guestName: `${form.firstName.trim()} ${form.lastName.trim()}`,
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
+      email: form.email.trim(),
+      phone: form.phone.trim(),
+
+      roomId: selectedRoom.id,
+      roomNumber: selectedRoom.roomNumber,
+      roomType: selectedRoom.type,
+
+      guests: form.pax,
+      nights: form.nights,
+      checkIn: form.checkIn,
+      checkOut,
+
+      paymentMethod: form.paymentMethod,
+      totalAmount: total,
+      amountPaid: payment,
+      balance,
+
+      paymentStatus:
+        payment >= total ? "Paid" : payment > 0 ? "Partial" : "Unpaid",
+
+      bookingType: "Walk-in",
+      status: "Confirmed",
+      specialRequests: form.specialRequests.trim(),
+
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    let roomReserved = false;
+    let bookingCreated = false;
+
     try {
-      const bookingRef = `CBR-${new Date().getFullYear()}-${Math.floor(
-        100000 + Math.random() * 900000,
-      )}`;
+      // Reserve the room in the admin database.
+      await runTransaction(db, async (transaction) => {
+        const roomSnapshot = await transaction.get(roomRef);
 
-      const bookingData = {
-        bookingRef,
+        if (!roomSnapshot.exists()) {
+          throw new Error("ROOM_NOT_FOUND");
+        }
 
-        guestName: `${form.firstName.trim()} ${form.lastName.trim()}`,
-        firstName: form.firstName.trim(),
-        lastName: form.lastName.trim(),
-        email: form.email.trim(),
-        phone: form.phone.trim(),
+        const currentStatus = String(
+          roomSnapshot.data().status ?? "Available",
+        ).toLowerCase();
 
-        roomId: selectedRoom.id,
-        roomNumber: selectedRoom.roomNumber,
-        roomType: selectedRoom.type,
+        if (currentStatus !== "available") {
+          throw new Error("ROOM_UNAVAILABLE");
+        }
 
-        guests: Number(form.pax),
-        nights: Number(form.nights),
-
-        checkIn: form.checkIn,
-        checkOut,
-
-        paymentMethod: form.paymentMethod,
-        totalAmount: total,
-        amountPaid: payment,
-        balance,
-
-        paymentStatus:
-          payment >= total ? "Paid" : payment > 0 ? "Partial" : "Unpaid",
-
-        bookingType: "Walk-in",
-        status: "Confirmed",
-
-        specialRequests: form.specialRequests.trim(),
-
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-
-      await addDoc(collection(customerDb, "Bookings"), bookingData);
-
-      await updateDoc(doc(db, "rooms", selectedRoom.id), {
-        status: "Occupied",
-        updatedAt: serverTimestamp(),
+        transaction.update(roomRef, {
+          status: "Occupied",
+          updatedAt: serverTimestamp(),
+        });
       });
 
-      console.log("Walk-in booking created:", bookingData);
+      roomReserved = true;
 
+      // Create exactly one booking in the customer database.
+      await addDoc(collection(customerDb, "Bookings"), bookingData);
+
+      bookingCreated = true;
+
+      // Record the activity.
+      await createActivityLog({
+        action: "Walk-in Booking Created",
+        details: `Walk-in booking created for ${bookingData.guestName} - Room ${bookingData.roomNumber}`,
+      });
+
+      setRooms((previous) =>
+        previous.map((room) =>
+          room.id === selectedRoom.id ? { ...room, status: "Occupied" } : room,
+        ),
+      );
+
+      setBookingReference(bookingRef);
       setSuccess(true);
-
-      setTimeout(() => {
-        setSuccess(false);
-        setStep(1);
-
-        setForm({
-          firstName: "",
-          lastName: "",
-          email: "",
-          phone: "",
-          checkIn: new Date().toISOString().split("T")[0],
-          nights: 1,
-          pax: 2,
-          selectedRoom: "",
-          paymentMethod: "cash",
-          downPayment: "",
-          specialRequests: "",
-        });
-      }, 3000);
     } catch (error) {
       console.error("Error creating walk-in booking:", error);
 
-      alert("Failed to create walk-in booking. Please try again.");
+      // Restore room status if booking creation failed.
+      if (roomReserved && !bookingCreated) {
+        try {
+          await runTransaction(db, async (transaction) => {
+            const latestRoom = await transaction.get(roomRef);
+
+            if (
+              latestRoom.exists() &&
+              String(latestRoom.data().status ?? "").toLowerCase() ===
+                "occupied"
+            ) {
+              transaction.update(roomRef, {
+                status: "Available",
+                updatedAt: serverTimestamp(),
+              });
+            }
+          });
+        } catch (rollbackError) {
+          console.error("Room rollback failed:", rollbackError);
+
+          alert(
+            "Booking failed and the room status could not be restored. Please check the room in the admin dashboard.",
+          );
+          return;
+        }
+      }
+
+      if (error instanceof Error && error.message === "ROOM_UNAVAILABLE") {
+        setRooms((previous) =>
+          previous.map((room) =>
+            room.id === selectedRoom.id
+              ? { ...room, status: "Occupied" }
+              : room,
+          ),
+        );
+
+        setForm((previous) => ({
+          ...previous,
+          selectedRoom: "",
+        }));
+
+        setStep(2);
+
+        alert("This room is no longer available. Please select another room.");
+      } else if (error instanceof Error && error.message === "ROOM_NOT_FOUND") {
+        alert("This room no longer exists. Please refresh the room list.");
+      } else if (bookingCreated) {
+        // The booking exists, but the activity log failed.
+        setBookingReference(bookingRef);
+        setSuccess(true);
+
+        alert(
+          "Booking was saved, but the activity log failed. Please check the activity logs.",
+        );
+      } else {
+        alert(
+          "Failed to create walk-in booking. Please check your connection and try again.",
+        );
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -219,18 +364,37 @@ export default function WalkIn() {
           >
             <Check className="w-10 h-10" style={{ color: "#0d7377" }} />
           </div>
+
           <h2
             className="text-2xl"
-            style={{ fontFamily: "Georgia, serif", color: "#0a2e2e" }}
+            style={{
+              fontFamily: "Georgia, serif",
+              color: "#0a2e2e",
+            }}
           >
             Walk-in Registered!
           </h2>
+
           <p style={{ color: "#4a7a7a" }}>
             Booking confirmed for {form.firstName} {form.lastName}
           </p>
+
           <p className="font-mono text-sm" style={{ color: "#0d7377" }}>
             Booking ID: {bookingReference}
           </p>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSuccess(false);
+              setStep(1);
+              setForm(initialForm());
+            }}
+            className="px-6 py-2.5 rounded-lg text-sm text-white"
+            style={{ background: "#0d7377" }}
+          >
+            Register Another Guest
+          </button>
         </div>
       </div>
     );
@@ -244,31 +408,35 @@ export default function WalkIn() {
           { n: 1, label: "Guest Info" },
           { n: 2, label: "Room Selection" },
           { n: 3, label: "Payment" },
-        ].map((s, i) => (
-          <div key={s.n} className="flex items-center gap-2">
+        ].map((item, index) => (
+          <div key={item.n} className="flex items-center gap-2 flex-1">
             <div className="flex items-center gap-2">
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all"
                 style={{
-                  background: step >= s.n ? "#0d7377" : "#e2f3f2",
-                  color: step >= s.n ? "#fff" : "#4a7a7a",
+                  background: step >= item.n ? "#0d7377" : "#e2f3f2",
+                  color: step >= item.n ? "#fff" : "#4a7a7a",
                 }}
               >
-                {step > s.n ? <Check className="w-4 h-4" /> : s.n}
+                {step > item.n ? <Check className="w-4 h-4" /> : item.n}
               </div>
+
               <span
                 className="text-sm hidden sm:block"
-                style={{ color: step === s.n ? "#0a2e2e" : "#4a7a7a" }}
+                style={{
+                  color: step === item.n ? "#0a2e2e" : "#4a7a7a",
+                }}
               >
-                {s.label}
+                {item.label}
               </span>
             </div>
-            {i < 2 && (
+
+            {index < 2 && (
               <div
                 className="flex-1 h-px"
                 style={{
-                  background: step > s.n ? "#0d7377" : "#e2f3f2",
-                  minWidth: 24,
+                  background: step > item.n ? "#0d7377" : "#e2f3f2",
+                  minWidth: 12,
                 }}
               />
             )}
@@ -280,59 +448,67 @@ export default function WalkIn() {
         className="bg-white rounded-xl border p-6"
         style={{ borderColor: "rgba(13,115,119,0.1)" }}
       >
-        {/* Step 1 */}
+        {/* STEP 1: GUEST INFORMATION */}
         {step === 1 && (
           <div className="space-y-4">
             <div className="flex items-center gap-3 mb-5">
               <UserPlus className="w-6 h-6" style={{ color: "#0d7377" }} />
+
               <h2
                 className="text-xl"
-                style={{ fontFamily: "Georgia, serif", color: "#0a2e2e" }}
+                style={{
+                  fontFamily: "Georgia, serif",
+                  color: "#0a2e2e",
+                }}
               >
                 Guest Information
               </h2>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {[
                 {
                   label: "First Name",
-                  key: "firstName",
+                  key: "firstName" as const,
                   type: "text",
                   placeholder: "Albert",
                 },
                 {
                   label: "Last Name",
-                  key: "lastName",
+                  key: "lastName" as const,
                   type: "text",
                   placeholder: "Cunag",
                 },
                 {
                   label: "Email",
-                  key: "email",
+                  key: "email" as const,
                   type: "email",
                   placeholder: "albertcunag@email.com",
                 },
                 {
                   label: "Phone",
-                  key: "phone",
+                  key: "phone" as const,
                   type: "tel",
                   placeholder: "+63 917 000 0000",
                 },
-              ].map((f) => (
-                <div key={f.key}>
+              ].map((field) => (
+                <div key={field.key}>
                   <label
                     className="block text-sm mb-1"
                     style={{ color: "#4a7a7a" }}
                   >
-                    {f.label}
+                    {field.label}
+                    {field.key !== "email" && (
+                      <span className="text-red-500"> *</span>
+                    )}
                   </label>
+
                   <input
-                    type={f.type}
-                    value={
-                      (form as Record<string, string | number>)[f.key] as string
-                    }
-                    onChange={(e) => update(f.key, e.target.value)}
-                    placeholder={f.placeholder}
+                    type={field.type}
+                    value={form[field.key]}
+                    onChange={(e) => update(field.key, e.target.value)}
+                    placeholder={field.placeholder}
+                    required={field.key !== "email"}
                     className="w-full px-4 py-2.5 rounded-lg border text-sm outline-none"
                     style={{
                       borderColor: "rgba(13,115,119,0.2)",
@@ -351,10 +527,11 @@ export default function WalkIn() {
               >
                 Special Requests
               </label>
+
               <textarea
                 value={form.specialRequests}
                 onChange={(e) => update("specialRequests", e.target.value)}
-                rows={2}
+                rows={3}
                 placeholder="Any dietary needs, accessibility requirements, etc."
                 className="w-full px-4 py-2.5 rounded-lg border text-sm outline-none resize-none"
                 style={{
@@ -367,16 +544,42 @@ export default function WalkIn() {
           </div>
         )}
 
-        {/* Step 2 */}
+        {/* STEP 2: ROOM SELECTION */}
         {step === 2 && (
           <div className="space-y-4">
             <h2
               className="text-xl mb-5"
-              style={{ fontFamily: "Georgia, serif", color: "#0a2e2e" }}
+              style={{
+                fontFamily: "Georgia, serif",
+                color: "#0a2e2e",
+              }}
             >
               Room Selection
             </h2>
-            <div className="grid grid-cols-2 gap-4 mb-4">
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label
+                  className="block text-sm mb-1"
+                  style={{ color: "#4a7a7a" }}
+                >
+                  Check-in Date
+                </label>
+
+                <input
+                  type="date"
+                  value={form.checkIn}
+                  min={new Date().toLocaleDateString("en-CA")}
+                  onChange={(e) => update("checkIn", e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none"
+                  style={{
+                    borderColor: "rgba(13,115,119,0.2)",
+                    background: "#f0f9f8",
+                    color: "#0a2e2e",
+                  }}
+                />
+              </div>
+
               <div>
                 <label
                   className="block text-sm mb-1"
@@ -384,11 +587,14 @@ export default function WalkIn() {
                 >
                   Number of Nights
                 </label>
+
                 <input
                   type="number"
                   min={1}
                   value={form.nights}
-                  onChange={(e) => update("nights", Number(e.target.value))}
+                  onChange={(e) =>
+                    update("nights", Math.max(1, Number(e.target.value) || 1))
+                  }
                   className="w-full px-4 py-2.5 rounded-lg border text-sm outline-none"
                   style={{
                     borderColor: "rgba(13,115,119,0.2)",
@@ -397,6 +603,7 @@ export default function WalkIn() {
                   }}
                 />
               </div>
+
               <div>
                 <label
                   className="block text-sm mb-1"
@@ -404,11 +611,23 @@ export default function WalkIn() {
                 >
                   Number of Guests
                 </label>
+
                 <input
                   type="number"
                   min={1}
                   value={form.pax}
-                  onChange={(e) => update("pax", Number(e.target.value))}
+                  onChange={(e) => {
+                    const pax = Math.max(1, Number(e.target.value) || 1);
+
+                    setForm((previous) => ({
+                      ...previous,
+                      pax,
+                      selectedRoom:
+                        selectedRoom && selectedRoom.capacity < pax
+                          ? ""
+                          : previous.selectedRoom,
+                    }));
+                  }}
                   className="w-full px-4 py-2.5 rounded-lg border text-sm outline-none"
                   style={{
                     borderColor: "rgba(13,115,119,0.2)",
@@ -418,6 +637,11 @@ export default function WalkIn() {
                 />
               </div>
             </div>
+
+            <div className="text-sm" style={{ color: "#4a7a7a" }}>
+              Check-out: {checkOut}
+            </div>
+
             <div className="space-y-2">
               {loadingRooms ? (
                 <div
@@ -456,7 +680,7 @@ export default function WalkIn() {
                     }}
                   >
                     <div
-                      className="w-10 h-10 rounded-lg flex items-center justify-center text-lg font-medium"
+                      className="w-12 h-12 rounded-lg flex items-center justify-center text-sm font-medium"
                       style={{
                         background: "#f0f9f8",
                         color: "#0d7377",
@@ -465,7 +689,7 @@ export default function WalkIn() {
                       {room.roomNumber}
                     </div>
 
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <p
                         className="text-sm font-medium"
                         style={{ color: "#0a2e2e" }}
@@ -504,30 +728,58 @@ export default function WalkIn() {
           </div>
         )}
 
-        {/* Step 3 */}
+        {/* STEP 3: PAYMENT */}
         {step === 3 && (
           <div className="space-y-4">
             <h2
               className="text-xl mb-5"
-              style={{ fontFamily: "Georgia, serif", color: "#0a2e2e" }}
+              style={{
+                fontFamily: "Georgia, serif",
+                color: "#0a2e2e",
+              }}
             >
               Payment
             </h2>
+
             <div className="p-4 rounded-xl" style={{ background: "#f0f9f8" }}>
               <div className="flex justify-between text-sm mb-2">
-                <span style={{ color: "#4a7a7a" }}>
-                  Room ({selectedRoom?.type})
-                </span>
+                <span style={{ color: "#4a7a7a" }}>Guest</span>
                 <span style={{ color: "#0a2e2e" }}>
-                  ₱{selectedRoom?.rate.toLocaleString()}/night
+                  {form.firstName} {form.lastName}
                 </span>
               </div>
+
+              <div className="flex justify-between text-sm mb-2">
+                <span style={{ color: "#4a7a7a" }}>Room</span>
+                <span style={{ color: "#0a2e2e" }}>
+                  {selectedRoom?.type} – Room {selectedRoom?.roomNumber}
+                </span>
+              </div>
+
+              <div className="flex justify-between text-sm mb-2">
+                <span style={{ color: "#4a7a7a" }}>Check-in</span>
+                <span style={{ color: "#0a2e2e" }}>{form.checkIn}</span>
+              </div>
+
+              <div className="flex justify-between text-sm mb-2">
+                <span style={{ color: "#4a7a7a" }}>Check-out</span>
+                <span style={{ color: "#0a2e2e" }}>{checkOut}</span>
+              </div>
+
               <div className="flex justify-between text-sm mb-2">
                 <span style={{ color: "#4a7a7a" }}>Nights</span>
                 <span style={{ color: "#0a2e2e" }}>× {form.nights}</span>
               </div>
+
+              <div className="flex justify-between text-sm mb-2">
+                <span style={{ color: "#4a7a7a" }}>Rate per night</span>
+                <span style={{ color: "#0a2e2e" }}>
+                  ₱{selectedRoom?.rate.toLocaleString()}
+                </span>
+              </div>
+
               <div
-                className="flex justify-between font-medium border-t pt-2 mt-2"
+                className="flex justify-between font-medium border-t pt-3 mt-3"
                 style={{ borderColor: "rgba(13,115,119,0.15)" }}
               >
                 <span style={{ color: "#0a2e2e" }}>Total</span>
@@ -536,6 +788,7 @@ export default function WalkIn() {
                 </span>
               </div>
             </div>
+
             <div>
               <label
                 className="block text-sm mb-1"
@@ -543,29 +796,35 @@ export default function WalkIn() {
               >
                 Payment Method
               </label>
+
               <div className="flex gap-3">
-                {["cash", "card", "gcash"].map((m) => (
+                {["cash", "card", "gcash"].map((method) => (
                   <button
-                    key={m}
-                    onClick={() => update("paymentMethod", m)}
+                    key={method}
+                    type="button"
+                    onClick={() => update("paymentMethod", method)}
                     className="flex-1 py-2.5 rounded-lg border text-sm capitalize transition-all"
                     style={{
                       borderColor:
-                        form.paymentMethod === m
+                        form.paymentMethod === method
                           ? "#0d7377"
                           : "rgba(13,115,119,0.2)",
                       background:
-                        form.paymentMethod === m ? "#e2f3f2" : "transparent",
-                      color: form.paymentMethod === m ? "#0d7377" : "#4a7a7a",
+                        form.paymentMethod === method
+                          ? "#e2f3f2"
+                          : "transparent",
+                      color:
+                        form.paymentMethod === method ? "#0d7377" : "#4a7a7a",
                     }}
                   >
-                    {m === "gcash"
+                    {method === "gcash"
                       ? "GCash"
-                      : m.charAt(0).toUpperCase() + m.slice(1)}
+                      : method.charAt(0).toUpperCase() + method.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
+
             <div>
               <label
                 className="block text-sm mb-1"
@@ -573,8 +832,11 @@ export default function WalkIn() {
               >
                 Down Payment (₱)
               </label>
+
               <input
                 type="number"
+                min={0}
+                max={total}
                 value={form.downPayment}
                 onChange={(e) => update("downPayment", e.target.value)}
                 placeholder={`Full: ₱${total.toLocaleString()}`}
@@ -586,55 +848,110 @@ export default function WalkIn() {
                 }}
               />
             </div>
-            {Number(form.downPayment) > 0 &&
-              Number(form.downPayment) < total && (
-                <div
-                  className="p-3 rounded-lg"
-                  style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}
-                >
-                  <p className="text-sm" style={{ color: "#f97316" }}>
-                    Partial payment: ₱
-                    {Number(form.downPayment).toLocaleString()} paid. Balance of
-                    ₱{balance.toLocaleString()} due at checkout.
-                  </p>
-                </div>
-              )}
+
+            {payment > 0 && payment < total && (
+              <div
+                className="p-3 rounded-lg"
+                style={{
+                  background: "#fff7ed",
+                  border: "1px solid #fed7aa",
+                }}
+              >
+                <p className="text-sm" style={{ color: "#f97316" }}>
+                  Partial payment: ₱{payment.toLocaleString()} paid. Balance of
+                  ₱{balance.toLocaleString()} due at checkout.
+                </p>
+              </div>
+            )}
+
+            {payment >= total && total > 0 && (
+              <div
+                className="p-3 rounded-lg"
+                style={{
+                  background: "#e2f3f2",
+                  color: "#0d7377",
+                }}
+              >
+                <p className="text-sm">
+                  Full payment: ₱{payment.toLocaleString()}. No remaining
+                  balance.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Navigation */}
+      {/* NAVIGATION */}
       <div className="flex justify-between">
         {step > 1 ? (
           <button
-            onClick={() => setStep(step - 1)}
-            className="px-6 py-2.5 rounded-lg border text-sm"
-            style={{ borderColor: "rgba(13,115,119,0.2)", color: "#4a7a7a" }}
+            type="button"
+            disabled={submitting}
+            onClick={() => setStep((previous) => previous - 1)}
+            className="px-6 py-2.5 rounded-lg border text-sm disabled:opacity-50"
+            style={{
+              borderColor: "rgba(13,115,119,0.2)",
+              color: "#4a7a7a",
+            }}
           >
             Back
           </button>
         ) : (
           <div />
         )}
+
         {step < 3 ? (
           <button
-            onClick={() => setStep(step + 1)}
-            disabled={step === 2 && !form.selectedRoom}
-            className="px-6 py-2.5 rounded-lg text-sm text-white"
-            style={{
-              background:
-                step === 2 && !form.selectedRoom ? "#a0c4c4" : "#0d7377",
+            type="button"
+            disabled={
+              submitting ||
+              (step === 2 && (!form.selectedRoom || !selectedRoom))
+            }
+            onClick={() => {
+              if (step === 1) {
+                if (!form.firstName.trim() || !form.lastName.trim()) {
+                  alert("Please enter the guest's name.");
+                  return;
+                }
+
+                if (!form.phone.trim()) {
+                  alert("Please enter the guest's phone number.");
+                  return;
+                }
+
+                if (
+                  form.email.trim() &&
+                  !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
+                ) {
+                  alert("Please enter a valid email.");
+                  return;
+                }
+              }
+
+              if (step === 2) {
+                if (!selectedRoom) {
+                  alert("Please select a room.");
+                  return;
+                }
+              }
+
+              setStep((previous) => previous + 1);
             }}
+            className="px-6 py-2.5 rounded-lg text-sm text-white disabled:opacity-50"
+            style={{ background: "#0d7377" }}
           >
             Continue
           </button>
         ) : (
           <button
+            type="button"
             onClick={handleSubmit}
-            className="px-6 py-2.5 rounded-lg text-sm text-white"
+            disabled={submitting}
+            className="px-6 py-2.5 rounded-lg text-sm text-white disabled:opacity-50"
             style={{ background: "#0d7377" }}
           >
-            Confirm & Check In
+            {submitting ? "Processing..." : "Confirm & Check In"}
           </button>
         )}
       </div>

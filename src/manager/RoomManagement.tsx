@@ -15,6 +15,8 @@ import {
   updateDoc,
   serverTimestamp,
 } from "firebase/firestore";
+import { uploadToCloudinary } from "../services/cloudinary";
+import { createActivityLog } from "../app/activitylogss";
 
 type RoomType = {
   id: string;
@@ -40,6 +42,7 @@ export default function RoomManagement() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"types" | "rooms">("types");
   const [showForm, setShowForm] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [editingRoomType, setEditingRoomType] = useState<RoomType | null>(null);
@@ -164,12 +167,21 @@ export default function RoomManagement() {
     setSearchParams({});
   };
 
-  // Room Type CRUD
   const handleDeleteRoomType = async (id: string) => {
     if (!window.confirm("Delete this room type?")) return;
 
     try {
+      const roomType = roomTypes.find((item) => item.id === id);
+
       await deleteDoc(doc(db, "roomTypes", id));
+
+      if (roomType) {
+        await createActivityLog({
+          action: "Deleted Room Type",
+          details: `Deleted room type "${roomType.name}".`,
+          status: "warning",
+        });
+      }
 
       await loadRoomTypes();
 
@@ -190,21 +202,41 @@ export default function RoomManagement() {
       const name = String(data.get("name") || "");
       const basePrice = Number(data.get("basePrice") || 0);
       const maxGuests = Number(data.get("maxGuests") || 0);
-      const count = Number(data.get("count") || 0);
 
       const amenities = String(data.get("amenities") || "")
         .split(",")
         .map((a) => a.trim())
         .filter(Boolean);
 
+      const imageFile = data.get("image") as File | null;
+
+      let imageUrl = "";
+      if (imageFile && imageFile.size > 0) {
+        setUploadingImage(true);
+
+        try {
+          imageUrl = await uploadToCloudinary(imageFile);
+
+          console.log("Cloudinary image URL:", imageUrl);
+        } finally {
+          setUploadingImage(false);
+        }
+      }
+
       await addDoc(collection(db, "roomTypes"), {
         name,
         basePrice,
         maxGuests,
-        count,
+        count: 0,
         amenities,
-        image: "",
+        image: imageUrl,
         createdAt: serverTimestamp(),
+      });
+
+      await createActivityLog({
+        action: "Added Room Type",
+        details: `Added room type "${name}" with a base price of ₱${basePrice} per night.`,
+        status: "success",
       });
 
       await loadRoomTypes();
@@ -214,7 +246,11 @@ export default function RoomManagement() {
       alert("Room type added successfully!");
     } catch (error) {
       console.error("Error adding room type:", error);
-      alert("Failed to add room type.");
+      alert(
+        error instanceof Error ? error.message : "Failed to add room type.",
+      );
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -230,20 +266,40 @@ export default function RoomManagement() {
       const name = String(data.get("name") || "");
       const basePrice = Number(data.get("basePrice") || 0);
       const maxGuests = Number(data.get("maxGuests") || 0);
-      const count = Number(data.get("count") || 0);
 
       const amenities = String(data.get("amenities") || "")
         .split(",")
         .map((a) => a.trim())
         .filter(Boolean);
 
+      let imageUrl = editingRoomType.image || "";
+
+      const imageFile = data.get("image") as File | null;
+
+      if (imageFile && imageFile.size > 0) {
+        setUploadingImage(true);
+
+        try {
+          imageUrl = await uploadToCloudinary(imageFile);
+
+          console.log("New Cloudinary image URL:", imageUrl);
+        } finally {
+          setUploadingImage(false);
+        }
+      }
+
       await updateDoc(doc(db, "roomTypes", editingRoomType.id), {
         name,
         basePrice,
         maxGuests,
-        count,
         amenities,
+        image: imageUrl,
         updatedAt: serverTimestamp(),
+      });
+      await createActivityLog({
+        action: "Updated Room Type",
+        details: `Updated room type "${name}".`,
+        status: "success",
       });
 
       await loadRoomTypes();
@@ -253,7 +309,12 @@ export default function RoomManagement() {
       alert("Room type updated successfully!");
     } catch (error) {
       console.error("Error updating room type:", error);
-      alert("Failed to update room type.");
+
+      alert(
+        error instanceof Error ? error.message : "Failed to update room type.",
+      );
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -269,7 +330,15 @@ export default function RoomManagement() {
       const type = String(data.get("roomType") || "");
       const condition = String(data.get("condition") || "good").toLowerCase();
 
-      // Generate application Room ID
+      const selectedRoomType = roomTypes.find(
+        (roomType) => roomType.name === type,
+      );
+
+      if (!selectedRoomType) {
+        alert("Please select a valid room type.");
+        return;
+      }
+
       const roomId = generateRoomId(rooms);
 
       const newRoom = {
@@ -284,7 +353,19 @@ export default function RoomManagement() {
 
       await addDoc(collection(db, "rooms"), newRoom);
 
+      await updateDoc(doc(db, "roomTypes", selectedRoomType.id), {
+        count: (selectedRoomType.count || 0) + 1,
+        updatedAt: serverTimestamp(),
+      });
+
+      await createActivityLog({
+        action: "Added Room",
+        details: `Added Room ${roomId} as ${type} on Floor ${floor}.`,
+        status: "success",
+      });
+
       await loadRooms();
+      await loadRoomTypes();
 
       closeForm();
 
@@ -295,14 +376,38 @@ export default function RoomManagement() {
     }
   };
 
-  // Room CRUD
   const handleDeleteRoom = async (id: string) => {
     if (!window.confirm("Delete this room?")) return;
 
     try {
+      const roomToDelete = rooms.find((room) => room.id === id);
+
+      if (!roomToDelete) {
+        alert("Room not found.");
+        return;
+      }
+
+      const roomType = roomTypes.find(
+        (roomType) => roomType.name === roomToDelete.type,
+      );
+
       await deleteDoc(doc(db, "rooms", id));
 
+      if (roomType) {
+        await updateDoc(doc(db, "roomTypes", roomType.id), {
+          count: Math.max(0, (roomType.count || 0) - 1),
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      await createActivityLog({
+        action: "Deleted Room",
+        details: `Deleted Room ${roomToDelete.roomId} (${roomToDelete.type}).`,
+        status: "warning",
+      });
+
       await loadRooms();
+      await loadRoomTypes();
 
       alert("Room deleted successfully.");
     } catch (error) {
@@ -320,9 +425,12 @@ export default function RoomManagement() {
       const form = e.currentTarget;
       const data = new FormData(form);
 
+      const newType = String(data.get("type") || "");
+      const oldType = editingRoom.type;
+
       const updatedRoom = {
         roomNumber: Number(data.get("roomNumber")),
-        type: String(data.get("type") || ""),
+        type: newType,
         floor: Number(data.get("floor")),
         condition: String(data.get("condition") || ""),
         status: String(data.get("status") || ""),
@@ -330,7 +438,38 @@ export default function RoomManagement() {
 
       await updateDoc(doc(db, "rooms", editingRoom.id), updatedRoom);
 
+      if (oldType !== newType) {
+        const oldRoomType = roomTypes.find(
+          (roomType) => roomType.name === oldType,
+        );
+
+        const newRoomType = roomTypes.find(
+          (roomType) => roomType.name === newType,
+        );
+
+        if (oldRoomType) {
+          await updateDoc(doc(db, "roomTypes", oldRoomType.id), {
+            count: Math.max(0, (oldRoomType.count || 0) - 1),
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        if (newRoomType) {
+          await updateDoc(doc(db, "roomTypes", newRoomType.id), {
+            count: (newRoomType.count || 0) + 1,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+
+      await createActivityLog({
+        action: "Updated Room",
+        details: `Updated Room ${editingRoom.roomId}. Room type: ${newType}, Floor: ${updatedRoom.floor}, Status: ${updatedRoom.status}.`,
+        status: "success",
+      });
+
       await loadRooms();
+      await loadRoomTypes();
 
       setEditingRoom(null);
 
@@ -366,7 +505,6 @@ export default function RoomManagement() {
         </Button>
       </div>
 
-      {/* Add Form Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <Card className="w-full max-w-md p-6 m-4">
@@ -431,17 +569,7 @@ export default function RoomManagement() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Total Rooms
-                  </label>
-                  <input
-                    name="count"
-                    type="number"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="0"
-                  />
-                </div>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Amenities (comma-separated)
@@ -466,8 +594,11 @@ export default function RoomManagement() {
                   <Button
                     className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                     type="submit"
+                    disabled={uploadingImage}
                   >
-                    Add Room Type
+                    {uploadingImage
+                      ? "Submitting New Room Type..."
+                      : "Add Room Type"}
                   </Button>
                 </div>
               </form>
@@ -536,7 +667,6 @@ export default function RoomManagement() {
         </div>
       )}
 
-      {/* Edit Room Type Modal */}
       {editingRoomType && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <Card className="w-full max-w-md p-6 m-4">
@@ -553,7 +683,6 @@ export default function RoomManagement() {
               </button>
             </div>
 
-            {/* IMPORTANT: UPDATE instead of ADD */}
             <form onSubmit={handleSaveRoomType} className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
@@ -566,6 +695,32 @@ export default function RoomManagement() {
                   required
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">
+                  Room Image
+                </label>
+
+                {editingRoomType.image && (
+                  <img
+                    src={editingRoomType.image}
+                    alt={editingRoomType.name}
+                    className="w-full h-40 object-cover rounded-lg mb-3"
+                  />
+                )}
+
+                <input
+                  type="file"
+                  name="image"
+                  accept="image/*"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+
+                <p className="text-xs text-gray-500 mt-1">
+                  Select a new image only if you want to replace the current
+                  image.
+                </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -600,20 +755,6 @@ export default function RoomManagement() {
 
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
-                  Total Rooms
-                </label>
-
-                <input
-                  name="count"
-                  type="number"
-                  defaultValue={editingRoomType.count}
-                  required
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">
                   Amenities (comma-separated)
                 </label>
 
@@ -636,9 +777,10 @@ export default function RoomManagement() {
 
                 <Button
                   type="submit"
+                  disabled={uploadingImage}
                   className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                 >
-                  Save Changes
+                  {uploadingImage ? "Saving Changes..." : "Save Changes"}
                 </Button>
               </div>
             </form>
@@ -646,7 +788,6 @@ export default function RoomManagement() {
         </div>
       )}
 
-      {/* Edit Room Modal */}
       {editingRoom && (
         <div className="fixed inset-0 z-50 bg-black/40 overflow-y-auto">
           <div className="flex min-h-full items-center justify-center p-4">
@@ -742,7 +883,6 @@ export default function RoomManagement() {
         </div>
       )}
 
-      {/* Tabs */}
       <div className="mb-6 flex overflow-x-auto border-b border-gray-200">
         <button
           onClick={() => setActiveTab("types")}
@@ -766,7 +906,6 @@ export default function RoomManagement() {
         </button>
       </div>
 
-      {/* Room Types */}
       {activeTab === "types" && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {roomTypes.map((roomType) => (
@@ -785,7 +924,7 @@ export default function RoomManagement() {
                     {roomType.name}
                   </h3>
                   <p className="text-sm text-gray-500 mt-1">
-                    {roomType.count} rooms available
+                    {roomType.count} {roomType.count === 1 ? "room" : "rooms"}
                   </p>
                 </div>
                 <div className="flex items-center justify-end gap-2">
@@ -840,7 +979,6 @@ export default function RoomManagement() {
         </div>
       )}
 
-      {/* All Rooms */}
       {activeTab === "rooms" && (
         <Card className="p-6">
           <div className="w-full overflow-x-auto">
@@ -874,22 +1012,18 @@ export default function RoomManagement() {
                     key={room.id}
                     className="border-b border-gray-100 hover:bg-gray-50"
                   >
-                    {/* Room ID */}
                     <td className="py-3 px-4 text-sm font-medium text-gray-900">
                       {room.roomId}
                     </td>
 
-                    {/* Room Type */}
                     <td className="py-3 px-4 text-sm text-gray-700">
                       {room.type}
                     </td>
 
-                    {/* Floor */}
                     <td className="py-3 px-4 text-sm text-gray-700">
                       Floor {room.floor}
                     </td>
 
-                    {/* Status */}
                     <td className="py-3 px-4">
                       <span
                         className={`px-2 py-1 rounded text-xs ${
@@ -907,7 +1041,6 @@ export default function RoomManagement() {
                       </span>
                     </td>
 
-                    {/* Condition */}
                     <td className="py-3 px-4">
                       <span
                         className={`px-2 py-1 rounded text-xs ${
@@ -923,7 +1056,6 @@ export default function RoomManagement() {
                       </span>
                     </td>
 
-                    {/* Actions */}
                     <td className="py-3 px-4">
                       <div className="flex items-center justify-end gap-2">
                         <Button

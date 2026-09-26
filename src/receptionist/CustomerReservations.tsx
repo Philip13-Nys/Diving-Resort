@@ -7,10 +7,11 @@ import {
   updateDoc,
   doc,
   getDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-
 import { auth, db, customerDb } from "../app/firebase";
+import { createActivityLog } from "../app/activitylogss";
 
 type BookingStatus =
   | "confirmed"
@@ -21,6 +22,8 @@ type BookingStatus =
 
 interface Booking {
   id: string;
+  bookingId: string;
+
   guest: string;
   email: string;
   phone: string;
@@ -101,7 +104,9 @@ function BookingModal({
               fontFamily: "Georgia, serif",
             }}
           >
-            {booking.id ? `Edit Booking ${booking.id}` : "New Booking"}
+            {booking.id
+              ? `Edit Booking ${booking.bookingId || ""}`
+              : "New Booking"}
           </h3>
 
           <button
@@ -246,6 +251,7 @@ export default function Reservations() {
   const [detail, setDetail] = useState<Booking | null>(null);
 
   const [receptionistName, setReceptionistName] = useState("Receptionist");
+
   const [receptionistUid, setReceptionistUid] = useState("");
 
   useEffect(() => {
@@ -281,9 +287,49 @@ export default function Reservations() {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    loadBookings();
-  }, []);
+  const migrateBookingIds = async () => {
+    try {
+      const snapshot = await getDocs(collection(customerDb, "Bookings"));
+
+      let highestNumber = 0;
+
+      snapshot.docs.forEach((bookingDoc) => {
+        const data = bookingDoc.data();
+        const existingBookingId = data.bookingId;
+
+        if (
+          typeof existingBookingId === "string" &&
+          existingBookingId.startsWith("BK-")
+        ) {
+          const number = Number(existingBookingId.replace("BK-", ""));
+
+          if (!isNaN(number) && number > highestNumber) {
+            highestNumber = number;
+          }
+        }
+      });
+
+      for (const bookingDoc of snapshot.docs) {
+        const data = bookingDoc.data();
+
+        if (!data.bookingId) {
+          highestNumber++;
+
+          const newBookingId = `BK-${highestNumber}`;
+
+          await updateDoc(doc(customerDb, "Bookings", bookingDoc.id), {
+            bookingId: newBookingId,
+          });
+
+          console.log(`Assigned ${newBookingId} to booking ${bookingDoc.id}`);
+        }
+      }
+
+      console.log("Booking ID migration completed.");
+    } catch (error) {
+      console.error("Error migrating booking IDs:", error);
+    }
+  };
 
   const loadBookings = async () => {
     try {
@@ -292,16 +338,22 @@ export default function Reservations() {
       const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
         const data = bookingDoc.data();
 
+        const normalizedStatus = String(data.status || "")
+          .toLowerCase()
+          .replace(/\s+/g, "-");
+
         return {
           id: bookingDoc.id,
 
-          guest: data.customerName || "Unknown Guest",
+          bookingId: data.bookingId || "",
 
-          email: data.customerEmail || "",
+          guest: data.customerName || data.guestName || "Unknown Guest",
 
-          phone: data.customerPhone || "",
+          email: data.customerEmail || data.email || "",
 
-          room: data.roomName || "",
+          phone: data.customerPhone || data.phone || "",
+
+          room: data.roomName || data.roomNumber || "",
 
           roomType: data.roomType || "",
 
@@ -311,16 +363,16 @@ export default function Reservations() {
 
           nights: Number(data.nights || 0),
 
-          pax: Number(data.guests || 0),
+          pax: Number(data.guests || data.pax || 0),
 
           status:
-            data.status === "confirmed"
+            normalizedStatus === "confirmed"
               ? "confirmed"
-              : data.status === "checked-in"
+              : normalizedStatus === "checked-in"
                 ? "checked-in"
-                : data.status === "checked-out"
+                : normalizedStatus === "checked-out"
                   ? "checked-out"
-                  : data.status === "cancelled"
+                  : normalizedStatus === "cancelled"
                     ? "cancelled"
                     : "pending",
 
@@ -336,11 +388,33 @@ export default function Reservations() {
           notes: data.notes || "",
 
           acceptedBy: data.acceptedBy || "",
+
           acceptedByUid: data.acceptedByUid || "",
 
           cancelledBy: data.cancelledBy || "",
+
           cancelledByUid: data.cancelledByUid || "",
         };
+      });
+
+      bookingData.sort((a, b) => {
+        const numberA = Number(a.bookingId.replace(/^BK-/, ""));
+
+        const numberB = Number(b.bookingId.replace(/^BK-/, ""));
+
+        if (!Number.isFinite(numberA) && !Number.isFinite(numberB)) {
+          return 0;
+        }
+
+        if (!Number.isFinite(numberA)) {
+          return 1;
+        }
+
+        if (!Number.isFinite(numberB)) {
+          return -1;
+        }
+
+        return numberA - numberB;
       });
 
       setBookings(bookingData);
@@ -349,11 +423,44 @@ export default function Reservations() {
     }
   };
 
+  useEffect(() => {
+    const initializeBookings = async () => {
+      await migrateBookingIds();
+      await loadBookings();
+    };
+
+    initializeBookings();
+  }, []);
+
+  const getNextBookingId = async () => {
+    const snapshot = await getDocs(collection(customerDb, "Bookings"));
+
+    let highestNumber = 0;
+
+    snapshot.docs.forEach((bookingDoc) => {
+      const data = bookingDoc.data();
+
+      if (
+        typeof data.bookingId === "string" &&
+        data.bookingId.startsWith("BK-")
+      ) {
+        const number = Number(data.bookingId.replace("BK-", ""));
+
+        if (!isNaN(number) && number > highestNumber) {
+          highestNumber = number;
+        }
+      }
+    });
+
+    return `BK-${highestNumber + 1}`;
+  };
+
   const filtered = bookings.filter((b) => {
     const searchText = search.toLowerCase();
 
     const matchesSearch =
       (b.guest ?? "").toLowerCase().includes(searchText) ||
+      (b.bookingId ?? "").toLowerCase().includes(searchText) ||
       (b.id ?? "").toLowerCase().includes(searchText) ||
       String(b.room ?? "")
         .toLowerCase()
@@ -369,37 +476,87 @@ export default function Reservations() {
       if (booking.id) {
         await updateDoc(doc(customerDb, "Bookings", booking.id), {
           customerName: booking.guest,
+
           customerEmail: booking.email,
+
           customerPhone: booking.phone,
+
           roomName: booking.room,
+
           roomType: booking.roomType,
+
           checkIn: booking.checkIn,
+
           checkOut: booking.checkOut,
+
           nights: booking.nights,
+
           guests: booking.pax,
+
           totalPrice: booking.amount,
+
           amountPaid: booking.paid,
+
           status: booking.status,
+
           notes: booking.notes,
+
+          updatedAt: serverTimestamp(),
+        });
+
+        await createActivityLog({
+          action: "Updated Booking",
+
+          details: `Updated booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
+
+          status: "success",
         });
       } else {
+        const bookingId = await getNextBookingId();
+
         await addDoc(collection(customerDb, "Bookings"), {
+          bookingId,
+
           customerName: booking.guest,
+
           customerEmail: booking.email,
+
           customerPhone: booking.phone,
+
           roomName: booking.room,
+
           roomType: booking.roomType,
+
           checkIn: booking.checkIn,
+
           checkOut: booking.checkOut,
+
           nights: booking.nights,
+
           guests: booking.pax,
+
           totalPrice: booking.amount,
+
           amountPaid: booking.paid,
+
           status: "pending",
+
           notes: booking.notes,
 
           receptionistName,
           receptionistUid,
+
+          createdAt: serverTimestamp(),
+
+          updatedAt: serverTimestamp(),
+        });
+
+        await createActivityLog({
+          action: "Created Booking",
+
+          details: `Created booking ${bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
+
+          status: "success",
         });
       }
 
@@ -407,6 +564,7 @@ export default function Reservations() {
       setModal(null);
     } catch (error) {
       console.error("Error saving booking:", error);
+
       alert("Failed to save booking.");
     }
   };
@@ -421,6 +579,15 @@ export default function Reservations() {
         alert(
           "Receptionist information is not available. Please log in again.",
         );
+
+        return;
+      }
+
+      const booking = bookings.find((item) => item.id === id);
+
+      if (!booking) {
+        alert("Booking not found.");
+
         return;
       }
 
@@ -428,7 +595,18 @@ export default function Reservations() {
         status: "confirmed",
 
         acceptedBy: receptionistName,
+
         acceptedByUid: receptionistUid,
+
+        updatedAt: serverTimestamp(),
+      });
+
+      await createActivityLog({
+        action: "Accepted Booking",
+
+        details: `Accepted booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
+
+        status: "success",
       });
 
       await loadBookings();
@@ -436,6 +614,102 @@ export default function Reservations() {
       console.error("Error accepting booking:", error);
 
       alert("Failed to accept booking.");
+    }
+  };
+
+  const checkOut = async (id: string) => {
+    try {
+      if (
+        !receptionistUid ||
+        !receptionistName ||
+        receptionistName === "Receptionist"
+      ) {
+        alert(
+          "Receptionist information is not available. Please log in again.",
+        );
+
+        return;
+      }
+
+      const booking = bookings.find((item) => item.id === id);
+
+      if (!booking) {
+        alert("Booking not found.");
+
+        return;
+      }
+
+      if (booking.status !== "confirmed" && booking.status !== "checked-in") {
+        alert("Only confirmed or checked-in bookings can be checked out.");
+
+        return;
+      }
+
+      const confirmCheckout = window.confirm(
+        `Check out ${booking.guest} from Room ${booking.room}?`,
+      );
+
+      if (!confirmCheckout) {
+        return;
+      }
+
+      const roomSnapshot = await getDocs(collection(db, "rooms"));
+
+      const matchingRoom = roomSnapshot.docs.find((roomDoc) => {
+        const roomData = roomDoc.data();
+
+        const roomNumber = String(
+          roomData.roomNumber ?? roomData.number ?? roomData.roomNo ?? "",
+        );
+
+        return roomNumber === String(booking.room);
+      });
+
+      await updateDoc(doc(customerDb, "Bookings", id), {
+        status: "checked-out",
+
+        checkedOutAt: serverTimestamp(),
+
+        checkedOutBy: receptionistName,
+
+        checkedOutByUid: receptionistUid,
+
+        updatedAt: serverTimestamp(),
+      });
+
+      if (matchingRoom) {
+        await updateDoc(doc(db, "rooms", matchingRoom.id), {
+          status: "Cleaning",
+
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        console.warn(
+          `Room ${booking.room} was not found in the rooms collection.`,
+        );
+      }
+
+      await createActivityLog({
+        action: "Guest Checked Out",
+
+        details: `Guest ${booking.guest} checked out from Room ${booking.room}. Booking: ${booking.bookingId}. Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}. Total: ₱${booking.amount.toLocaleString()}, Paid: ₱${booking.paid.toLocaleString()}, Balance: ₱${(
+          booking.amount - booking.paid
+        ).toLocaleString()}.`,
+
+        status: "success",
+      });
+
+      await loadBookings();
+
+      setDetail(null);
+
+      alert(
+        `Guest ${booking.guest} has been checked out. Room ${booking.room} is now under Cleaning.`,
+      );
+    } catch (error) {
+      console.error("Error checking out guest:", error);
+
+      alert("Failed to check out guest. Please try again.");
     }
   };
 
@@ -449,6 +723,15 @@ export default function Reservations() {
         alert(
           "Receptionist information is not available. Please log in again.",
         );
+
+        return;
+      }
+
+      const booking = bookings.find((item) => item.id === id);
+
+      if (!booking) {
+        alert("Booking not found.");
+
         return;
       }
 
@@ -456,7 +739,18 @@ export default function Reservations() {
         status: "cancelled",
 
         cancelledBy: receptionistName,
+
         cancelledByUid: receptionistUid,
+
+        updatedAt: serverTimestamp(),
+      });
+
+      await createActivityLog({
+        action: "Cancelled Booking",
+
+        details: `Cancelled booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
+
+        status: "success",
       });
 
       await loadBookings();
@@ -473,7 +767,6 @@ export default function Reservations() {
 
   return (
     <div className="space-y-4">
-      {/* BOOKING MODAL */}
       {modal && (
         <BookingModal
           booking={modal}
@@ -482,12 +775,13 @@ export default function Reservations() {
         />
       )}
 
-      {/* SEARCH + FILTERS */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-48">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-            style={{ color: "#4a7a7a" }}
+            style={{
+              color: "#4a7a7a",
+            }}
           />
 
           <input
@@ -551,7 +845,6 @@ export default function Reservations() {
         </button>
       </div>
 
-      {/* RESERVATIONS TABLE */}
       <div
         className="bg-white rounded-xl border overflow-hidden"
         style={{
@@ -606,6 +899,7 @@ export default function Reservations() {
               ) : (
                 filtered.map((b, i) => {
                   const s = STATUS[b.status];
+
                   const balance = b.amount - b.paid;
 
                   return (
@@ -616,17 +910,15 @@ export default function Reservations() {
                           i > 0 ? "1px solid rgba(13,115,119,0.08)" : undefined,
                       }}
                     >
-                      {/* BOOKING ID */}
                       <td
                         className="px-4 py-3 text-sm font-mono"
                         style={{
                           color: "#0d7377",
                         }}
                       >
-                        {b.id}
+                        {b.bookingId}
                       </td>
 
-                      {/* GUEST */}
                       <td className="px-4 py-3">
                         <p
                           className="text-sm"
@@ -647,7 +939,6 @@ export default function Reservations() {
                         </p>
                       </td>
 
-                      {/* RECEPTIONIST */}
                       <td className="px-4 py-3">
                         <p
                           className="text-sm"
@@ -668,14 +959,13 @@ export default function Reservations() {
                           }}
                         >
                           {b.status === "cancelled"
-                            ? "Cancelled by Receptionist"
+                            ? "Cancelled"
                             : b.acceptedBy
                               ? "Accepted / Accommodated"
                               : "Pending acceptance"}
                         </p>
                       </td>
 
-                      {/* ROOM */}
                       <td className="px-4 py-3">
                         <p
                           className="text-sm"
@@ -696,7 +986,6 @@ export default function Reservations() {
                         </p>
                       </td>
 
-                      {/* CHECK-IN */}
                       <td
                         className="px-4 py-3 text-sm"
                         style={{
@@ -706,7 +995,6 @@ export default function Reservations() {
                         {b.checkIn}
                       </td>
 
-                      {/* CHECK-OUT */}
                       <td
                         className="px-4 py-3 text-sm"
                         style={{
@@ -716,7 +1004,6 @@ export default function Reservations() {
                         {b.checkOut}
                       </td>
 
-                      {/* PAX */}
                       <td
                         className="px-4 py-3 text-sm text-center"
                         style={{
@@ -726,7 +1013,6 @@ export default function Reservations() {
                         {b.pax}
                       </td>
 
-                      {/* STATUS */}
                       <td className="px-4 py-3">
                         <span
                           className="inline-block px-2 py-1 rounded-full text-xs"
@@ -739,7 +1025,6 @@ export default function Reservations() {
                         </span>
                       </td>
 
-                      {/* AMOUNT */}
                       <td
                         className="px-4 py-3 text-sm"
                         style={{
@@ -749,7 +1034,6 @@ export default function Reservations() {
                         ₱{b.amount.toLocaleString()}
                       </td>
 
-                      {/* BALANCE */}
                       <td
                         className="px-4 py-3 text-sm"
                         style={{
@@ -759,10 +1043,8 @@ export default function Reservations() {
                         {balance > 0 ? `₱${balance.toLocaleString()}` : "Paid"}
                       </td>
 
-                      {/* ACTIONS */}
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
-                          {/* ACCEPT */}
                           {b.status === "pending" && (
                             <button
                               onClick={() => acceptBooking(b.id)}
@@ -776,7 +1058,20 @@ export default function Reservations() {
                             </button>
                           )}
 
-                          {/* VIEW */}
+                          {(b.status === "confirmed" ||
+                            b.status === "checked-in") && (
+                            <button
+                              onClick={() => checkOut(b.id)}
+                              className="p-1.5 rounded-lg"
+                              style={{
+                                color: "#0d7377",
+                              }}
+                              title="Check Out"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          )}
+
                           <button
                             onClick={() => setDetail(b)}
                             className="p-1.5 rounded-lg"
@@ -788,7 +1083,6 @@ export default function Reservations() {
                             <Eye className="w-4 h-4" />
                           </button>
 
-                          {/* EDIT */}
                           <button
                             onClick={() => setModal(b)}
                             className="p-1.5 rounded-lg"
@@ -800,7 +1094,6 @@ export default function Reservations() {
                             <Edit2 className="w-4 h-4" />
                           </button>
 
-                          {/* CANCEL */}
                           {b.status !== "cancelled" &&
                             b.status !== "checked-out" && (
                               <button
@@ -825,7 +1118,6 @@ export default function Reservations() {
         </div>
       </div>
 
-      {/* DETAIL PANEL */}
       {detail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
@@ -843,7 +1135,7 @@ export default function Reservations() {
                     fontFamily: "Georgia, serif",
                   }}
                 >
-                  {detail.id}
+                  {detail.bookingId}
                 </h3>
 
                 <span
@@ -871,6 +1163,10 @@ export default function Reservations() {
             <div className="p-6 grid grid-cols-2 gap-4">
               {[
                 {
+                  label: "Booking ID",
+                  value: detail.bookingId,
+                },
+                {
                   label: "Guest",
                   value: detail.guest,
                 },
@@ -887,6 +1183,7 @@ export default function Reservations() {
                     detail.status === "cancelled"
                       ? "Cancelled By"
                       : "Accepted / Accommodated By",
+
                   value:
                     detail.status === "cancelled"
                       ? detail.cancelledBy || "Unknown Receptionist"
@@ -957,6 +1254,22 @@ export default function Reservations() {
                 </div>
               ))}
             </div>
+
+            {(detail.status === "confirmed" ||
+              detail.status === "checked-in") && (
+              <div className="px-6 pb-6">
+                <button
+                  onClick={() => checkOut(detail.id)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
+                  style={{
+                    background: "#0d7377",
+                  }}
+                >
+                  <Check className="w-4 h-4" />
+                  Check Out Guest
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
