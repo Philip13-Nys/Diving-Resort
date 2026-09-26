@@ -382,7 +382,7 @@ export default function GuestRecords() {
           <p className="text-sm text-gray-500">Avg. Lifetime Value</p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">
-            ${averageLifetimeValue.toLocaleString()}
+            ₱{averageLifetimeValue.toLocaleString()}
           </p>
         </Card>
       </div>
@@ -456,7 +456,7 @@ export default function GuestRecords() {
                   </td>
 
                   <td className="py-3 px-4 font-medium text-gray-900">
-                    ${guest.totalSpent.toLocaleString()}
+                    ₱{guest.totalSpent.toLocaleString()}
                   </td>
 
                   <td className="py-3 px-4 text-sm text-gray-700">
@@ -539,7 +539,7 @@ export default function GuestRecords() {
                 ["Nationality", viewingGuest.nationality],
                 ["Last Visit", viewingGuest.lastVisit],
                 ["Total Stays", String(viewingGuest.totalStays)],
-                ["Total Spent", `$${viewingGuest.totalSpent.toLocaleString()}`],
+                ["Total Spent", `₱${viewingGuest.totalSpent.toLocaleString()}`],
               ].map(([label, value]) => (
                 <div key={label} className="bg-gray-50 rounded-lg p-3">
                   <p className="text-xs text-gray-500 mb-1">{label}</p>
@@ -591,7 +591,7 @@ export default function GuestRecords() {
                         </td>
 
                         <td className="py-2 px-3 font-medium text-gray-900">
-                          ${booking.amount.toLocaleString()}
+                          ₱{booking.amount.toLocaleString()}
                         </td>
                       </tr>
                     ))}

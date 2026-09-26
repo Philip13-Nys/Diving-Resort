@@ -2,21 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { loginUser } from "./auth";
 
-/* =========================================================
-   BACKGROUND VIDEOS
-========================================================= */
-
 const BACKGROUND_VIDEOS = [
-  "https://cdn.pixabay.com/video/2025/03/15/265145_large.mp4",
+  "https://cdn.pixabay.com/video/2024/02/29/202391-918066363_large.mp4",
+  "https://cdn.pixabay.com/video/2022/11/22/140111-774507949_large.mp4",
   "https://cdn.pixabay.com/video/2015/10/18/1084-142790263_medium.mp4",
   "https://cdn.pixabay.com/video/2019/04/23/23011-332483109_large.mp4",
-  "https://cdn.pixabay.com/video/2022/11/22/140111-774507949_large.mp4",
-  "https://cdn.pixabay.com/video/2024/02/29/202391-918066363_large.mp4",
 ];
-
-/* =========================================================
-   EYE ICON
-========================================================= */
 
 function EyeIcon({ visible }: { visible: boolean }) {
   if (visible) {
@@ -75,16 +66,8 @@ function EyeIcon({ visible }: { visible: boolean }) {
   );
 }
 
-/* =========================================================
-   LOGIN PAGE
-========================================================= */
-
 export default function Login() {
   const navigate = useNavigate();
-
-  /* =======================================================
-     LOGIN STATES
-  ======================================================= */
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -94,17 +77,9 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  /* =======================================================
-     VIDEO STATES
-  ======================================================= */
-
   const [currentVideoIndex, setCurrentVideoIndex] = useState(0);
 
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
-
-  /* =======================================================
-     START FIRST VIDEO
-  ======================================================= */
 
   useEffect(() => {
     const firstVideo = videoRefs.current[0];
@@ -118,19 +93,13 @@ export default function Login() {
     }
   }, []);
 
-  /* =======================================================
-     VIDEO TRANSITION
-  ======================================================= */
-
   const handleVideoEnded = (index: number) => {
     if (index !== currentVideoIndex) {
       return;
     }
 
     const nextIndex = (currentVideoIndex + 1) % BACKGROUND_VIDEOS.length;
-
     const currentVideo = videoRefs.current[currentVideoIndex];
-
     const nextVideo = videoRefs.current[nextIndex];
 
     if (!nextVideo) {
@@ -152,23 +121,15 @@ export default function Login() {
     setCurrentVideoIndex(nextIndex);
   };
 
-  /* =======================================================
-     LOGIN
-  ======================================================= */
-
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     setError("");
 
-    /* Validate email */
-
     if (!email.trim()) {
       setError("Please enter your email address.");
       return;
     }
-
-    /* Validate password */
 
     if (!password.trim()) {
       setError("Please enter your password.");
@@ -178,17 +139,9 @@ export default function Login() {
     try {
       setLoading(true);
 
-      /* Firebase login */
-
       const user = await loginUser(email.trim(), password);
 
-      /* Get role */
-
       const role = String(user.role).toLowerCase().trim();
-
-      /* ===================================================
-         ROLE-BASED REDIRECT
-      =================================================== */
 
       if (role === "administrator" || role === "admin") {
         navigate("/admin");
@@ -203,8 +156,6 @@ export default function Login() {
       }
     } catch (error: any) {
       console.error("Login error:", error);
-
-      /* Firebase-friendly error messages */
 
       if (
         error?.code === "auth/invalid-credential" ||
@@ -225,16 +176,8 @@ export default function Login() {
     }
   };
 
-  /* =======================================================
-     PAGE
-  ======================================================= */
-
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden bg-zinc-950">
-      {/* =================================================
-    BACKGROUND VIDEOS
-================================================= */}
-
       <div className="absolute inset-0 overflow-hidden">
         {BACKGROUND_VIDEOS.map((video, index) => (
           <video
@@ -256,30 +199,14 @@ export default function Login() {
         ))}
       </div>
 
-      {/* DARK OVERLAY — NO BLUR */}
-
       <div className="absolute inset-0 bg-black/40 z-10" />
-
-      {/* =================================================
-          LOGIN CARD
-      ================================================= */}
-
       <div className="w-[calc(100%-32px)] max-w-md bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl p-7 sm:p-8 relative z-20 border border-white/20 transform transition-all duration-300">
-        {/* =================================================
-            TITLE
-        ================================================= */}
-
         <h1 className="text-2xl sm:text-[28px] font-bold text-white text-center tracking-tight drop-shadow-md">
           Resort Management System
         </h1>
-
         <p className="text-gray-200 text-center mt-2 mb-7 text-sm sm:text-[15px] drop-shadow-sm">
           Sign in to your account
         </p>
-
-        {/* =================================================
-            ERROR
-        ================================================= */}
 
         {error && (
           <div className="mb-5 p-3 rounded-lg bg-red-500/20 border border-red-500/40 text-red-200 text-sm backdrop-blur-md text-center">
@@ -287,15 +214,7 @@ export default function Login() {
           </div>
         )}
 
-        {/* =================================================
-            FORM
-        ================================================= */}
-
         <form onSubmit={handleLogin} className="space-y-5">
-          {/* =================================================
-              EMAIL
-          ================================================= */}
-
           <div>
             <label
               htmlFor="email"
@@ -316,10 +235,6 @@ export default function Login() {
               className="w-full h-[52px] px-4 border border-white/20 rounded-lg outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-400 bg-white/10 text-white placeholder-gray-400 transition-all backdrop-blur-sm disabled:opacity-60"
             />
           </div>
-
-          {/* =================================================
-              PASSWORD
-          ================================================= */}
 
           <div>
             <label
@@ -342,10 +257,6 @@ export default function Login() {
                 className="w-full h-[52px] pl-4 pr-12 border border-white/20 rounded-lg outline-none focus:ring-2 focus:ring-cyan-500 focus:border-cyan-400 bg-white/10 text-white placeholder-gray-400 transition-all backdrop-blur-sm disabled:opacity-60"
               />
 
-              {/* =================================================
-                  SHOW / HIDE PASSWORD
-              ================================================= */}
-
               <button
                 type="button"
                 aria-label={showPassword ? "Hide password" : "Show password"}
@@ -357,10 +268,6 @@ export default function Login() {
               </button>
             </div>
           </div>
-
-          {/* =================================================
-              LOGIN BUTTON
-          ================================================= */}
 
           <button
             type="submit"
@@ -377,10 +284,6 @@ export default function Login() {
             )}
           </button>
         </form>
-
-        {/* =================================================
-            FOOTER
-        ================================================= */}
 
         <p className="text-center text-gray-400/70 text-xs mt-6">
           Secure Resort Management System
