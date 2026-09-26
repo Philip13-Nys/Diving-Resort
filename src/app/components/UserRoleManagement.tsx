@@ -77,23 +77,19 @@ export default function UserRoleManagement() {
       name: "Administrator",
       count: users.filter((u) => u.role?.toLowerCase() === "administrator")
         .length,
-      color: "bg-red-100 text-red-700",
     },
     {
       name: "Manager",
       count: users.filter((u) => u.role?.toLowerCase() === "manager").length,
-      color: "bg-blue-100 text-blue-700",
     },
     {
       name: "Receptionist",
       count: users.filter((u) => u.role?.toLowerCase() === "receptionist")
         .length,
-      color: "bg-green-100 text-green-700",
     },
     {
       name: "Staff",
       count: staffCount,
-      color: "bg-purple-100 text-purple-700",
     },
   ];
 
@@ -292,11 +288,6 @@ export default function UserRoleManagement() {
                 <p className="text-2xl font-bold text-gray-900 mt-1">
                   {role.count}
                 </p>
-              </div>
-              <div
-                className={`size-10 rounded-full ${role.color} flex items-center justify-center`}
-              >
-                <Shield className="size-5" />
               </div>
             </div>
           </div>

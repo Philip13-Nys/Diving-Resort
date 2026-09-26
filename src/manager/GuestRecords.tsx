@@ -128,7 +128,6 @@ export default function GuestRecords() {
             amount: total,
           };
 
-          // Existing guest?
           if (guestMap.has(guestKey)) {
             const existingGuest = guestMap.get(guestKey)!;
 
@@ -137,14 +136,12 @@ export default function GuestRecords() {
 
             existingGuest.history.push(bookingRecord);
 
-            // Update last visit if this booking is newer
             if (
               getDateValue(bookingDate) > getDateValue(existingGuest.lastVisit)
             ) {
               existingGuest.lastVisit = formatDate(bookingDate);
             }
 
-            // Keep missing information updated
             if (existingGuest.phone === "" && phone) {
               existingGuest.phone = phone;
             }
@@ -173,8 +170,6 @@ export default function GuestRecords() {
           }
         });
 
-        // Calculate guest status
-
         const guestList = Array.from(guestMap.values()).map((guest) => {
           let status: Guest["status"];
 
@@ -192,7 +187,6 @@ export default function GuestRecords() {
           };
         });
 
-        // Sort newest visitors first
         guestList.sort(
           (a, b) => getDateValue(b.lastVisit) - getDateValue(a.lastVisit),
         );
@@ -207,8 +201,6 @@ export default function GuestRecords() {
 
     fetchGuests();
   }, []);
-
-  // HELPER FUNCTIONS
 
   function getDateValue(value: string): number {
     if (!value) return 0;
@@ -225,7 +217,6 @@ export default function GuestRecords() {
   function formatDate(value: unknown): string {
     if (!value) return "Not available";
 
-    // Firebase Timestamp
     if (typeof value === "object" && value !== null && "toDate" in value) {
       const timestamp = value as {
         toDate: () => Date;
@@ -251,8 +242,6 @@ export default function GuestRecords() {
     });
   }
 
-  // SEARCH
-
   const filtered = guests.filter((guest) => {
     const q = search.toLowerCase().trim();
 
@@ -264,8 +253,6 @@ export default function GuestRecords() {
       guest.nationality.toLowerCase().includes(q)
     );
   });
-
-  // STATUS BADGE
 
   const statusBadge = (status: Guest["status"]) => {
     const map = {
@@ -281,8 +268,6 @@ export default function GuestRecords() {
     );
   };
 
-  // LOADING
-
   if (loading) {
     return (
       <div className="p-8">
@@ -292,8 +277,6 @@ export default function GuestRecords() {
       </div>
     );
   }
-
-  // STATISTICS
 
   const totalGuests = guests.length;
 
