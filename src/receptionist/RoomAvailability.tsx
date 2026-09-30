@@ -292,17 +292,11 @@ function getFutureBookingForRoom(
 
 export default function RoomAvailability() {
   const [rooms, setRooms] = useState<Room[]>([]);
-
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
-
   const [loading, setLoading] = useState(true);
-
   const [error, setError] = useState("");
-
   const [filter, setFilter] = useState<RoomStatus | "all">("all");
-
   const [typeFilter, setTypeFilter] = useState<string>("all");
-
   const [selected, setSelected] = useState<Room | null>(null);
 
   useEffect(() => {

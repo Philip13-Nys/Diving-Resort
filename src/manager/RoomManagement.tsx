@@ -21,6 +21,7 @@ import { createActivityLog } from "../app/activitylogss";
 type RoomType = {
   id: string;
   name: string;
+  description?: string;
   count: number;
   amenities: string[];
   maxGuests: number;
@@ -179,7 +180,6 @@ export default function RoomManagement() {
         await createActivityLog({
           action: "Deleted Room Type",
           details: `Deleted room type "${roomType.name}".`,
-          status: "warning",
         });
       }
 
@@ -200,6 +200,7 @@ export default function RoomManagement() {
       const data = new FormData(form);
 
       const name = String(data.get("name") || "");
+      const description = String(data.get("description") || "");
       const basePrice = Number(data.get("basePrice") || 0);
       const maxGuests = Number(data.get("maxGuests") || 0);
 
@@ -225,6 +226,7 @@ export default function RoomManagement() {
 
       await addDoc(collection(db, "roomTypes"), {
         name,
+        description,
         basePrice,
         maxGuests,
         count: 0,
@@ -264,6 +266,7 @@ export default function RoomManagement() {
       const data = new FormData(form);
 
       const name = String(data.get("name") || "");
+      const description = String(data.get("description") || "");
       const basePrice = Number(data.get("basePrice") || 0);
       const maxGuests = Number(data.get("maxGuests") || 0);
 
@@ -290,12 +293,14 @@ export default function RoomManagement() {
 
       await updateDoc(doc(db, "roomTypes", editingRoomType.id), {
         name,
+        description,
         basePrice,
         maxGuests,
         amenities,
         image: imageUrl,
         updatedAt: serverTimestamp(),
       });
+
       await createActivityLog({
         action: "Updated Room Type",
         details: `Updated room type "${name}".`,
@@ -535,6 +540,19 @@ export default function RoomManagement() {
 
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Room Description
+                  </label>
+                  <textarea
+                    name="description"
+                    rows={3}
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Describe the room, its features, and what guests can expect..."
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
                     Room Image
                   </label>
 
@@ -688,6 +706,21 @@ export default function RoomManagement() {
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Name
                 </label>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Room Description
+                  </label>
+
+                  <textarea
+                    name="description"
+                    rows={4}
+                    defaultValue={editingRoomType.description || ""}
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Describe the room, its features, and what guests can expect..."
+                  />
+                </div>
 
                 <input
                   name="name"
@@ -923,6 +956,9 @@ export default function RoomManagement() {
                   <h3 className="text-lg font-semibold text-gray-900">
                     {roomType.name}
                   </h3>
+                  <p className="text-sm text-gray-600 mt-2 leading-relaxed">
+                    {roomType.description || "No description available."}
+                  </p>
                   <p className="text-sm text-gray-500 mt-1">
                     {roomType.count} {roomType.count === 1 ? "room" : "rooms"}
                   </p>
