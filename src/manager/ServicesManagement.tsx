@@ -898,9 +898,6 @@ export default function ServicesManagement() {
                           maximumFractionDigits: 2,
                         })}
                       </span>
-                      <span className="text-sm text-gray-500 ml-2">
-                        per person
-                      </span>
                     </div>
                   </div>
                 </div>
