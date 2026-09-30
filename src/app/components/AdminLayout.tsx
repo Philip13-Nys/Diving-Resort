@@ -45,6 +45,8 @@ export default function AdminLayout() {
   const [userName, setUserName] = useState("Administrator");
   const [userEmail, setUserEmail] = useState("");
 
+  
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (!user) {

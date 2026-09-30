@@ -51,8 +51,6 @@ export default function GuestRecords() {
         snapshot.docs.forEach((bookingDoc) => {
           const data = bookingDoc.data();
 
-          // Get customer information
-
           const name =
             data.guestName ||
             data.customerName ||
@@ -73,23 +71,19 @@ export default function GuestRecords() {
           const nationality =
             data.nationality || data.country || "Not specified";
 
-          // Room
           const room =
             data.room || data.roomName || data.roomType || "Unknown Room";
 
-          // Dates
           const checkIn =
             data.checkIn || data.checkInDate || data.startDate || "";
 
           const checkOut =
             data.checkOut || data.checkOutDate || data.endDate || "";
 
-          // Total amount
           const total = Number(
             data.total || data.totalAmount || data.amount || data.price || 0,
           );
 
-          // Calculate number of nights
           let nights = Number(
             data.nights || data.numberOfNights || data.stayDuration || 0,
           );
@@ -111,9 +105,6 @@ export default function GuestRecords() {
           if (!nights) {
             nights = 1;
           }
-
-          // Use email as primary guest identifier.
-          // If email doesn't exist, use name.
 
           const guestKey =
             email.toLowerCase().trim() || name.toLowerCase().trim();
