@@ -683,7 +683,7 @@ export default function ServicesManagement() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Original Price ($)
+                    Original Price (₱)
                   </label>
                   <input
                     name="originalPrice"
@@ -695,7 +695,7 @@ export default function ServicesManagement() {
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Package Price ($)
+                    Package Price (₱)
                   </label>
                   <input
                     name="packagePrice"
