@@ -210,11 +210,8 @@ function isBookingConfirmed(booking: BookingRecord) {
 
 function roomMatchesBooking(room: Room, booking: BookingRecord) {
   const roomIdentifiers = [room.id, room.firestoreId];
-
   const roomDataIdentifiers = [room.id];
-
   const bookingIdentifiers = [booking.room, booking.roomId];
-
   const normalizedRoomIdentifiers = [...roomIdentifiers, ...roomDataIdentifiers]
     .filter(Boolean)
     .map(normalizeRoomValue);
@@ -239,7 +236,6 @@ function getBookingForRoom(room: Room, bookings: BookingRecord[], today: Date) {
     }
 
     const checkIn = normalizeDate(booking.checkIn);
-
     const checkOut = normalizeDate(booking.checkOut);
 
     if (!checkIn || !checkOut) {
@@ -247,9 +243,7 @@ function getBookingForRoom(room: Room, bookings: BookingRecord[], today: Date) {
     }
 
     const todayTime = today.getTime();
-
     const checkInTime = startOfDay(checkIn).getTime();
-
     const checkOutTime = startOfDay(checkOut).getTime();
 
     if (isBookingCurrentlyCheckedIn(booking)) {
@@ -404,26 +398,17 @@ export default function RoomAvailability() {
 
         const room: Room = {
           id: roomNumber,
-
           firestoreId: docSnap.id,
-
           type: roomType,
-
           capacity,
-
           floor,
-
           rate,
-
           status: "available",
-
           features,
         };
 
         const currentBooking = getBookingForRoom(room, bookingData, today);
-
         const futureBooking = getFutureBookingForRoom(room, bookingData, today);
-
         let status: RoomStatus = "available";
 
         if (
@@ -443,11 +428,8 @@ export default function RoomAvailability() {
 
         return {
           ...room,
-
           status,
-
           guest: currentBooking?.guest,
-
           checkOut: currentBooking?.checkOut,
         };
       });
@@ -468,19 +450,12 @@ export default function RoomAvailability() {
 
           roomMap.set(roomId, {
             id: roomId,
-
             firestoreId: roomId,
-
             type: booking.roomType || "Room",
-
             capacity: 0,
-
             floor: 0,
-
             rate: 0,
-
             status: "available",
-
             features: [],
           });
         });
