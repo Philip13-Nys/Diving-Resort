@@ -7,6 +7,7 @@ import ManagerDashboard from "./components/ManagerDashboard";
 import ReceptionistDashboard from "./components/ReceptionistDashboard";
 import UserRoleManagement from "./components/UserRoleManagement";
 import StaffProfiles from "./components/StaffProfiles";
+import PaymentConfiguration from "./components/PaymentConfiguration";
 import CommissionReport from "./components/CommissionReport";
 import SalesReports from "./components/SalesReports";
 
@@ -60,6 +61,10 @@ export const router = createHashRouter([
       { path: "staff", Component: StaffProfiles },
       { path: "commission", Component: CommissionReport },
       { path: "sales", Component: SalesReports },
+      {
+        path: "/admin/payment-configuration",
+        element: <PaymentConfiguration />,
+      },
     ],
   },
 

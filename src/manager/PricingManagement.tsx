@@ -2,7 +2,15 @@ import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Edit, TrendingUp, Calendar, X, Save, AlertCircle } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
-import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  doc,
+  updateDoc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { db } from "../app/firebase";
 import { createActivityLog } from "../app/activitylogss";
 
@@ -38,6 +46,12 @@ export default function PricingManagement() {
   const [ruleError, setRuleError] = useState("");
 
   const [editingRule, setEditingRule] = useState<string | null>(null);
+
+  const [reservationFee, setReservationFee] = useState("5");
+  const [loadingFee, setLoadingFee] = useState(true);
+  const [savingFee, setSavingFee] = useState(false);
+  const [feeError, setFeeError] = useState("");
+  const [feeMessage, setFeeMessage] = useState("");
 
   const [editingRuleData, setEditingRuleData] = useState<PricingRule | null>(
     null,
@@ -84,6 +98,71 @@ export default function PricingManagement() {
 
     loadRoomTypes();
   }, []);
+
+  useEffect(() => {
+    const loadReservationFee = async () => {
+      try {
+        setLoadingFee(true);
+        setFeeError("");
+
+        const snapshot = await getDoc(doc(db, "settings", "reservationFee"));
+
+        if (snapshot.exists()) {
+          setReservationFee(String(snapshot.data().percent ?? 5));
+        }
+      } catch (error) {
+        console.error("Error loading reservation fee:", error);
+        setFeeError("Failed to load reservation fee settings.");
+      } finally {
+        setLoadingFee(false);
+      }
+    };
+
+    loadReservationFee();
+  }, []);
+
+  const saveReservationFee = async () => {
+    const percent = Number(reservationFee);
+
+    if (
+      reservationFee.trim() === "" ||
+      !Number.isFinite(percent) ||
+      percent < 0 ||
+      percent > 100
+    ) {
+      setFeeError("Enter a valid percentage between 0 and 100.");
+      setFeeMessage("");
+      return;
+    }
+
+    try {
+      setSavingFee(true);
+      setFeeError("");
+      setFeeMessage("");
+
+      await setDoc(
+        doc(db, "settings", "reservationFee"),
+        {
+          percent,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
+      await createActivityLog({
+        action: "Updated Reservation Fee",
+        details: `Changed the reservation fee to ${percent}%.`,
+        status: "success",
+      });
+
+      setFeeMessage("Reservation fee updated successfully.");
+    } catch (error) {
+      console.error("Error saving reservation fee:", error);
+      setFeeError("Failed to save reservation fee. Check Firestore rules.");
+    } finally {
+      setSavingFee(false);
+    }
+  };
 
   useEffect(() => {
     const loadPricingRules = async () => {
@@ -457,6 +536,102 @@ export default function PricingManagement() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-6 mb-6">
+        <div className="flex items-center gap-2 mb-2">
+          <TrendingUp className="w-5 h-5 text-blue-600" />
+          <h2 className="text-lg font-semibold text-gray-900">
+            Reservation Fee Configuration
+          </h2>
+        </div>
+
+        <p className="text-sm text-gray-500 mb-5">
+          Set the percentage added to the customer's booking subtotal.
+        </p>
+
+        {loadingFee ? (
+          <p className="text-sm text-gray-500 py-4">
+            Loading reservation fee...
+          </p>
+        ) : (
+          <div className="max-w-lg">
+            <label
+              htmlFor="reservationFee"
+              className="block text-sm font-medium text-gray-700 mb-2"
+            >
+              Reservation Fee (%)
+            </label>
+
+            <div className="flex items-center gap-3">
+              <input
+                id="reservationFee"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={reservationFee}
+                onChange={(e) => {
+                  setReservationFee(e.target.value);
+                  setFeeError("");
+                  setFeeMessage("");
+                }}
+                disabled={savingFee}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter percentage"
+              />
+              <span className="font-semibold text-gray-700">%</span>
+            </div>
+
+            <p className="text-xs text-gray-500 mt-2">
+              Example: 5 means a 5% reservation fee. Set to 0 to disable it.
+            </p>
+
+            <div className="mt-4 rounded-lg bg-blue-50 border border-blue-100 p-4">
+              <p className="text-xs text-blue-700 mb-1">
+                Example on a ₱9,111 subtotal
+              </p>
+              <p className="text-sm text-gray-700">
+                Reservation fee:{" "}
+                <strong>
+                  ₱
+                  {Math.ceil(
+                    (9111 * (Number(reservationFee) || 0)) / 100,
+                  ).toLocaleString("en-PH")}
+                </strong>
+              </p>
+              <p className="text-sm text-gray-700 mt-1">
+                Estimated total:{" "}
+                <strong>
+                  ₱
+                  {(
+                    9111 +
+                    Math.ceil((9111 * (Number(reservationFee) || 0)) / 100)
+                  ).toLocaleString("en-PH")}
+                </strong>
+              </p>
+            </div>
+
+            {feeError && (
+              <p className="text-sm text-red-600 mt-3">{feeError}</p>
+            )}
+
+            {feeMessage && (
+              <p className="text-sm text-green-600 mt-3">{feeMessage}</p>
+            )}
+
+            <div className="mt-4">
+              <Button
+                disabled={savingFee || loadingFee}
+                onClick={saveReservationFee}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {savingFee ? "Saving..." : "Save Reservation Fee"}
+              </Button>
+            </div>
           </div>
         )}
       </Card>

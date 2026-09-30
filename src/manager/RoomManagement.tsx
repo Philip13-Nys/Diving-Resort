@@ -106,9 +106,7 @@ export default function RoomManagement() {
         return match ? Number(match[1]) : 0;
       })
       .filter((number) => number > 0);
-
     const nextNumber = numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
-
     return `R-${String(nextNumber).padStart(3, "0")}`;
   };
 
@@ -408,7 +406,6 @@ export default function RoomManagement() {
       await createActivityLog({
         action: "Deleted Room",
         details: `Deleted Room ${roomToDelete.roomId} (${roomToDelete.type}).`,
-        status: "warning",
       });
 
       await loadRooms();

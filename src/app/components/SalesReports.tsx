@@ -141,17 +141,10 @@ export default function SalesReports() {
     return isNaN(date.getTime()) ? null : date;
   };
 
-  /*
-   * Only non-cancelled bookings are included.
-   */
   const validBookings = useMemo(() => {
     return bookings.filter((booking) => booking.status !== "cancelled");
   }, [bookings]);
 
-  /*
-   * Filter bookings according to the selected
-   * monthly / quarterly / annual report.
-   */
   const reportBookings = useMemo(() => {
     return validBookings.filter((booking) => {
       const date = getDate(booking.checkIn);
@@ -182,10 +175,6 @@ export default function SalesReports() {
     return reportBookings.reduce((sum, booking) => sum + booking.total, 0);
   }, [reportBookings]);
 
-  /*
-   * There is currently no Expenses collection
-   * in the Firebase structure you provided.
-   */
   const totalExpenses = 0;
 
   const netProfit = totalRevenue - totalExpenses;
@@ -201,10 +190,6 @@ export default function SalesReports() {
       booking.paymentStatus === "unpaid" || booking.paymentStatus === "partial",
   ).length;
 
-  /*
-   * Revenue trend for the last 6 months
-   * relative to the selected report month.
-   */
   const revenueData = useMemo(() => {
     const result = [];
 
@@ -244,12 +229,6 @@ export default function SalesReports() {
     return result;
   }, [validBookings, reportMonth, reportYear]);
 
-  /*
-   * Category distribution.
-   * Your current Bookings data does not contain
-   * service/category fields, so bookings are
-   * honestly grouped as Accommodations.
-   */
   const revenueByCategory = useMemo(() => {
     if (reportBookings.length === 0) {
       return [];
@@ -265,13 +244,6 @@ export default function SalesReports() {
     ];
   }, [reportBookings, totalRevenue]);
 
-  /*
-   * Payment methods.
-   *
-   * If paymentMethod exists in your database,
-   * it will be used. Otherwise, records appear
-   * under "Not specified".
-   */
   const paymentMethods = useMemo(() => {
     const map = new Map<
       string,
@@ -455,8 +427,6 @@ export default function SalesReports() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <div className="flex items-center gap-3 mb-2">
-            <span className="text-2xl font-bold text-green-600">₱</span>
-
             <p className="text-sm text-gray-600">Total Revenue</p>
           </div>
 
@@ -468,7 +438,7 @@ export default function SalesReports() {
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <p className="text-sm text-gray-600 mb-2">Total Expenses</p>
 
-          <p className="text-3xl font-bold text-red-600">
+          <p className="text-3xl font-bold text-gray-600">
             {formatPeso(totalExpenses)}
           </p>
 
@@ -480,9 +450,7 @@ export default function SalesReports() {
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <p className="text-sm text-gray-600 mb-2">Net Profit</p>
 
-          <p className="text-3xl font-bold text-green-600">
-            {formatPeso(netProfit)}
-          </p>
+          <p className="text-3xl font-bold ">{formatPeso(netProfit)}</p>
 
           <p className="text-xs text-gray-500 mt-1">
             Revenue minus recorded expenses
@@ -964,7 +932,7 @@ export default function SalesReports() {
                     <div className="flex justify-between">
                       <span className="text-gray-600">Total Expenses</span>
 
-                      <span className="font-medium text-red-600">
+                      <span className="font-medium text-gray-600">
                         {formatPeso(totalExpenses)}
                       </span>
                     </div>
@@ -972,7 +940,7 @@ export default function SalesReports() {
                     <div className="flex justify-between border-t pt-2">
                       <span className="font-medium">Net Profit</span>
 
-                      <span className="font-bold text-green-600">
+                      <span className="font-bold text-gray-600">
                         {formatPeso(netProfit)}
                       </span>
                     </div>

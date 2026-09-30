@@ -1,16 +1,18 @@
-import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
   UserCog,
-  DollarSign,
+  PhilippinePeso,
   TrendingUp,
   Menu,
   X,
   Waves,
   BarChart3,
   LogOut,
+  CreditCard,
 } from "lucide-react";
+
+import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
@@ -24,12 +26,18 @@ const navigation = [
     path: "/admin/receptionist",
     icon: Users,
   },
+  {
+    name: "Payment Configuration",
+    path: "/admin/payment-configuration",
+    icon: CreditCard,
+  },
   { name: "User Role Management", path: "/admin/users", icon: UserCog },
   { name: "Staff Profiles", path: "/admin/staff", icon: Users },
+
   {
     name: "Commission Report",
     path: "/admin/commission",
-    icon: DollarSign,
+    icon: PhilippinePeso,
   },
   {
     name: "Sales & Financial Reports",
