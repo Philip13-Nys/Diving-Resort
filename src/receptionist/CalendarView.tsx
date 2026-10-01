@@ -4,20 +4,18 @@ import {
   ChevronRight,
   Filter,
   Download,
-  Plus,
-  X,
   Loader2,
 } from "lucide-react";
 import {
   format,
   addDays,
   startOfWeek,
+  startOfDay,
   isSameDay,
   differenceInDays,
 } from "date-fns";
 
-import { collection, getDocs, addDoc } from "firebase/firestore";
-
+import { collection, getDocs } from "firebase/firestore";
 import { customerDb } from "../app/firebase";
 
 type Room = {
@@ -34,6 +32,9 @@ type Booking = {
   checkOut: Date;
   color: string;
   status: string;
+  services: string[];
+  packages: string[];
+  addOns: string[];
 };
 
 const BOOKING_COLORS = [
@@ -52,7 +53,6 @@ const DAYS_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 function normalizeDate(value: unknown): Date | null {
   if (!value) return null;
 
-  // Firestore Timestamp
   if (
     typeof value === "object" &&
     value !== null &&
@@ -60,23 +60,97 @@ function normalizeDate(value: unknown): Date | null {
     typeof (value as { toDate?: unknown }).toDate === "function"
   ) {
     const date = (value as { toDate: () => Date }).toDate();
-
-    return isNaN(date.getTime()) ? null : date;
+    return isNaN(date.getTime()) ? null : startOfDay(date);
   }
 
   if (value instanceof Date) {
-    return isNaN(value.getTime()) ? null : value;
+    return isNaN(value.getTime()) ? null : startOfDay(value);
   }
 
   const stringValue = String(value);
-
   let date = new Date(`${stringValue}T00:00:00`);
 
   if (isNaN(date.getTime())) {
     date = new Date(stringValue);
   }
 
-  return isNaN(date.getTime()) ? null : date;
+  return isNaN(date.getTime()) ? null : startOfDay(date);
+}
+
+function getItemNames(value: unknown): string[] {
+  if (!value) return [];
+
+  const items = Array.isArray(value) ? value : [value];
+
+  return items
+    .map((item) => {
+      if (typeof item === "string") return item.trim();
+      if (typeof item === "number") return String(item);
+
+      if (typeof item === "object" && item !== null) {
+        const obj = item as Record<string, unknown>;
+
+        const name =
+          obj.name ??
+          obj.serviceName ??
+          obj.packageName ??
+          obj.title ??
+          obj.label;
+
+        if (name) return String(name).trim();
+      }
+
+      return "";
+    })
+    .filter(Boolean);
+}
+
+function getAddOnDetails(value: unknown): {
+  services: string[];
+  packages: string[];
+  other: string[];
+} {
+  const items = Array.isArray(value) ? value : value ? [value] : [];
+
+  const services: string[] = [];
+  const packages: string[] = [];
+  const other: string[] = [];
+
+  items.forEach((item) => {
+    if (typeof item === "string") {
+      other.push(item.trim());
+      return;
+    }
+
+    if (typeof item !== "object" || item === null) return;
+
+    const obj = item as Record<string, unknown>;
+
+    const name = String(
+      obj.name ??
+        obj.serviceName ??
+        obj.packageName ??
+        obj.title ??
+        obj.label ??
+        "",
+    ).trim();
+
+    if (!name) return;
+
+    const category = String(
+      obj.type ?? obj.category ?? obj.itemType ?? "",
+    ).toLowerCase();
+
+    if (category.includes("package")) {
+      packages.push(name);
+    } else if (category.includes("service")) {
+      services.push(name);
+    } else {
+      other.push(name);
+    }
+  });
+
+  return { services, packages, other };
 }
 
 function getWeekDays(anchor: Date): Date[] {
@@ -105,8 +179,7 @@ function getBookingBars(
   weekDays: Date[],
 ): BookingBar[] {
   const weekStart = weekDays[0];
-  const weekEnd = weekDays[6];
-  const weekEndExclusive = addDays(weekEnd, 1);
+  const weekEndExclusive = addDays(weekDays[6], 1);
 
   return bookings
     .filter(
@@ -117,7 +190,6 @@ function getBookingBars(
     )
     .map((b) => {
       const startsBeforeWeek = b.checkIn < weekStart;
-
       const endsAfterWeek = b.checkOut > weekEndExclusive;
 
       const visibleStart = startsBeforeWeek ? weekStart : b.checkIn;
@@ -142,304 +214,19 @@ function getBookingBars(
     });
 }
 
-function NewBookingModal({
-  rooms,
-  onClose,
-  onSave,
-}: {
-  rooms: Room[];
-  onClose: () => void;
-  onSave: (booking: {
-    room: string;
-    guest: string;
-    roomType: string;
-    checkIn: string;
-    checkOut: string;
-    color: string;
-  }) => Promise<void>;
-}) {
-  const [form, setForm] = useState({
-    room: rooms[0]?.id || "",
-    guest: "",
-    checkIn: "",
-    checkOut: "",
-    color: BOOKING_COLORS[0],
-  });
-
-  const [saving, setSaving] = useState(false);
-
-  const [error, setError] = useState("");
-
-  const update = (key: string, value: string) => {
-    setForm((current) => ({
-      ...current,
-      [key]: value,
-    }));
-  };
-
-  const selectedRoom = rooms.find((room) => room.id === form.room);
-
-  const COLORS = BOOKING_COLORS;
-
-  const handleSave = async () => {
-    setError("");
-
-    if (!form.room || !form.guest.trim() || !form.checkIn || !form.checkOut) {
-      setError("Please complete all required fields.");
-      return;
-    }
-
-    const checkInDate = new Date(`${form.checkIn}T00:00:00`);
-
-    const checkOutDate = new Date(`${form.checkOut}T00:00:00`);
-
-    if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
-      setError("Invalid check-in or check-out date.");
-      return;
-    }
-
-    if (checkOutDate <= checkInDate) {
-      setError("Check-out date must be after check-in date.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-
-      await onSave({
-        room: form.room,
-        guest: form.guest.trim(),
-        roomType: selectedRoom?.type || "",
-        checkIn: form.checkIn,
-        checkOut: form.checkOut,
-        color: form.color,
-      });
-    } catch (err) {
-      console.error(err);
-      setError("Unable to save the booking.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
-        <div
-          className="flex items-center justify-between px-6 py-4 border-b"
-          style={{
-            borderColor: "rgba(13,115,119,0.1)",
-          }}
-        >
-          <h3
-            style={{
-              fontFamily: "Georgia, serif",
-              color: "#0a2e2e",
-            }}
-          >
-            New Booking
-          </h3>
-
-          <button
-            onClick={onClose}
-            disabled={saving}
-            style={{ color: "#4a7a7a" }}
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {error && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
-              {error}
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            {/* Room */}
-            <div>
-              <label
-                className="block text-xs mb-1"
-                style={{ color: "#4a7a7a" }}
-              >
-                Room *
-              </label>
-
-              <select
-                value={form.room}
-                onChange={(e) => update("room", e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
-                style={{
-                  borderColor: "rgba(13,115,119,0.2)",
-                  background: "#f0f9f8",
-                  color: "#0a2e2e",
-                }}
-                disabled={saving}
-              >
-                {rooms.length === 0 ? (
-                  <option value="">No rooms found</option>
-                ) : (
-                  rooms.map((room) => (
-                    <option key={room.id} value={room.id}>
-                      #{room.id} {room.type ? `- ${room.type}` : ""}
-                    </option>
-                  ))
-                )}
-              </select>
-            </div>
-
-            {/* Guest */}
-            <div>
-              <label
-                className="block text-xs mb-1"
-                style={{ color: "#4a7a7a" }}
-              >
-                Guest Name *
-              </label>
-
-              <input
-                type="text"
-                value={form.guest}
-                onChange={(e) => update("guest", e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
-                style={{
-                  borderColor: "rgba(13,115,119,0.2)",
-                  background: "#f0f9f8",
-                  color: "#0a2e2e",
-                }}
-                disabled={saving}
-              />
-            </div>
-
-            {/* Check-in */}
-            <div>
-              <label
-                className="block text-xs mb-1"
-                style={{ color: "#4a7a7a" }}
-              >
-                Check-in *
-              </label>
-
-              <input
-                type="date"
-                value={form.checkIn}
-                onChange={(e) => update("checkIn", e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
-                style={{
-                  borderColor: "rgba(13,115,119,0.2)",
-                  background: "#f0f9f8",
-                  color: "#0a2e2e",
-                }}
-                disabled={saving}
-              />
-            </div>
-
-            {/* Check-out */}
-            <div>
-              <label
-                className="block text-xs mb-1"
-                style={{ color: "#4a7a7a" }}
-              >
-                Check-out *
-              </label>
-
-              <input
-                type="date"
-                value={form.checkOut}
-                onChange={(e) => update("checkOut", e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border text-sm outline-none"
-                style={{
-                  borderColor: "rgba(13,115,119,0.2)",
-                  background: "#f0f9f8",
-                  color: "#0a2e2e",
-                }}
-                disabled={saving}
-              />
-            </div>
-          </div>
-
-          {/* Color */}
-          <div>
-            <label className="block text-xs mb-2" style={{ color: "#4a7a7a" }}>
-              Calendar Color
-            </label>
-
-            <div className="flex gap-2">
-              {COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  onClick={() => update("color", color)}
-                  className="w-6 h-6 rounded-full border-2 transition-all"
-                  style={{
-                    background: color,
-                    borderColor:
-                      form.color === color ? "#0a2e2e" : "transparent",
-                  }}
-                  disabled={saving}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div
-          className="flex justify-end gap-3 px-6 py-4 border-t"
-          style={{
-            borderColor: "rgba(13,115,119,0.1)",
-          }}
-        >
-          <button
-            onClick={onClose}
-            disabled={saving}
-            className="px-4 py-2 rounded-lg text-sm border"
-            style={{
-              borderColor: "rgba(13,115,119,0.2)",
-              color: "#4a7a7a",
-            }}
-          >
-            Cancel
-          </button>
-
-          <button
-            onClick={handleSave}
-            disabled={saving || rooms.length === 0}
-            className="px-5 py-2 rounded-lg text-sm text-white flex items-center gap-2"
-            style={{
-              background: "#0d7377",
-            }}
-          >
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-
-            {saving ? "Saving..." : "Save Booking"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function CalendarView() {
   const [bookings, setBookings] = useState<Booking[]>([]);
-
   const [rooms, setRooms] = useState<Room[]>([]);
-
   const [loading, setLoading] = useState(true);
-
   const [error, setError] = useState("");
 
   const [anchor, setAnchor] = useState(new Date());
-
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const [newModal, setNewModal] = useState(false);
-
   const [filterRoom, setFilterRoom] = useState("All");
-
   const [filterOpen, setFilterOpen] = useState(false);
 
-  const today = useMemo(() => new Date(), []);
+  const today = useMemo(() => startOfDay(new Date()), []);
 
   useEffect(() => {
     loadCalendarData();
@@ -453,47 +240,57 @@ export default function CalendarView() {
       const snapshot = await getDocs(collection(customerDb, "Bookings"));
 
       const bookingData: Booking[] = [];
-
       const roomMap = new Map<string, string>();
 
       snapshot.docs.forEach((docSnap, index) => {
         const data = docSnap.data();
 
         const checkIn = normalizeDate(data.checkIn);
-
         const checkOut = normalizeDate(data.checkOut);
 
-        if (!checkIn || !checkOut) {
+        if (!checkIn || !checkOut || checkOut <= checkIn) {
           return;
         }
 
         const room = String(data.room ?? data.roomName ?? "").trim();
 
-        if (!room) {
-          return;
-        }
+        if (!room) return;
 
         const roomType = String(data.roomType ?? "").trim();
-
         roomMap.set(room, roomType);
-
         const status = String(data.status ?? "pending");
+        const addOnDetails = getAddOnDetails(data.addOns);
+
+        const services = [
+          ...getItemNames(data.services),
+          ...getItemNames(data.selectedServices),
+          ...getItemNames(data.selectedService),
+          ...addOnDetails.services,
+        ];
+
+        const packages = [
+          ...getItemNames(data.packages),
+          ...getItemNames(data.selectedPackages),
+          ...getItemNames(data.selectedPackage),
+          ...getItemNames(data.packageName),
+          ...addOnDetails.packages,
+        ];
 
         bookingData.push({
           id: docSnap.id,
-
           room,
-
-          guest: data.guest ?? data.customerName ?? "Unknown Guest",
-
+          guest: String(data.guest ?? data.customerName ?? "Unknown Guest"),
           roomType,
-
           checkIn,
           checkOut,
-
-          color: BOOKING_COLORS[index % BOOKING_COLORS.length],
-
+          color:
+            typeof data.calendarColor === "string"
+              ? data.calendarColor
+              : BOOKING_COLORS[index % BOOKING_COLORS.length],
           status,
+          services: [...new Set(services)],
+          packages: [...new Set(packages)],
+          addOns: [...new Set(addOnDetails.other)],
         });
       });
 
@@ -509,82 +306,13 @@ export default function CalendarView() {
         );
 
       setBookings(bookingData);
-
       setRooms(roomData);
     } catch (err) {
       console.error("Error loading calendar:", err);
-
       setError("Unable to load booking data from Firebase.");
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleSaveBooking = async (form: {
-    room: string;
-    guest: string;
-    roomType: string;
-    checkIn: string;
-    checkOut: string;
-    color: string;
-  }) => {
-    const start = new Date(`${form.checkIn}T00:00:00`);
-
-    const end = new Date(`${form.checkOut}T00:00:00`);
-
-    const nights = Math.max(1, differenceInDays(end, start));
-
-    /*
-     * The document is written using the same
-     * field names used by your other Booking pages.
-     */
-    await addDoc(collection(customerDb, "Bookings"), {
-      guest: form.guest,
-
-      customerName: form.guest,
-
-      room: form.room,
-
-      roomName: form.room,
-
-      roomType: form.roomType,
-
-      email: "",
-
-      phone: "",
-
-      checkIn: form.checkIn,
-
-      checkOut: form.checkOut,
-
-      nights,
-
-      pax: 1,
-
-      guests: 1,
-
-      status: "pending",
-
-      amount: 0,
-
-      total: 0,
-
-      totalAmount: 0,
-
-      totalPrice: 0,
-
-      paid: 0,
-
-      amountPaid: 0,
-
-      notes: "",
-
-      calendarColor: form.color,
-    });
-
-    await loadCalendarData();
-
-    setNewModal(false);
   };
 
   const filteredBookings = useMemo(() => {
@@ -596,29 +324,51 @@ export default function CalendarView() {
   }, [bookings, filterRoom]);
 
   const weekDays = getWeekDays(anchor);
-
-  const rangeLabel = `${format(weekDays[0], "MMM d")} – ${format(
-    weekDays[6],
+  const rangeLabel = `${format(
+    weekDays[0],
     "MMM d",
-  )}`;
+  )} – ${format(weekDays[6], "MMM d")}`;
 
   const monthLabel = format(anchor, "MMMM yyyy");
-
   const ROOM_COL_W = 140;
-  const DAY_COL_W = 110;
 
   const exportCalendar = () => {
+    const escapeCSV = (value: unknown) =>
+      `"${String(value ?? "").replace(/"/g, '""')}"`;
+
     const lines = [
       "Booking Calendar",
       `Generated: ${new Date().toLocaleString()}`,
       "",
-      "Booking ID,Guest,Room,Room Type,Check In,Check Out,Status",
-      ...filteredBookings.map(
-        (booking) =>
-          `"${booking.id}","${booking.guest}","${booking.room}","${booking.roomType}","${format(
-            booking.checkIn,
-            "yyyy-MM-dd",
-          )}","${format(booking.checkOut, "yyyy-MM-dd")}","${booking.status}"`,
+      [
+        "Booking ID",
+        "Guest",
+        "Room",
+        "Room Type",
+        "Check In",
+        "Check Out",
+        "Status",
+        "Services",
+        "Packages",
+        "Other Add-ons",
+      ]
+        .map(escapeCSV)
+        .join(","),
+      ...filteredBookings.map((booking) =>
+        [
+          booking.id,
+          booking.guest,
+          booking.room,
+          booking.roomType,
+          format(booking.checkIn, "yyyy-MM-dd"),
+          format(booking.checkOut, "yyyy-MM-dd"),
+          booking.status,
+          booking.services.join("; "),
+          booking.packages.join("; "),
+          booking.addOns.join("; "),
+        ]
+          .map(escapeCSV)
+          .join(","),
       ),
     ];
 
@@ -627,16 +377,13 @@ export default function CalendarView() {
     });
 
     const url = URL.createObjectURL(blob);
-
     const link = document.createElement("a");
 
     link.href = url;
     link.download = "booking-calendar.csv";
 
     document.body.appendChild(link);
-
     link.click();
-
     document.body.removeChild(link);
 
     URL.revokeObjectURL(url);
@@ -654,24 +401,15 @@ export default function CalendarView() {
   }
 
   return (
-    <div className="flex flex-col h-full space-y-0">
+    <div className="flex flex-col h-full min-h-0 w-full">
       {error && (
         <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
           {error}
         </div>
       )}
 
-      {newModal && (
-        <NewBookingModal
-          rooms={rooms}
-          onClose={() => setNewModal(false)}
-          onSave={handleSaveBooking}
-        />
-      )}
-
-      {/* Top bar */}
       <div
-        className="bg-white rounded-xl border mb-4 px-5 py-3 flex items-center gap-4 flex-wrap"
+        className="bg-white rounded-xl border mb-4 px-5 py-3 flex items-center gap-4 flex-wrap shrink-0"
         style={{
           borderColor: "rgba(13,115,119,0.1)",
         }}
@@ -687,45 +425,36 @@ export default function CalendarView() {
             Booking Calendar
           </h2>
 
-          <span
-            className="text-sm"
-            style={{
-              color: "#4a7a7a",
-            }}
-          >
+          <span className="text-sm" style={{ color: "#4a7a7a" }}>
             {monthLabel}
           </span>
         </div>
 
-        {/* Week navigation */}
         <div className="flex items-center gap-1 ml-2">
           <button
             onClick={() => setAnchor(addDays(anchor, -7))}
-            className="w-7 h-7 flex items-center justify-center rounded-lg border"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border"
             style={{
               borderColor: "rgba(13,115,119,0.2)",
               color: "#4a7a7a",
             }}
+            aria-label="Previous week"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          <span
-            className="text-sm px-2"
-            style={{
-              color: "#0a2e2e",
-            }}
-          >
+          <span className="text-sm px-2" style={{ color: "#0a2e2e" }}>
             {rangeLabel}
           </span>
 
           <button
             onClick={() => setAnchor(addDays(anchor, 7))}
-            className="w-7 h-7 flex items-center justify-center rounded-lg border"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border"
             style={{
               borderColor: "rgba(13,115,119,0.2)",
               color: "#4a7a7a",
             }}
+            aria-label="Next week"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -743,18 +472,16 @@ export default function CalendarView() {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Room filter */}
           <div className="relative">
             <button
-              onClick={() => setFilterOpen(!filterOpen)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm"
+              onClick={() => setFilterOpen((open) => !open)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
               style={{
                 borderColor: "rgba(13,115,119,0.2)",
                 color: "#4a7a7a",
               }}
             >
               <Filter className="w-3.5 h-3.5" />
-
               {filterRoom === "All" ? "All" : `Room ${filterRoom}`}
             </button>
 
@@ -788,7 +515,7 @@ export default function CalendarView() {
 
           <button
             onClick={exportCalendar}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
             style={{
               borderColor: "rgba(13,115,119,0.2)",
               color: "#4a7a7a",
@@ -797,24 +524,11 @@ export default function CalendarView() {
             <Download className="w-3.5 h-3.5" />
             Export
           </button>
-
-          <button
-            onClick={() => setNewModal(true)}
-            disabled={rooms.length === 0}
-            className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm text-white disabled:opacity-50"
-            style={{
-              background: "#0d7377",
-            }}
-          >
-            <Plus className="w-4 h-4" />
-            New Booking
-          </button>
         </div>
       </div>
 
-      {/* Calendar grid */}
       <div
-        className="bg-white rounded-xl border overflow-hidden flex-1"
+        className="bg-white rounded-xl border flex-1 min-h-0 overflow-hidden"
         style={{
           borderColor: "rgba(13,115,119,0.1)",
         }}
@@ -825,19 +539,19 @@ export default function CalendarView() {
           </div>
         ) : (
           <div
-            className="overflow-x-auto overflow-y-auto"
+            className="w-full h-full overflow-auto"
             style={{
               maxHeight: "calc(100vh - 220px)",
             }}
           >
             <div
               style={{
-                minWidth: ROOM_COL_W + DAY_COL_W * 7,
+                width: "100%",
+                minWidth: ROOM_COL_W + 700,
               }}
             >
-              {/* Header */}
               <div
-                className="flex sticky top-0 z-10 bg-white border-b"
+                className="flex sticky top-0 z-20 bg-white border-b"
                 style={{
                   borderColor: "rgba(13,115,119,0.1)",
                 }}
@@ -846,57 +560,46 @@ export default function CalendarView() {
                   className="flex-shrink-0 px-4 py-3 text-xs font-medium border-r"
                   style={{
                     width: ROOM_COL_W,
-
                     color: "#4a7a7a",
-
                     borderColor: "rgba(13,115,119,0.1)",
                   }}
                 >
                   Room
                 </div>
 
-                {weekDays.map((day) => {
-                  const isToday = isSameDay(day, today);
+                <div className="flex-1 grid grid-cols-7 min-w-0">
+                  {weekDays.map((day) => {
+                    const isToday = isSameDay(day, today);
 
-                  return (
-                    <div
-                      key={day.toISOString()}
-                      className="flex-shrink-0 text-center py-2 border-r"
-                      style={{
-                        width: DAY_COL_W,
-
-                        borderColor: "rgba(13,115,119,0.08)",
-
-                        background: isToday ? "#f0fffe" : undefined,
-                      }}
-                    >
+                    return (
                       <div
-                        className="text-xs"
+                        key={day.toISOString()}
+                        className="text-center py-2 border-r"
                         style={{
-                          color: "#4a7a7a",
+                          borderColor: "rgba(13,115,119,0.08)",
+                          background: isToday ? "#f0fffe" : undefined,
                         }}
                       >
-                        {DAYS_SHORT[day.getDay()]}
+                        <div className="text-xs" style={{ color: "#4a7a7a" }}>
+                          {DAYS_SHORT[day.getDay()]}
+                        </div>
+
+                        <div
+                          className="w-8 h-8 mx-auto mt-1 flex items-center justify-center rounded-full text-sm"
+                          style={{
+                            background: isToday ? "#0d7377" : "transparent",
+                            color: isToday ? "#fff" : "#0a2e2e",
+                            fontWeight: isToday ? 600 : 400,
+                          }}
+                        >
+                          {format(day, "d")}
+                        </div>
                       </div>
-
-                      <div
-                        className="w-8 h-8 mx-auto mt-1 flex items-center justify-center rounded-full text-sm"
-                        style={{
-                          background: isToday ? "#0d7377" : "transparent",
-
-                          color: isToday ? "#fff" : "#0a2e2e",
-
-                          fontWeight: isToday ? 600 : 400,
-                        }}
-                      >
-                        {format(day, "d")}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
 
-              {/* Rooms */}
               {rooms
                 .filter(
                   (room) => filterRoom === "All" || room.id === filterRoom,
@@ -914,46 +617,32 @@ export default function CalendarView() {
                       className="flex border-b"
                       style={{
                         borderColor: "rgba(13,115,119,0.08)",
-
                         background: roomIndex % 2 === 0 ? "#fff" : "#fafefe",
                       }}
                     >
-                      {/* Room */}
                       <div
                         className="flex-shrink-0 px-4 py-3 border-r flex flex-col justify-center"
                         style={{
                           width: ROOM_COL_W,
-
                           borderColor: "rgba(13,115,119,0.1)",
-
-                          minHeight: 56,
+                          minHeight: 74,
                         }}
                       >
                         <span
                           className="text-sm font-medium"
-                          style={{
-                            color: "#0a2e2e",
-                          }}
+                          style={{ color: "#0a2e2e" }}
                         >
                           #{room.id}
                         </span>
 
-                        <span
-                          className="text-xs"
-                          style={{
-                            color: "#4a7a7a",
-                          }}
-                        >
+                        <span className="text-xs" style={{ color: "#4a7a7a" }}>
                           {room.type}
                         </span>
                       </div>
 
-                      {/* Days */}
                       <div
-                        className="relative flex-1 flex"
-                        style={{
-                          minHeight: 56,
-                        }}
+                        className="relative flex-1 grid grid-cols-7 min-w-0"
+                        style={{ minHeight: 74 }}
                       >
                         {weekDays.map((day) => {
                           const isToday = isSameDay(day, today);
@@ -961,12 +650,9 @@ export default function CalendarView() {
                           return (
                             <div
                               key={day.toISOString()}
-                              className="flex-shrink-0 border-r"
+                              className="border-r"
                               style={{
-                                width: DAY_COL_W,
-
                                 borderColor: "rgba(13,115,119,0.08)",
-
                                 background: isToday
                                   ? "rgba(13,115,119,0.03)"
                                   : "transparent",
@@ -975,9 +661,8 @@ export default function CalendarView() {
                           );
                         })}
 
-                        {/* Booking bars */}
                         <div
-                          className="absolute inset-0 flex items-center"
+                          className="absolute inset-0"
                           style={{
                             pointerEvents: "none",
                           }}
@@ -990,94 +675,93 @@ export default function CalendarView() {
                               startsBeforeWeek,
                               endsAfterWeek,
                             }) => {
-                              const left =
-                                colStart * DAY_COL_W +
-                                (startsBeforeWeek ? 0 : 6);
-
-                              const width =
-                                colSpan * DAY_COL_W -
-                                (startsBeforeWeek ? 0 : 6) -
-                                (endsAfterWeek ? 0 : 6);
-
+                              const left = `${(colStart / 7) * 100}%`;
+                              const width = `${(colSpan / 7) * 100}%`;
                               const isHovered = hovered === booking.id;
-
                               const isCancelled =
                                 booking.status.toLowerCase() === "cancelled";
+
+                              const hoverText = [
+                                booking.guest,
+                                `Room: #${booking.room} ${booking.roomType}`,
+                                `Check-in: ${format(
+                                  booking.checkIn,
+                                  "MMM d, yyyy",
+                                )}`,
+                                `Check-out: ${format(
+                                  booking.checkOut,
+                                  "MMM d, yyyy",
+                                )}`,
+                                `Status: ${booking.status}`,
+                                `Services: ${
+                                  booking.services.join(", ") || "None"
+                                }`,
+                                `Packages: ${
+                                  booking.packages.join(", ") || "None"
+                                }`,
+                                ...(booking.addOns.length
+                                  ? [
+                                      `Other add-ons: ${booking.addOns.join(
+                                        ", ",
+                                      )}`,
+                                    ]
+                                  : []),
+                              ].join("\n");
 
                               return (
                                 <div
                                   key={booking.id}
                                   style={{
                                     position: "absolute",
-
                                     left,
-
                                     width,
-
                                     top: "50%",
-
                                     transform: "translateY(-50%)",
-
-                                    height: 32,
-
+                                    height: 36,
+                                    boxSizing: "border-box",
                                     background: booking.color,
-
                                     borderRadius: startsBeforeWeek
                                       ? "0 6px 6px 0"
                                       : endsAfterWeek
                                         ? "6px 0 0 6px"
                                         : 6,
-
                                     display: "flex",
-
                                     alignItems: "center",
-
                                     paddingLeft: 10,
-
-                                    paddingRight: 6,
-
+                                    paddingRight: 8,
                                     overflow: "hidden",
-
                                     cursor: "pointer",
-
                                     opacity: isCancelled
                                       ? 0.35
                                       : isHovered
-                                        ? 0.85
+                                        ? 0.88
                                         : 1,
-
                                     textDecoration: isCancelled
                                       ? "line-through"
                                       : "none",
-
                                     boxShadow: isHovered
                                       ? "0 2px 8px rgba(0,0,0,0.18)"
                                       : "0 1px 3px rgba(0,0,0,0.12)",
-
                                     transition:
                                       "opacity 0.15s, box-shadow 0.15s",
-
                                     pointerEvents: "auto",
-
-                                    zIndex: 1,
+                                    zIndex: isHovered ? 50 : 1,
                                   }}
                                   onMouseEnter={() => setHovered(booking.id)}
                                   onMouseLeave={() => setHovered(null)}
-                                  title={`${booking.guest} | ${format(
-                                    booking.checkIn,
-                                    "MMM d",
-                                  )} – ${format(
-                                    booking.checkOut,
-                                    "MMM d",
-                                  )} | ${booking.status}`}
+                                  title={hoverText}
                                 >
                                   <span
-                                    className="text-xs font-medium text-white truncate"
+                                    className="text-xs font-medium text-white"
                                     style={{
                                       userSelect: "none",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      maxWidth: "100%",
                                     }}
                                   >
-                                    {booking.guest.split(" ")[0]}
+                                    {booking.guest}
                                   </span>
                                 </div>
                               );

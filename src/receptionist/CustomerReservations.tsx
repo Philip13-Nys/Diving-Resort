@@ -1,4 +1,4 @@
-import { Plus, Search, Edit2, X, Check, Eye } from "lucide-react";
+import { Search, Edit2, X, Check, Eye } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
   collection,
@@ -40,6 +40,9 @@ interface Booking {
 
   acceptedBy?: string;
   acceptedByUid?: string;
+
+  checkedInBy?: string;
+  checkedInByUid?: string;
 
   cancelledBy?: string;
   cancelledByUid?: string;
@@ -110,6 +113,7 @@ function BookingModal({
           </h3>
 
           <button
+            type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg"
             style={{ color: "#4a7a7a" }}
@@ -216,6 +220,7 @@ function BookingModal({
           style={{ borderColor: "rgba(13,115,119,0.1)" }}
         >
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-sm border"
             style={{
@@ -227,6 +232,7 @@ function BookingModal({
           </button>
 
           <button
+            type="button"
             onClick={() => onSave(form as Booking)}
             className="px-5 py-2 rounded-lg text-sm text-white"
             style={{ background: "#0d7377" }}
@@ -251,7 +257,6 @@ export default function Reservations() {
   const [detail, setDetail] = useState<Booking | null>(null);
 
   const [receptionistName, setReceptionistName] = useState("Receptionist");
-
   const [receptionistUid, setReceptionistUid] = useState("");
 
   useEffect(() => {
@@ -279,7 +284,6 @@ export default function Reservations() {
         }
       } catch (error) {
         console.error("Error loading receptionist:", error);
-
         setReceptionistName(user.displayName || "Receptionist");
       }
     });
@@ -342,6 +346,20 @@ export default function Reservations() {
           .toLowerCase()
           .replace(/\s+/g, "-");
 
+        let status: BookingStatus = "pending";
+
+        if (normalizedStatus === "confirmed") {
+          status = "confirmed";
+        } else if (normalizedStatus === "checked-in") {
+          status = "checked-in";
+        } else if (normalizedStatus === "checked-out") {
+          status = "checked-out";
+        } else if (normalizedStatus === "cancelled") {
+          status = "cancelled";
+        } else if (normalizedStatus === "pending") {
+          status = "pending";
+        }
+
         return {
           id: bookingDoc.id,
 
@@ -355,7 +373,7 @@ export default function Reservations() {
 
           room: data.roomName || data.roomNumber || "",
 
-          roomType: data.roomType || "",
+          roomType: data.roomTypeName || data.roomType || "",
 
           checkIn: data.checkIn || "",
 
@@ -365,16 +383,7 @@ export default function Reservations() {
 
           pax: Number(data.guests || data.pax || 0),
 
-          status:
-            normalizedStatus === "confirmed"
-              ? "confirmed"
-              : normalizedStatus === "checked-in"
-                ? "checked-in"
-                : normalizedStatus === "checked-out"
-                  ? "checked-out"
-                  : normalizedStatus === "cancelled"
-                    ? "cancelled"
-                    : "pending",
+          status,
 
           amount: Number(
             data.totalPrice ??
@@ -385,11 +394,15 @@ export default function Reservations() {
 
           paid: Number(data.amountPaid ?? data.paid ?? 0),
 
-          notes: data.notes || "",
+          notes: data.notes || data.specialRequests || "",
 
           acceptedBy: data.acceptedBy || "",
 
           acceptedByUid: data.acceptedByUid || "",
+
+          checkedInBy: data.checkedInBy || "",
+
+          checkedInByUid: data.checkedInByUid || "",
 
           cancelledBy: data.cancelledBy || "",
 
@@ -587,7 +600,11 @@ export default function Reservations() {
 
       if (!booking) {
         alert("Booking not found.");
+        return;
+      }
 
+      if (booking.status !== "pending") {
+        alert("Only pending bookings can be accepted.");
         return;
       }
 
@@ -617,6 +634,109 @@ export default function Reservations() {
     }
   };
 
+  // ============================================================
+  // CHECK IN GUEST
+  // ============================================================
+
+  const checkInGuest = async (id: string) => {
+    try {
+      if (
+        !receptionistUid ||
+        !receptionistName ||
+        receptionistName === "Receptionist"
+      ) {
+        alert(
+          "Receptionist information is not available. Please log in again.",
+        );
+
+        return;
+      }
+
+      const booking = bookings.find((item) => item.id === id);
+
+      if (!booking) {
+        alert("Booking not found.");
+        return;
+      }
+
+      if (booking.status !== "confirmed") {
+        alert("Only confirmed bookings can be checked in.");
+
+        return;
+      }
+
+      const confirmCheckIn = window.confirm(
+        `Check in ${booking.guest} to Room ${booking.room}?`,
+      );
+
+      if (!confirmCheckIn) {
+        return;
+      }
+
+      // Update booking status
+      await updateDoc(doc(customerDb, "Bookings", id), {
+        status: "checked-in",
+
+        checkedInAt: serverTimestamp(),
+
+        checkedInBy: receptionistName,
+
+        checkedInByUid: receptionistUid,
+
+        updatedAt: serverTimestamp(),
+      });
+
+      // Find the matching room in admin database
+      const roomSnapshot = await getDocs(collection(db, "rooms"));
+
+      const matchingRoom = roomSnapshot.docs.find((roomDoc) => {
+        const roomData = roomDoc.data();
+
+        const roomNumber = String(
+          roomData.roomNumber ?? roomData.number ?? roomData.roomNo ?? "",
+        );
+
+        return roomNumber === String(booking.room);
+      });
+
+      // Mark room as Occupied
+      if (matchingRoom) {
+        await updateDoc(doc(db, "rooms", matchingRoom.id), {
+          status: "Occupied",
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        console.warn(
+          `Room ${booking.room} was not found in the rooms collection.`,
+        );
+      }
+
+      await createActivityLog({
+        action: "Guest Checked In",
+
+        details: `Guest ${booking.guest} checked in to Room ${booking.room}. Booking: ${booking.bookingId}. Check-in date: ${booking.checkIn}.`,
+
+        status: "success",
+      });
+
+      await loadBookings();
+
+      setDetail(null);
+
+      alert(
+        `Guest ${booking.guest} has been checked in to Room ${booking.room}.`,
+      );
+    } catch (error) {
+      console.error("Error checking in guest:", error);
+
+      alert("Failed to check in guest. Please try again.");
+    }
+  };
+
+  // ============================================================
+  // CHECK OUT GUEST
+  // ============================================================
+
   const checkOut = async (id: string) => {
     try {
       if (
@@ -635,7 +755,6 @@ export default function Reservations() {
 
       if (!booking) {
         alert("Booking not found.");
-
         return;
       }
 
@@ -713,6 +832,10 @@ export default function Reservations() {
     }
   };
 
+  // ============================================================
+  // CANCEL BOOKING
+  // ============================================================
+
   const cancel = async (id: string) => {
     try {
       if (
@@ -731,25 +854,25 @@ export default function Reservations() {
 
       if (!booking) {
         alert("Booking not found.");
+        return;
+      }
+
+      if (booking.status === "checked-out" || booking.status === "cancelled") {
+        alert("This booking can no longer be cancelled.");
 
         return;
       }
 
       await updateDoc(doc(customerDb, "Bookings", id), {
         status: "cancelled",
-
         cancelledBy: receptionistName,
-
         cancelledByUid: receptionistUid,
-
         updatedAt: serverTimestamp(),
       });
 
       await createActivityLog({
         action: "Cancelled Booking",
-
         details: `Cancelled booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
-
         status: "success",
       });
 
@@ -811,13 +934,12 @@ export default function Reservations() {
           ).map((s) => (
             <button
               key={s}
+              type="button"
               onClick={() => setStatusFilter(s)}
               className="px-3 py-1.5 rounded-lg text-xs transition-all border"
               style={{
                 background: statusFilter === s ? "#0d7377" : "white",
-
                 color: statusFilter === s ? "white" : "#4a7a7a",
-
                 borderColor:
                   statusFilter === s ? "#0d7377" : "rgba(13,115,119,0.2)",
               }}
@@ -826,32 +948,15 @@ export default function Reservations() {
             </button>
           ))}
         </div>
-
-        <button
-          onClick={() =>
-            setModal({
-              status: "pending",
-              pax: 2,
-              paid: 0,
-            })
-          }
-          className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white ml-auto"
-          style={{
-            background: "#0d7377",
-          }}
-        >
-          <Plus className="w-4 h-4" />
-          New Booking
-        </button>
       </div>
 
       <div
-        className="bg-white rounded-xl border overflow-hidden"
+        className="bg-white rounded-xl border overflow-hidden "
         style={{
           borderColor: "rgba(13,115,119,0.1)",
         }}
       >
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto hide-scrollbar ">
           <table className="w-full">
             <thead>
               <tr
@@ -949,7 +1054,11 @@ export default function Reservations() {
                         >
                           {b.status === "cancelled"
                             ? b.cancelledBy || "Unknown Receptionist"
-                            : b.acceptedBy || "Not yet accepted"}
+                            : b.status === "checked-in"
+                              ? b.checkedInBy ||
+                                b.acceptedBy ||
+                                "Unknown Receptionist"
+                              : b.acceptedBy || "Not yet accepted"}
                         </p>
 
                         <p
@@ -960,9 +1069,11 @@ export default function Reservations() {
                         >
                           {b.status === "cancelled"
                             ? "Cancelled"
-                            : b.acceptedBy
-                              ? "Accepted / Accommodated"
-                              : "Pending acceptance"}
+                            : b.status === "checked-in"
+                              ? "Checked In"
+                              : b.acceptedBy
+                                ? "Accepted / Accommodated"
+                                : "Pending acceptance"}
                         </p>
                       </td>
 
@@ -1045,8 +1156,10 @@ export default function Reservations() {
 
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
+                          {/* Accept */}
                           {b.status === "pending" && (
                             <button
+                              type="button"
                               onClick={() => acceptBooking(b.id)}
                               className="p-1.5 rounded-lg"
                               style={{
@@ -1058,9 +1171,23 @@ export default function Reservations() {
                             </button>
                           )}
 
-                          {(b.status === "confirmed" ||
-                            b.status === "checked-in") && (
+                          {b.status === "confirmed" && (
                             <button
+                              type="button"
+                              onClick={() => checkInGuest(b.id)}
+                              className="p-1.5 rounded-lg"
+                              style={{
+                                color: "#0d7377",
+                              }}
+                              title="Check In"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          )}
+
+                          {b.status === "checked-in" && (
+                            <button
+                              type="button"
                               onClick={() => checkOut(b.id)}
                               className="p-1.5 rounded-lg"
                               style={{
@@ -1073,6 +1200,7 @@ export default function Reservations() {
                           )}
 
                           <button
+                            type="button"
                             onClick={() => setDetail(b)}
                             className="p-1.5 rounded-lg"
                             style={{
@@ -1084,6 +1212,7 @@ export default function Reservations() {
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => setModal(b)}
                             className="p-1.5 rounded-lg"
                             style={{
@@ -1097,6 +1226,7 @@ export default function Reservations() {
                           {b.status !== "cancelled" &&
                             b.status !== "checked-out" && (
                               <button
+                                type="button"
                                 onClick={() => cancel(b.id)}
                                 className="p-1.5 rounded-lg"
                                 style={{
@@ -1150,6 +1280,7 @@ export default function Reservations() {
               </div>
 
               <button
+                type="button"
                 onClick={() => setDetail(null)}
                 className="p-1.5 rounded-lg"
                 style={{
@@ -1182,12 +1313,18 @@ export default function Reservations() {
                   label:
                     detail.status === "cancelled"
                       ? "Cancelled By"
-                      : "Accepted / Accommodated By",
+                      : detail.status === "checked-in"
+                        ? "Checked In By"
+                        : "Accepted / Accommodated By",
 
                   value:
                     detail.status === "cancelled"
                       ? detail.cancelledBy || "Unknown Receptionist"
-                      : detail.acceptedBy || "Not yet accepted",
+                      : detail.status === "checked-in"
+                        ? detail.checkedInBy ||
+                          detail.acceptedBy ||
+                          "Unknown Receptionist"
+                        : detail.acceptedBy || "Not yet accepted",
                 },
                 {
                   label: "Room",
@@ -1255,10 +1392,25 @@ export default function Reservations() {
               ))}
             </div>
 
-            {(detail.status === "confirmed" ||
-              detail.status === "checked-in") && (
-              <div className="px-6 pb-6">
+            <div className="px-6 pb-6 space-y-3">
+              {detail.status === "confirmed" && (
                 <button
+                  type="button"
+                  onClick={() => checkInGuest(detail.id)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
+                  style={{
+                    background: "#0d7377",
+                  }}
+                >
+                  <Check className="w-4 h-4" />
+                  Check In Guest
+                </button>
+              )}
+
+              {(detail.status === "confirmed" ||
+                detail.status === "checked-in") && (
+                <button
+                  type="button"
                   onClick={() => checkOut(detail.id)}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
                   style={{
@@ -1268,8 +1420,8 @@ export default function Reservations() {
                   <Check className="w-4 h-4" />
                   Check Out Guest
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}

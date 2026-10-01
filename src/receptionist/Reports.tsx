@@ -130,7 +130,12 @@ export default function Reports() {
           guest: data.customerName ?? data.guest ?? "Unknown Guest",
           email: data.customerEmail ?? data.email ?? "",
           room: data.roomName ?? data.room ?? "",
-          roomType: data.roomType ?? "",
+          roomType:
+            data.roomType ??
+            data.roomTypeName ??
+            data.roomName ??
+            data.room ??
+            "",
           checkIn: data.checkIn ?? "",
           checkOut: data.checkOut ?? "",
           guests: Number(data.guests ?? data.pax ?? 0),

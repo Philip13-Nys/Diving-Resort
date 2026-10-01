@@ -6,6 +6,7 @@ import {
   addDoc,
   updateDoc,
   doc,
+  runTransaction,
 } from "firebase/firestore";
 
 import { customerDb } from "../app/firebase";
@@ -15,8 +16,6 @@ import {
   Banknote,
   Smartphone,
   Check,
-  Plus,
-  Receipt,
   X,
 } from "lucide-react";
 
@@ -26,18 +25,21 @@ interface Payment {
   guest: string;
   room: string;
   amount: number;
-  method: "cash" | "card" | "gcash";
+  method: "cash" | "gcash";
   type: "full" | "partial" | "balance";
   date: string;
   time: string;
   status: "completed" | "pending";
   receiptNo: string;
+  referenceNumber: string;
+  verificationStatus: "pending" | "verified" | "rejected";
 }
 
 interface PendingBalance {
   bookingId: string;
   guest: string;
   room: string;
+  total: number;
   balance: number;
   checkOut: string;
   amountPaid: number;
@@ -45,13 +47,11 @@ interface PendingBalance {
 
 const METHOD_ICON: Record<string, LucideIcon> = {
   cash: Banknote,
-  card: CreditCard,
   gcash: Smartphone,
 };
 
 const METHOD_COLOR: Record<string, { color: string; bg: string }> = {
   cash: { color: "#0d7377", bg: "#e2f3f2" },
-  card: { color: "#06b6d4", bg: "#ecfeff" },
   gcash: { color: "#14b8a6", bg: "#f0fdfa" },
 };
 
@@ -64,6 +64,12 @@ interface PaymentModalProps {
 function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
   const [method, setMethod] = useState("cash");
   const [amount, setAmount] = useState(booking.balance.toString());
+
+  const numericAmount = Number(amount);
+  const invalidAmount =
+    !Number.isFinite(numericAmount) ||
+    numericAmount <= 0 ||
+    numericAmount > booking.balance;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
@@ -84,6 +90,7 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
             <X className="w-5 h-5" />
           </button>
         </div>
+
         <div className="p-6 space-y-5">
           <div className="p-4 rounded-xl" style={{ background: "#f0f9f8" }}>
             <div className="flex justify-between text-sm">
@@ -109,10 +116,11 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
             <label className="block text-sm mb-2" style={{ color: "#4a7a7a" }}>
               Payment Method
             </label>
-            <div className="grid grid-cols-3 gap-3">
-              {["cash", "card", "gcash"].map((m) => {
+            <div className="grid grid-cols-2 gap-3">
+              {(["cash", "gcash"] as const).map((m) => {
                 const Icon = METHOD_ICON[m];
                 const c = METHOD_COLOR[m];
+
                 return (
                   <button
                     key={m}
@@ -126,9 +134,7 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
                   >
                     <Icon className="w-5 h-5" style={{ color: c.color }} />
                     <span className="text-xs" style={{ color: "#0a2e2e" }}>
-                      {m === "gcash"
-                        ? "GCash"
-                        : m.charAt(0).toUpperCase() + m.slice(1)}
+                      {m === "gcash" ? "GCash" : "Cash"}
                     </span>
                   </button>
                 );
@@ -142,6 +148,9 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
             </label>
             <input
               type="number"
+              min="0.01"
+              max={booking.balance}
+              step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className="w-full px-4 py-3 rounded-lg border text-lg outline-none"
@@ -163,7 +172,7 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
                 Full Balance
               </button>
               <button
-                onClick={() => setAmount((booking.balance / 2).toString())}
+                onClick={() => setAmount((booking.balance / 2).toFixed(2))}
                 className="text-xs px-3 py-1.5 rounded-lg border"
                 style={{
                   borderColor: "rgba(13,115,119,0.2)",
@@ -173,15 +182,20 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
                 Half
               </button>
             </div>
+            {invalidAmount && (
+              <p className="text-xs mt-2" style={{ color: "#d4183d" }}>
+                Enter an amount greater than ₱0 and no more than the balance.
+              </p>
+            )}
           </div>
 
-          {Number(amount) < booking.balance && Number(amount) > 0 && (
+          {numericAmount < booking.balance && numericAmount > 0 && (
             <div
               className="p-3 rounded-lg text-sm"
               style={{ background: "#fff7ed", color: "#f97316" }}
             >
               Partial payment. Remaining balance: ₱
-              {(booking.balance - Number(amount)).toLocaleString()}
+              {(booking.balance - numericAmount).toLocaleString()}
             </div>
           )}
         </div>
@@ -198,8 +212,9 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
             Cancel
           </button>
           <button
-            onClick={() => onPay(method, Number(amount))}
-            className="flex-1 py-2.5 rounded-lg text-sm text-white flex items-center justify-center gap-2"
+            disabled={invalidAmount}
+            onClick={() => onPay(method, numericAmount)}
+            className="flex-1 py-2.5 rounded-lg text-sm text-white flex items-center justify-center gap-2 disabled:opacity-50"
             style={{ background: "#0d7377" }}
           >
             <Check className="w-4 h-4" /> Confirm Payment
@@ -216,8 +231,8 @@ export default function Payments() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [payModal, setPayModal] = useState<PendingBalance | null>(null);
-
   const [successMsg, setSuccessMsg] = useState("");
+
   useEffect(() => {
     loadData();
   }, []);
@@ -226,45 +241,79 @@ export default function Payments() {
     try {
       setLoading(true);
 
-      // Payments
       const paymentSnap = await getDocs(collection(customerDb, "Payments"));
 
       const paymentData: Payment[] = paymentSnap.docs.map((docSnap) => {
         const d = docSnap.data();
 
+        const rawMethod = String(
+          d.method ?? d.paymentMethod ?? "cash",
+        ).toLowerCase();
+
+        const rawStatus = String(d.status ?? "completed").toLowerCase();
+
+        const createdAt = d.createdAt?.toDate ? d.createdAt.toDate() : null;
+
+        const date =
+          d.date || (createdAt ? createdAt.toLocaleDateString() : "");
+
+        const time =
+          d.time ||
+          (createdAt
+            ? createdAt.toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "");
+
+        const rawVerification = String(
+          d.verificationStatus ??
+            (rawStatus === "pending_verification" ? "pending" : "verified"),
+        ).toLowerCase();
+
         return {
           id: docSnap.id,
           bookingId: d.bookingId || "",
-          guest: d.guest || "",
-          room: d.room || "",
+          guest: d.guest || d.customerName || "",
+          room: d.room || d.roomName || "",
           amount: Number(d.amount || 0),
-          method: d.method || "cash",
-          type: d.type || "full",
-          date: d.date || "",
-          time: d.time || "",
-          status: d.status || "completed",
+          method: rawMethod.includes("gcash") ? "gcash" : "cash",
+          type: d.type || "partial",
+          date,
+          time,
+          status:
+            rawStatus === "pending" || rawStatus === "pending_verification"
+              ? "pending"
+              : "completed",
           receiptNo: d.receiptNo || "",
+          referenceNumber: d.referenceNumber || "",
+          verificationStatus:
+            rawVerification === "rejected"
+              ? "rejected"
+              : rawVerification === "verified"
+                ? "verified"
+                : "pending",
         };
       });
 
       setPayments(paymentData);
 
-      // Bookings
       const bookingSnap = await getDocs(collection(customerDb, "Bookings"));
 
       const balances: PendingBalance[] = bookingSnap.docs
         .map((docSnap) => {
           const d = docSnap.data();
-
           const total = Number(d.totalPrice ?? d.totalAmount ?? d.total ?? 0);
 
-          const paid = Number(d.amountPaid || 0);
+          const paid = Number(d.amountPaid ?? 0);
+          const balance = Math.max(0, total - paid);
 
           return {
             bookingId: docSnap.id,
             guest: d.customerName || "",
             room: d.roomName || "",
-            balance: total - paid,
+            total,
+            balance,
             amountPaid: paid,
             checkOut: d.checkOut || "",
           };
@@ -273,79 +322,253 @@ export default function Payments() {
 
       setPendingBalances(balances);
     } catch (err) {
-      console.log(err);
+      console.error("Error loading payments:", err);
+      setSuccessMsg("Could not load payment data. Please refresh.");
     } finally {
       setLoading(false);
     }
   };
 
+  // New receptionist-entered payment (e.g. cash).
+  // Do not use this to verify a customer-submitted GCash payment.
   const handlePay = async (method: string, amount: number) => {
     if (!payModal) return;
-    const newPay: Payment = {
-      id: `PAY-${Date.now()}`,
-      bookingId: payModal.bookingId,
-      guest: payModal.guest,
-      room: payModal.room,
-      amount,
-      method: method as "cash" | "card" | "gcash",
-      type: amount >= payModal.balance ? "balance" : "partial",
-      date: "Jun 7, 2026",
-      time: new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-      status: "completed",
-      receiptNo: `RCP-${Date.now().toString().slice(-4)}`,
-    };
 
-    await addDoc(collection(customerDb, "Payments"), newPay);
-    const bookingRef = doc(customerDb, "Bookings", payModal.bookingId);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > payModal.balance) {
+      setSuccessMsg("Invalid payment amount.");
+      return;
+    }
 
-    await updateDoc(bookingRef, {
-      amountPaid: payModal.amountPaid + amount,
-    });
-    await loadData();
+    try {
+      const bookingRef = doc(customerDb, "Bookings", payModal.bookingId);
+      const paymentRef = doc(collection(customerDb, "Payments"));
+      const now = new Date();
 
-    if (amount >= payModal.balance) {
-      setPendingBalances((prev) =>
-        prev.filter((p) => p.bookingId !== payModal.bookingId),
+      await runTransaction(customerDb, async (transaction) => {
+        const bookingSnap = await transaction.get(bookingRef);
+
+        if (!bookingSnap.exists()) {
+          throw new Error("Booking not found.");
+        }
+
+        const booking = bookingSnap.data();
+
+        const total = Number(
+          booking.totalPrice ?? booking.totalAmount ?? booking.total ?? 0,
+        );
+
+        const paid = Number(booking.amountPaid ?? 0);
+        const currentBalance = Math.max(0, total - paid);
+
+        if (currentBalance <= 0) {
+          throw new Error("This booking is already fully paid.");
+        }
+
+        if (amount > currentBalance) {
+          throw new Error("Payment exceeds the current remaining balance.");
+        }
+
+        const newAmountPaid = paid + amount;
+        const remainingBalance = Math.max(0, total - newAmountPaid);
+
+        const newPay: Omit<Payment, "id"> = {
+          bookingId: payModal.bookingId,
+          guest: booking.customerName || payModal.guest,
+          room: booking.roomName || payModal.room,
+          amount,
+          method: method as Payment["method"],
+          type:
+            remainingBalance === 0
+              ? "balance"
+              : newAmountPaid === amount
+                ? "partial"
+                : "partial",
+          date: now.toLocaleDateString(),
+          time: now.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          status: "completed",
+          receiptNo: `RCP-${Date.now().toString().slice(-6)}`,
+          referenceNumber: "",
+          verificationStatus: "verified",
+        };
+
+        transaction.set(paymentRef, newPay);
+
+        transaction.update(bookingRef, {
+          amountPaid: newAmountPaid,
+          remainingBalance,
+          paymentStatus:
+            remainingBalance === 0
+              ? "paid"
+              : newAmountPaid > 0
+                ? "partial"
+                : "unpaid",
+        });
+      });
+
+      setPayModal(null);
+      setSuccessMsg(
+        `Payment of ₱${amount.toLocaleString()} via ${method} processed successfully!`,
       );
-    } else {
-      setPendingBalances((prev) =>
-        prev.map((p) =>
-          p.bookingId === payModal.bookingId
-            ? { ...p, balance: p.balance - amount }
-            : p,
-        ),
+
+      await loadData();
+      window.setTimeout(() => setSuccessMsg(""), 4000);
+    } catch (err) {
+      console.error("Error processing payment:", err);
+
+      setSuccessMsg(
+        err instanceof Error
+          ? err.message
+          : "Could not process payment. Please try again.",
       );
     }
-    setPayModal(null);
-    setSuccessMsg(
-      `Payment of ₱${amount.toLocaleString()} via ${method} processed successfully!`,
-    );
-    setTimeout(() => setSuccessMsg(""), 4000);
   };
+
+  // Verify the existing customer-submitted GCash record.
+  // This updates that record; it does not create a second payment.
+  const verifyGcashPayment = async (payment: Payment) => {
+    try {
+      const paymentRef = doc(customerDb, "Payments", payment.id);
+      const bookingRef = doc(customerDb, "Bookings", payment.bookingId);
+
+      await runTransaction(customerDb, async (transaction) => {
+        const paymentSnap = await transaction.get(paymentRef);
+
+        if (!paymentSnap.exists()) {
+          throw new Error("Payment record not found.");
+        }
+
+        const bookingSnap = await transaction.get(bookingRef);
+
+        if (!bookingSnap.exists()) {
+          throw new Error("Booking not found.");
+        }
+
+        const existingPayment = paymentSnap.data();
+
+        if (
+          existingPayment.verificationStatus === "verified" ||
+          existingPayment.status === "completed"
+        ) {
+          throw new Error("This payment has already been verified.");
+        }
+
+        if (existingPayment.verificationStatus === "rejected") {
+          throw new Error("This payment was already rejected.");
+        }
+
+        const booking = bookingSnap.data();
+        const amount = Number(existingPayment.amount ?? 0);
+        const total = Number(
+          booking.totalPrice ?? booking.totalAmount ?? booking.total ?? 0,
+        );
+        const paid = Number(booking.amountPaid ?? 0);
+        const balance = Math.max(0, total - paid);
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+          throw new Error("Invalid payment amount.");
+        }
+
+        if (amount > balance) {
+          throw new Error(
+            "Payment amount exceeds the booking's remaining balance.",
+          );
+        }
+
+        const newAmountPaid = paid + amount;
+        const remainingBalance = Math.max(0, total - newAmountPaid);
+
+        transaction.update(paymentRef, {
+          status: "completed",
+          verificationStatus: "verified",
+          type: remainingBalance === 0 ? "balance" : "partial",
+          verifiedAt: new Date(),
+        });
+
+        transaction.update(bookingRef, {
+          amountPaid: newAmountPaid,
+          remainingBalance,
+          paymentStatus:
+            remainingBalance === 0
+              ? "paid"
+              : newAmountPaid > 0
+                ? "partial"
+                : "unpaid",
+        });
+      });
+
+      setSuccessMsg("GCash payment verified successfully!");
+      await loadData();
+      window.setTimeout(() => setSuccessMsg(""), 4000);
+    } catch (err) {
+      console.error("Error verifying GCash payment:", err);
+      setSuccessMsg(
+        err instanceof Error ? err.message : "Could not verify GCash payment.",
+      );
+    }
+  };
+
+  // Reject the existing customer-submitted payment.
+  // Rejection does not add to amountPaid.
+  const rejectGcashPayment = async (payment: Payment) => {
+    try {
+      const paymentRef = doc(customerDb, "Payments", payment.id);
+
+      await updateDoc(paymentRef, {
+        verificationStatus: "rejected",
+        rejectedAt: new Date(),
+      });
+
+      setSuccessMsg("GCash submission rejected.");
+      await loadData();
+      window.setTimeout(() => setSuccessMsg(""), 4000);
+    } catch (err) {
+      console.error("Error rejecting GCash payment:", err);
+      setSuccessMsg(
+        err instanceof Error ? err.message : "Could not reject GCash payment.",
+      );
+    }
+  };
+
+  const gcashSubmissions = payments.filter(
+    (p) =>
+      p.method === "gcash" &&
+      p.status === "pending" &&
+      p.verificationStatus === "pending",
+  );
 
   const filtered = payments.filter(
     (p) =>
       p.guest.toLowerCase().includes(search.toLowerCase()) ||
-      p.bookingId.toLowerCase().includes(search.toLowerCase()),
+      p.bookingId.toLowerCase().includes(search.toLowerCase()) ||
+      p.referenceNumber.toLowerCase().includes(search.toLowerCase()),
   );
-  const todayCollection = payments.reduce((a, b) => a + b.amount, 0);
 
-  const cashTotal = payments
-    .filter((p) => p.method === "cash")
+  const today = new Date().toLocaleDateString();
+
+  const todayCollection = payments
+    .filter((p) => p.status === "completed" && p.date === today)
     .reduce((a, b) => a + b.amount, 0);
 
-  const cardTotal = payments
-    .filter((p) => p.method === "card")
+  const cashTotal = payments
+    .filter((p) => p.method === "cash" && p.status === "completed")
     .reduce((a, b) => a + b.amount, 0);
 
   const gcashTotal = payments
-    .filter((p) => p.method === "gcash")
+    .filter((p) => p.method === "gcash" && p.status === "completed")
     .reduce((a, b) => a + b.amount, 0);
 
   const pendingTotal = pendingBalances.reduce((a, b) => a + b.balance, 0);
+
+  if (loading) {
+    return (
+      <div className="p-6 text-sm" style={{ color: "#4a7a7a" }}>
+        Loading payment records...
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -360,7 +583,10 @@ export default function Payments() {
       {successMsg && (
         <div
           className="flex items-center gap-3 p-4 rounded-xl"
-          style={{ background: "#e2f3f2", border: "1px solid #0d7377" }}
+          style={{
+            background: "#e2f3f2",
+            border: "1px solid #0d7377",
+          }}
         >
           <Check
             className="w-5 h-5 flex-shrink-0"
@@ -386,11 +612,6 @@ export default function Payments() {
             color: "#14b8a6",
           },
           {
-            label: "Card Payments",
-            value: `₱${cardTotal.toLocaleString()}`,
-            color: "#06b6d4",
-          },
-          {
             label: "GCash Payments",
             value: `₱${gcashTotal.toLocaleString()}`,
             color: "#0891b2",
@@ -408,7 +629,10 @@ export default function Payments() {
           >
             <p
               className="text-2xl mb-1"
-              style={{ color: s.color, fontFamily: "Georgia, serif" }}
+              style={{
+                color: s.color,
+                fontFamily: "Georgia, serif",
+              }}
             >
               {s.value}
             </p>
@@ -431,11 +655,15 @@ export default function Payments() {
           >
             <h3
               className="font-medium"
-              style={{ color: "#0a2e2e", fontFamily: "Georgia, serif" }}
+              style={{
+                color: "#0a2e2e",
+                fontFamily: "Georgia, serif",
+              }}
             >
               Pending Balances
             </h3>
           </div>
+
           <div className="p-4 space-y-3">
             {pendingBalances.length === 0 && (
               <p
@@ -445,165 +673,333 @@ export default function Payments() {
                 All balances cleared!
               </p>
             )}
+
             {pendingBalances.map((b) => (
               <div
                 key={b.bookingId}
                 className="p-4 rounded-xl border"
                 style={{ borderColor: "rgba(13,115,119,0.1)" }}
               >
-                <div className="flex justify-between items-start mb-2">
-                  <div>
-                    <p
-                      className="text-sm font-medium"
-                      style={{ color: "#0a2e2e" }}
-                    >
-                      {b.guest}
-                    </p>
-                    <p className="text-xs" style={{ color: "#4a7a7a" }}>
-                      {b.room} · Out: {b.checkOut}
-                    </p>
-                  </div>
-                  <span
+                <div className="mb-3">
+                  <p
                     className="text-sm font-medium"
-                    style={{ color: "#d4183d" }}
+                    style={{ color: "#0a2e2e" }}
                   >
-                    ₱{b.balance.toLocaleString()}
-                  </span>
+                    {b.guest}
+                  </p>
+
+                  <p className="text-xs" style={{ color: "#4a7a7a" }}>
+                    {b.room} · Out: {b.checkOut}
+                  </p>
                 </div>
+
+                <div
+                  className="space-y-2 p-3 rounded-lg mb-3"
+                  style={{ background: "#f0f9f8" }}
+                >
+                  <div className="flex justify-between text-sm">
+                    <span style={{ color: "#4a7a7a" }}>
+                      Total Booking Price
+                    </span>
+                    <span style={{ color: "#0a2e2e" }}>
+                      ₱{b.total.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between text-sm">
+                    <span style={{ color: "#4a7a7a" }}>Amount Paid</span>
+                    <span style={{ color: "#0d7377" }}>
+                      ₱{b.amountPaid.toLocaleString()}
+                    </span>
+                  </div>
+
+                  <div
+                    className="flex justify-between font-semibold border-t pt-2"
+                    style={{ borderColor: "rgba(13,115,119,0.15)" }}
+                  >
+                    <span style={{ color: "#0a2e2e" }}>Remaining Balance</span>
+                    <span style={{ color: "#d4183d" }}>
+                      ₱{b.balance.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
                 <button
                   onClick={() => setPayModal(b)}
                   className="w-full py-2 rounded-lg text-sm text-white flex items-center justify-center gap-2 transition-colors"
                   style={{ background: "#0d7377" }}
                 >
-                  <CreditCard className="w-4 h-4" /> Process Payment
+                  <CreditCard className="w-4 h-4" />
+                  Process Payment
                 </button>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Transaction history */}
-        <div
-          className="lg:col-span-2 bg-white rounded-xl border"
-          style={{ borderColor: "rgba(13,115,119,0.1)" }}
-        >
+        <div className="lg:col-span-2 space-y-6">
+          {/* GCash verification */}
           <div
-            className="flex items-center gap-4 px-5 py-4 border-b"
+            className="bg-white rounded-xl border"
             style={{ borderColor: "rgba(13,115,119,0.1)" }}
           >
-            <h3
-              className="font-medium"
-              style={{ color: "#0a2e2e", fontFamily: "Georgia, serif" }}
+            <div
+              className="px-5 py-4 border-b"
+              style={{ borderColor: "rgba(13,115,119,0.1)" }}
             >
-              Transaction History
-            </h3>
-            <div className="relative ml-auto">
-              <Search
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-                style={{ color: "#4a7a7a" }}
-              />
-              <input
-                type="text"
-                placeholder="Search…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 pr-4 py-2 rounded-lg border text-sm outline-none"
+              <h3
+                className="font-medium"
                 style={{
-                  borderColor: "rgba(13,115,119,0.2)",
-                  background: "#f0f9f8",
                   color: "#0a2e2e",
+                  fontFamily: "Georgia, serif",
                 }}
-              />
+              >
+                GCash Payment Verification
+              </h3>
+              <p className="text-xs mt-1" style={{ color: "#4a7a7a" }}>
+                Review customer-submitted payments and verify the reference.
+              </p>
+            </div>
+
+            <div className="p-4 space-y-3">
+              {gcashSubmissions.length === 0 ? (
+                <p
+                  className="text-sm text-center py-4"
+                  style={{ color: "#4a7a7a" }}
+                >
+                  No pending GCash submissions.
+                </p>
+              ) : (
+                gcashSubmissions.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-4 rounded-xl border"
+                    style={{ borderColor: "rgba(13,115,119,0.15)" }}
+                  >
+                    <div className="flex justify-between gap-3">
+                      <div>
+                        <p className="font-medium" style={{ color: "#0a2e2e" }}>
+                          {p.guest}
+                        </p>
+                        <p
+                          className="text-xs mt-1"
+                          style={{ color: "#4a7a7a" }}
+                        >
+                          Booking: {p.bookingId}
+                        </p>
+                        <p className="text-xs" style={{ color: "#4a7a7a" }}>
+                          Room: {p.room}
+                        </p>
+                        <p className="text-xs" style={{ color: "#4a7a7a" }}>
+                          Submitted: {p.date} {p.time}
+                        </p>
+                      </div>
+
+                      <p className="font-semibold" style={{ color: "#0d7377" }}>
+                        ₱{p.amount.toLocaleString()}
+                      </p>
+                    </div>
+
+                    <div
+                      className="mt-3 p-3 rounded-lg"
+                      style={{ background: "#f0f9f8" }}
+                    >
+                      <p className="text-xs" style={{ color: "#4a7a7a" }}>
+                        Reference Number
+                      </p>
+                      <p
+                        className="font-mono font-semibold break-all"
+                        style={{ color: "#0a2e2e" }}
+                      >
+                        {p.referenceNumber || "Not provided"}
+                      </p>{" "}
+                    </div>
+
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => verifyGcashPayment(p)}
+                        className="flex-1 py-2 rounded-lg text-sm text-white flex items-center justify-center gap-1"
+                        style={{ background: "#0d7377" }}
+                      >
+                        <Check className="w-4 h-4" />
+                        Verify Payment
+                      </button>
+                      <button
+                        onClick={() => rejectGcashPayment(p)}
+                        className="flex-1 py-2 rounded-lg text-sm border flex items-center justify-center gap-1"
+                        style={{
+                          borderColor: "#d4183d",
+                          color: "#d4183d",
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                        Reject
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr style={{ background: "#f0f9f8" }}>
-                  {[
-                    "Receipt",
-                    "Guest",
-                    "Booking",
-                    "Method",
-                    "Type",
-                    "Amount",
-                    "Date",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left px-4 py-3 text-xs"
-                      style={{ color: "#4a7a7a", fontWeight: 500 }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((p, i) => {
-                  const Icon = METHOD_ICON[p.method];
-                  const c = METHOD_COLOR[p.method];
-                  return (
-                    <tr
-                      key={p.id}
-                      style={{
-                        borderTop:
-                          i > 0 ? "1px solid rgba(13,115,119,0.08)" : undefined,
-                      }}
-                    >
+
+          {/* Transaction history */}
+          <div
+            className="bg-white rounded-xl border"
+            style={{ borderColor: "rgba(13,115,119,0.1)" }}
+          >
+            <div
+              className="flex items-center gap-4 px-5 py-4 border-b"
+              style={{ borderColor: "rgba(13,115,119,0.1)" }}
+            >
+              <h3
+                className="font-medium"
+                style={{
+                  color: "#0a2e2e",
+                  fontFamily: "Georgia, serif",
+                }}
+              >
+                Transaction History
+              </h3>
+
+              <div className="relative ml-auto">
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
+                  style={{ color: "#4a7a7a" }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9 pr-4 py-2 rounded-lg border text-sm outline-none"
+                  style={{
+                    borderColor: "rgba(13,115,119,0.2)",
+                    background: "#f0f9f8",
+                    color: "#0a2e2e",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr style={{ background: "#f0f9f8" }}>
+                    {[
+                      "Receipt",
+                      "Guest",
+                      "Booking",
+                      "Method",
+                      "Type",
+                      "Amount",
+                      "Reference No.",
+                      "Date",
+                    ].map((h) => (
+                      <th
+                        key={h}
+                        className="text-left px-4 py-3 text-xs"
+                        style={{ color: "#4a7a7a", fontWeight: 500 }}
+                      >
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {filtered.length === 0 ? (
+                    <tr>
                       <td
-                        className="px-4 py-3 text-xs font-mono"
+                        colSpan={8}
+                        className="px-4 py-8 text-center text-sm"
                         style={{ color: "#4a7a7a" }}
                       >
-                        {p.receiptNo}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-sm"
-                        style={{ color: "#0a2e2e" }}
-                      >
-                        {p.guest}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-sm font-mono"
-                        style={{ color: "#0d7377" }}
-                      >
-                        {p.bookingId}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs"
-                          style={{ background: c.bg, color: c.color }}
-                        >
-                          <Icon className="w-3 h-3" />
-                          {p.method === "gcash"
-                            ? "GCash"
-                            : p.method.charAt(0).toUpperCase() +
-                              p.method.slice(1)}
-                        </span>
-                      </td>
-                      <td
-                        className="px-4 py-3 text-xs capitalize"
-                        style={{ color: "#4a7a7a" }}
-                      >
-                        {p.type}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-sm font-medium"
-                        style={{ color: "#0a2e2e" }}
-                      >
-                        ₱{p.amount.toLocaleString()}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-xs"
-                        style={{ color: "#4a7a7a" }}
-                      >
-                        {p.date} {p.time}
+                        No transactions found.
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ) : (
+                    filtered.map((p, i) => {
+                      const Icon = METHOD_ICON[p.method] || Banknote;
+                      const c = METHOD_COLOR[p.method] || METHOD_COLOR.cash;
+
+                      return (
+                        <tr
+                          key={p.id}
+                          style={{
+                            borderTop:
+                              i > 0
+                                ? "1px solid rgba(13,115,119,0.08)"
+                                : undefined,
+                          }}
+                        >
+                          <td
+                            className="px-4 py-3 text-xs font-mono"
+                            style={{ color: "#4a7a7a" }}
+                          >
+                            {p.receiptNo}
+                          </td>
+
+                          <td
+                            className="px-4 py-3 text-sm"
+                            style={{ color: "#0a2e2e" }}
+                          >
+                            {p.guest}
+                          </td>
+
+                          <td
+                            className="px-4 py-3 text-sm font-mono"
+                            style={{ color: "#0d7377" }}
+                          >
+                            {p.bookingId}
+                          </td>
+
+                          <td className="px-4 py-3">
+                            <span
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs"
+                              style={{
+                                background: c.bg,
+                                color: c.color,
+                              }}
+                            >
+                              <Icon className="w-3 h-3" />
+                              {p.method === "gcash" ? "GCash" : "Cash"}
+                            </span>
+                          </td>
+
+                          <td
+                            className="px-4 py-3 text-xs capitalize"
+                            style={{ color: "#4a7a7a" }}
+                          >
+                            {p.type}
+                          </td>
+
+                          <td
+                            className="px-4 py-3 text-sm font-medium"
+                            style={{ color: "#0a2e2e" }}
+                          >
+                            ₱{p.amount.toLocaleString()}
+                          </td>
+
+                          <td
+                            className="px-4 py-3 text-xs font-mono"
+                            style={{ color: "#4a7a7a" }}
+                          >
+                            {p.referenceNumber || "—"}
+                          </td>
+
+                          <td
+                            className="px-4 py-3 text-xs"
+                            style={{ color: "#4a7a7a" }}
+                          >
+                            {p.date} {p.time}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

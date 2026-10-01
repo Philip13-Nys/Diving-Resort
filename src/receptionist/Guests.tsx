@@ -15,8 +15,6 @@ interface Guest {
   email: string;
   phone: string;
   nationality: string;
-  idType: string;
-  idNumber: string;
   visits: number;
   lastVisit: string;
   totalSpent: number;
@@ -65,8 +63,6 @@ function GuestModal({
             { label: "Email", key: "email" as const },
             { label: "Phone", key: "phone" as const },
             { label: "Nationality", key: "nationality" as const },
-            { label: "ID Type", key: "idType" as const },
-            { label: "ID Number", key: "idNumber" as const },
           ].map((f) => (
             <div key={f.key}>
               <label
@@ -159,58 +155,76 @@ export default function Guests() {
   const loadGuests = async () => {
     try {
       const snapshot = await getDocs(collection(customerDb, "Bookings"));
-
       const guestMap = new Map<string, Guest>();
 
       snapshot.forEach((bookingDoc) => {
         const data = bookingDoc.data();
 
-        const email = data.customerEmail || "";
+        // Support both Walk-in and online booking field names.
+        const firstName = String(data.firstName ?? "").trim();
+        const lastName = String(data.lastName ?? "").trim();
 
-        if (!guestMap.has(email)) {
-          guestMap.set(email, {
+        const name =
+          String(
+            data.customerName ??
+              data.guestName ??
+              data.name ??
+              `${firstName} ${lastName}`.trim() ??
+              "Unknown Guest",
+          ).trim() || "Unknown Guest";
+
+        const email = String(data.customerEmail ?? data.email ?? "").trim();
+
+        const phone = String(data.customerPhone ?? data.phone ?? "").trim();
+
+        // Use email when available. Otherwise identify the guest by
+        // name + phone so guests without email aren't merged together.
+        const key = email
+          ? `email:${email.toLowerCase()}`
+          : `guest:${name.toLowerCase()}|${phone}`;
+
+        const spent = Number(
+          data.totalPrice ?? data.totalAmount ?? data.total ?? 0,
+        );
+
+        const lastVisit = String(data.checkOut ?? data.checkIn ?? "").slice(
+          0,
+          10,
+        );
+
+        if (!guestMap.has(key)) {
+          guestMap.set(key, {
             id: bookingDoc.id,
-
-            name: data.customerName || "Unknown Guest",
-
+            name,
             email,
-
-            phone: data.customerPhone || "",
-
-            nationality: data.nationality || "",
-
-            idType: data.idType || "",
-
-            idNumber: data.idNumber || "",
-
+            phone,
+            nationality: String(data.nationality ?? ""),
             visits: 1,
-
-            lastVisit: data.checkOut || "",
-
-            totalSpent: Number(
-              data.totalPrice ?? data.totalAmount ?? data.total ?? 0,
-            ),
-
+            lastVisit,
+            totalSpent: spent,
             tags: [],
-
-            notes: data.notes || "",
+            notes: String(data.notes ?? ""),
           });
         } else {
-          const guest = guestMap.get(email)!;
+          const guest = guestMap.get(key)!;
 
           guest.visits += 1;
+          guest.totalSpent += spent;
 
-          guest.totalSpent += Number(
-            data.totalPrice ?? data.totalAmount ?? data.total ?? 0,
-          );
+          // Keep the latest available contact details.
+          if (!guest.email && email) guest.email = email;
+          if (!guest.phone && phone) guest.phone = phone;
 
-          guest.lastVisit = data.checkOut || guest.lastVisit;
+          if (lastVisit && lastVisit > guest.lastVisit) {
+            guest.lastVisit = lastVisit;
+          }
         }
       });
 
       setGuests(Array.from(guestMap.values()));
     } catch (err) {
-      console.error(err);
+      console.error("Error loading guests:", err);
+      alert("Failed to load guest records. Please try again.");
     }
   };
 
@@ -222,8 +236,6 @@ export default function Guests() {
           customerEmail: g.email,
           customerPhone: g.phone,
           nationality: g.nationality,
-          idType: g.idType,
-          idNumber: g.idNumber,
           notes: g.notes,
         });
       } else {
@@ -232,8 +244,6 @@ export default function Guests() {
           customerEmail: g.email,
           customerPhone: g.phone,
           nationality: g.nationality,
-          idType: g.idType,
-          idNumber: g.idNumber,
           notes: g.notes,
         });
       }
@@ -482,26 +492,6 @@ export default function Guests() {
                     </p>
                   </div>
                 </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                {[
-                  { label: "ID Type", value: selected.idType },
-                  { label: "ID Number", value: selected.idNumber },
-                ].map((f) => (
-                  <div
-                    key={f.label}
-                    className="p-3 rounded-lg"
-                    style={{ background: "#f0f9f8" }}
-                  >
-                    <p className="text-xs mb-0.5" style={{ color: "#4a7a7a" }}>
-                      {f.label}
-                    </p>
-                    <p className="text-sm" style={{ color: "#0a2e2e" }}>
-                      {f.value}
-                    </p>
-                  </div>
-                ))}
               </div>
 
               {selected.notes && (

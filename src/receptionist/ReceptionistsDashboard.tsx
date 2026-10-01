@@ -55,6 +55,8 @@ interface Booking {
   paymentStatus?: string;
 
   createdAt?: any;
+
+  checkedInAt?: any;
   checkedOutAt?: any;
 
   type?: string;
@@ -161,23 +163,38 @@ const convertToDate = (value: any): Date | null => {
   return null;
 };
 
+const getActualCheckIn = (booking: Booking) => {
+  return convertToDate(booking.checkedInAt) || convertToDate(booking.checkIn);
+};
+
+const getActualCheckOut = (booking: Booking) => {
+  return convertToDate(booking.checkedOutAt) || convertToDate(booking.checkOut);
+};
+
 const getCustomerName = (booking: Booking) => {
   return booking.guestName || booking.guest || booking.customerName || "Guest";
 };
 
-const getBookingPrice = (booking: Booking) => {
-  return Number(
+const getBookingPrice = (booking: Booking): number => {
+  const value =
+    booking.totalPrice ??
     booking.totalAmount ??
-      booking.totalPrice ??
-      booking.total ??
-      booking.price ??
-      booking.amount ??
-      0,
-  );
+    booking.total ??
+    booking.price ??
+    booking.amount ??
+    booking.roomRate ??
+    0;
+
+  const parsed = Number(String(value).replace(/[₱,\s]/g, ""));
+
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const getAmountPaid = (booking: Booking) => {
-  return Number(booking.amountPaid ?? booking.paid ?? 0);
+const getAmountPaid = (booking: Booking): number => {
+  const value = booking.amountPaid ?? booking.paid ?? 0;
+  const parsed = Number(String(value).replace(/[₱,\s]/g, ""));
+
+  return Number.isFinite(parsed) ? parsed : 0;
 };
 
 const isPaidBooking = (booking: Booking) => {
@@ -294,7 +311,7 @@ export default function ReceptionistsDashboard() {
         return false;
       }
 
-      const checkIn = convertToDate(booking.checkIn);
+      const checkIn = getActualCheckIn(booking);
 
       return checkIn ? isSameDay(checkIn, today) : false;
     });
@@ -308,7 +325,7 @@ export default function ReceptionistsDashboard() {
         return false;
       }
 
-      const checkOut = convertToDate(booking.checkOut);
+      const checkOut = getActualCheckOut(booking);
 
       return checkOut ? isSameDay(checkOut, today) : false;
     });
@@ -514,14 +531,15 @@ export default function ReceptionistsDashboard() {
         </div>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-xl bg-white p-6 shadow-sm">
-            <div className="mb-5 flex items-center justify-between">
+          <div className="rounded-xl bg-white p-5 sm:p-6 shadow-sm h-[480px] flex flex-col">
+            {/* Header */}
+            <div className="mb-4 flex items-center justify-between shrink-0">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
                   Today's Schedule
                 </h2>
 
-                <p className="text-sm text-gray-500">
+                <p className="mt-1 text-sm text-gray-500">
                   {format(today, "MMMM d, yyyy")}
                 </p>
               </div>
@@ -529,10 +547,11 @@ export default function ReceptionistsDashboard() {
               <Clock className="h-5 w-5 text-gray-400" />
             </div>
 
-            <div className="space-y-4">
+            {/* Schedule */}
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-2 hide-scrollbar">
               {todaysCheckIns.length === 0 && todaysCheckOuts.length === 0 ? (
-                <div className="py-8 text-center">
-                  <CalendarDays className="mx-auto h-10 w-10 text-gray-300" />
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  <CalendarDays className="h-10 w-10 text-gray-300" />
 
                   <p className="mt-2 text-sm text-gray-500">
                     No scheduled activities today.
@@ -540,25 +559,29 @@ export default function ReceptionistsDashboard() {
                 </div>
               ) : (
                 <>
+                  {/* Check-ins */}
                   {todaysCheckIns.map((booking) => (
                     <div
                       key={`checkin-${booking.id}`}
-                      className="flex items-center gap-4 rounded-lg border border-gray-100 p-4"
+                      className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-3 transition hover:bg-gray-50"
                     >
-                      <div className="rounded-lg bg-green-100 p-2">
+                      {/* Icon */}
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-100">
                         <LogIn className="h-5 w-5 text-green-600" />
                       </div>
 
+                      {/* Information */}
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-900">
+                        <p className="truncate text-sm font-semibold text-gray-900">
                           {getCustomerName(booking)}
                         </p>
 
-                        <p className="text-sm text-gray-500">
-                          Check-in · {formatTime(booking.checkIn)}
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          Check-in ·{" "}
+                          {formatTime(booking.checkedInAt || booking.checkIn)}
                         </p>
 
-                        <p className="text-xs text-gray-400">
+                        <p className="mt-0.5 truncate text-xs text-gray-400">
                           Room:{" "}
                           {booking.room ||
                             booking.roomName ||
@@ -567,31 +590,36 @@ export default function ReceptionistsDashboard() {
                         </p>
                       </div>
 
-                      <span className="text-xs font-medium text-green-600">
+                      {/* Status */}
+                      <span className="hidden shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-[11px] font-medium text-green-600 sm:inline-block">
                         Check-in
                       </span>
                     </div>
                   ))}
 
+                  {/* Check-outs */}
                   {todaysCheckOuts.map((booking) => (
                     <div
                       key={`checkout-${booking.id}`}
-                      className="flex items-center gap-4 rounded-lg border border-gray-100 p-4"
+                      className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-3 transition hover:bg-gray-50"
                     >
-                      <div className="rounded-lg bg-purple-100 p-2">
+                      {/* Icon */}
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-purple-100">
                         <LogOut className="h-5 w-5 text-purple-600" />
                       </div>
 
+                      {/* Information */}
                       <div className="min-w-0 flex-1">
-                        <p className="font-medium text-gray-900">
+                        <p className="truncate text-sm font-semibold text-gray-900">
                           {getCustomerName(booking)}
                         </p>
 
-                        <p className="text-sm text-gray-500">
-                          Check-out · {formatTime(booking.checkOut)}
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          Check-out ·{" "}
+                          {formatTime(booking.checkedOutAt || booking.checkOut)}
                         </p>
 
-                        <p className="text-xs text-gray-400">
+                        <p className="mt-0.5 truncate text-xs text-gray-400">
                           Room:{" "}
                           {booking.room ||
                             booking.roomName ||
@@ -600,7 +628,8 @@ export default function ReceptionistsDashboard() {
                         </p>
                       </div>
 
-                      <span className="text-xs font-medium text-purple-600">
+                      {/* Status */}
+                      <span className="hidden shrink-0 rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-medium text-purple-600 sm:inline-block">
                         Check-out
                       </span>
                     </div>
@@ -624,7 +653,7 @@ export default function ReceptionistsDashboard() {
             </div>
 
             <div className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
                 <span className="text-sm text-gray-600">Total Bookings</span>
 
                 <span className="font-semibold text-gray-900">
@@ -632,7 +661,7 @@ export default function ReceptionistsDashboard() {
                 </span>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
                 <span className="text-sm text-gray-600">Today's Check-ins</span>
 
                 <span className="font-semibold text-gray-900">
@@ -640,7 +669,7 @@ export default function ReceptionistsDashboard() {
                 </span>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
                 <span className="text-sm text-gray-600">
                   Today's Check-outs
                 </span>
@@ -650,7 +679,7 @@ export default function ReceptionistsDashboard() {
                 </span>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-4">
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
                 <span className="text-sm text-gray-600">
                   Currently Checked In
                 </span>
