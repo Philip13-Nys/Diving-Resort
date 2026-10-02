@@ -42,6 +42,8 @@ interface Booking {
   acceptedByUid?: string;
   checkedInBy?: string;
   checkedInByUid?: string;
+  checkedOutBy?: string;
+  checkedOutByUid?: string;
   cancelledBy?: string;
   cancelledByUid?: string;
 }
@@ -231,8 +233,7 @@ export default function Reservations() {
     return () => unsubscribe();
   }, []);
 
-  // Writes a notification to the customer's Notifications collection.
-  // The booking's userId must be the customer's Firebase Auth UID.
+  // Customer notifications must use the customer's Firebase UID as userId.
   const notifyCustomer = async ({
     customerId,
     eventId,
@@ -245,22 +246,26 @@ export default function Reservations() {
     title: string;
     message: string;
     targetPath: string;
-  }) => {
-    if (!customerId) {
+  }): Promise<boolean> => {
+    const uid = String(customerId || "").trim();
+
+    if (!uid) {
       console.warn(
-        `Cannot send "${title}" notification: booking has no userId.`,
+        `Notification not sent: booking has no customer userId. Event: ${eventId}`,
       );
-      return;
+      return false;
     }
 
+    // Keep the document ID deterministic so the same event does not create
+    // duplicate notifications if the action is retried.
     const safeEventId = encodeURIComponent(eventId).replace(/\./g, "%2E");
-    const notificationId = `${customerId}_${safeEventId}`;
+    const notificationId = `${uid}_${safeEventId}`;
 
     try {
       await setDoc(
         doc(customerDb, "Notifications", notificationId),
         {
-          userId: customerId,
+          userId: uid,
           role: "customer",
           eventId,
           type: "booking",
@@ -272,9 +277,15 @@ export default function Reservations() {
         },
         { merge: true },
       );
+
+      console.info(`Customer notification created for UID: ${uid}`, eventId);
+      return true;
     } catch (error) {
-      // Status updates remain successful even if notification write is denied.
-      console.error("Could not create customer notification:", error);
+      console.error(
+        `Could not create customer notification for UID ${uid}:`,
+        error,
+      );
+      return false;
     }
   };
 
@@ -360,6 +371,8 @@ export default function Reservations() {
           acceptedByUid: data.acceptedByUid || "",
           checkedInBy: data.checkedInBy || "",
           checkedInByUid: data.checkedInByUid || "",
+          checkedOutBy: data.checkedOutBy || "",
+          checkedOutByUid: data.checkedOutByUid || "",
           cancelledBy: data.cancelledBy || "",
           cancelledByUid: data.cancelledByUid || "",
         };
@@ -453,7 +466,7 @@ export default function Reservations() {
       } else {
         const bookingId = await getNextBookingId();
 
-        await addDoc(collection(customerDb, "Bookings"), {
+        const newBooking = {
           bookingId,
           customerName: booking.guest,
           customerEmail: booking.email,
@@ -472,7 +485,16 @@ export default function Reservations() {
           receptionistUid,
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-        });
+        };
+
+        // Only write userId if a customer UID was explicitly supplied.
+        // The current modal does not select a customer, so this is normally
+        // unavailable for receptionist-created bookings.
+        if (booking.userId?.trim()) {
+          Object.assign(newBooking, { userId: booking.userId.trim() });
+        }
+
+        await addDoc(collection(customerDb, "Bookings"), newBooking);
 
         await createActivityLog({
           action: "Created Booking",
@@ -519,13 +541,19 @@ export default function Reservations() {
         updatedAt: serverTimestamp(),
       });
 
-      await notifyCustomer({
+      const notificationSent = await notifyCustomer({
         customerId: booking.userId,
         eventId: `booking-confirmed-${booking.id}`,
         title: "Booking Confirmed",
         message: `Your booking ${booking.bookingId} has been confirmed. Room: ${booking.room}. Check-in: ${booking.checkIn}.`,
         targetPath: "/booking-history",
       });
+
+      if (!notificationSent) {
+        console.warn(
+          `Booking ${booking.bookingId} was confirmed, but its customer notification was not sent.`,
+        );
+      }
 
       await createActivityLog({
         action: "Accepted Booking",
@@ -596,13 +624,19 @@ export default function Reservations() {
         );
       }
 
-      await notifyCustomer({
+      const notificationSent = await notifyCustomer({
         customerId: booking.userId,
         eventId: `booking-checked-in-${booking.id}`,
         title: "Check-in Completed",
         message: `You have been checked in for booking ${booking.bookingId}. Room: ${booking.room}. Enjoy your stay!`,
         targetPath: "/booking-history",
       });
+
+      if (!notificationSent) {
+        console.warn(
+          `Booking ${booking.bookingId} was checked in, but its customer notification was not sent.`,
+        );
+      }
 
       await createActivityLog({
         action: "Guest Checked In",
@@ -677,13 +711,19 @@ export default function Reservations() {
         );
       }
 
-      await notifyCustomer({
+      const notificationSent = await notifyCustomer({
         customerId: booking.userId,
         eventId: `booking-checked-out-${booking.id}`,
         title: "Check-out Completed",
         message: `Your check-out for booking ${booking.bookingId} is complete. Thank you for staying with us!`,
         targetPath: "/booking-history",
       });
+
+      if (!notificationSent) {
+        console.warn(
+          `Booking ${booking.bookingId} was checked out, but its customer notification was not sent.`,
+        );
+      }
 
       await createActivityLog({
         action: "Guest Checked Out",
@@ -734,13 +774,19 @@ export default function Reservations() {
         updatedAt: serverTimestamp(),
       });
 
-      await notifyCustomer({
+      const notificationSent = await notifyCustomer({
         customerId: booking.userId,
         eventId: `booking-cancelled-${booking.id}`,
         title: "Booking Cancelled",
         message: `Your booking ${booking.bookingId} for ${booking.room} has been cancelled.`,
         targetPath: "/booking-history",
       });
+
+      if (!notificationSent) {
+        console.warn(
+          `Booking ${booking.bookingId} was cancelled, but its customer notification was not sent.`,
+        );
+      }
 
       await createActivityLog({
         action: "Cancelled Booking",

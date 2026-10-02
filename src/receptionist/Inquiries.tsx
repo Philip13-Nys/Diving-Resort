@@ -94,33 +94,36 @@ export default function Inquiries() {
   const [sendingReply, setSendingReply] = useState(false);
   const [replies, setReplies] = useState<Reply[]>([]);
 
-  // Create a notification for the customer associated with an inquiry.
+  // Writes a notification to the customer's project.
+  // customerId must be the customer's Firebase Auth UID.
   const notifyCustomer = async ({
     customerId,
     eventId,
     title,
     message,
   }: {
-    customerId: string;
+    customerId?: string;
     eventId: string;
     title: string;
     message: string;
-  }) => {
-    if (!customerId) {
+  }): Promise<boolean> => {
+    const uid = String(customerId || "").trim();
+
+    if (!uid) {
       console.warn(
-        `Cannot send notification "${title}": inquiry has no userId.`,
+        `Notification not sent: inquiry has no customer userId. Event: ${eventId}`,
       );
-      return;
+      return false;
     }
 
     const safeEventId = encodeURIComponent(eventId).replace(/\./g, "%2E");
-    const notificationId = `${customerId}_${safeEventId}`;
+    const notificationId = `${uid}_${safeEventId}`;
 
     try {
       await setDoc(
         doc(customerDb, "Notifications", notificationId),
         {
-          userId: customerId,
+          userId: uid,
           role: "customer",
           eventId,
           type: "inquiry",
@@ -132,8 +135,18 @@ export default function Inquiries() {
         },
         { merge: true },
       );
+
+      console.info(
+        `Inquiry notification created for customer UID ${uid}:`,
+        eventId,
+      );
+      return true;
     } catch (error) {
-      console.error("Could not create customer notification:", error);
+      console.error(
+        `Could not create inquiry notification for customer UID ${uid}:`,
+        error,
+      );
+      return false;
     }
   };
 
@@ -316,12 +329,18 @@ export default function Inquiries() {
 
       const notification = statusMessages[status];
 
-      await notifyCustomer({
+      const notificationSent = await notifyCustomer({
         customerId: inquiry.userId,
         eventId: `inquiry-${status}-${inquiry.id}-${Date.now()}`,
         title: notification.title,
         message: `${notification.message} Subject: ${inquiry.subject}`,
       });
+
+      if (!notificationSent) {
+        console.warn(
+          `Inquiry ${inquiry.id} status changed to ${status}, but its notification was not sent.`,
+        );
+      }
     } catch (error) {
       console.error("Error updating inquiry status:", error);
       alert("Failed to update inquiry status.");
@@ -352,18 +371,26 @@ export default function Inquiries() {
         },
       );
 
-      await notifyCustomer({
+      const notificationSent = await notifyCustomer({
         customerId: selected.userId,
         eventId: `inquiry-reply-${selected.id}-${Date.now()}`,
         title: "New Reply to Your Inquiry",
         message: `The receptionist replied to "${selected.subject}": ${replyMessage}`,
       });
 
-      if (selected.status === "new") {
-        await updateStatus(selected.id, "in-progress");
+      if (!notificationSent) {
+        console.warn(
+          `Reply was saved for inquiry ${selected.id}, but its notification was not sent.`,
+        );
       }
 
       setReply("");
+
+      // Change status after replying to a new inquiry.
+      // This also sends the customer a separate status notification.
+      if (selected.status === "new") {
+        await updateStatus(selected.id, "in-progress");
+      }
     } catch (error) {
       console.error("Error sending reply:", error);
       alert("Failed to send reply.");
@@ -390,24 +417,17 @@ export default function Inquiries() {
           className={`${
             selected ? "hidden lg:flex" : "flex"
           } w-full lg:w-96 lg:flex-shrink-0 bg-white rounded-xl border flex-col min-h-0 overflow-hidden`}
-          style={{
-            borderColor: "rgba(13,115,119,0.1)",
-          }}
+          style={{ borderColor: "rgba(13,115,119,0.1)" }}
         >
           <div
             className="p-3 sm:p-4 border-b space-y-3 flex-shrink-0"
-            style={{
-              borderColor: "rgba(13,115,119,0.1)",
-            }}
+            style={{ borderColor: "rgba(13,115,119,0.1)" }}
           >
             <div className="relative">
               <Search
                 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-                style={{
-                  color: "#4a7a7a",
-                }}
+                style={{ color: "#4a7a7a" }}
               />
-
               <input
                 type="text"
                 placeholder="Search inquiries..."
@@ -428,6 +448,7 @@ export default function Inquiries() {
               ).map((status) => (
                 <button
                   key={status}
+                  type="button"
                   onClick={() => setFilter(status)}
                   className="px-3 py-1.5 rounded-full text-xs whitespace-nowrap"
                   style={{
@@ -445,18 +466,14 @@ export default function Inquiries() {
             {loading ? (
               <div
                 className="p-6 text-center text-sm"
-                style={{
-                  color: "#4a7a7a",
-                }}
+                style={{ color: "#4a7a7a" }}
               >
                 Loading inquiries...
               </div>
             ) : filtered.length === 0 ? (
               <div
                 className="p-6 text-center text-sm"
-                style={{
-                  color: "#4a7a7a",
-                }}
+                style={{ color: "#4a7a7a" }}
               >
                 No inquiries found.
               </div>
@@ -467,6 +484,7 @@ export default function Inquiries() {
                 return (
                   <button
                     key={inq.id}
+                    type="button"
                     onClick={() => markAsRead(inq)}
                     className="w-full text-left p-3 sm:p-4 transition-colors"
                     style={{
@@ -477,15 +495,11 @@ export default function Inquiries() {
                     <div className="flex items-start gap-3 min-w-0">
                       <div
                         className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
-                        style={{
-                          background: "#e2f3f2",
-                        }}
+                        style={{ background: "#e2f3f2" }}
                       >
                         <MessageSquare
                           className="w-4 h-4"
-                          style={{
-                            color: "#0d7377",
-                          }}
+                          style={{ color: "#0d7377" }}
                         />
                       </div>
 
@@ -493,13 +507,10 @@ export default function Inquiries() {
                         <div className="flex items-center gap-2 min-w-0">
                           <span
                             className="text-sm font-medium truncate flex-1"
-                            style={{
-                              color: "#0a2e2e",
-                            }}
+                            style={{ color: "#0a2e2e" }}
                           >
                             {inq.name}
                           </span>
-
                           <span
                             className="text-[10px] sm:text-xs flex-shrink-0 px-1.5 py-0.5 rounded-full"
                             style={{
@@ -513,18 +524,13 @@ export default function Inquiries() {
 
                         <p
                           className="text-xs mt-0.5 truncate"
-                          style={{
-                            color: "#4a7a7a",
-                          }}
+                          style={{ color: "#4a7a7a" }}
                         >
                           {inq.subject}
                         </p>
-
                         <p
                           className="text-xs mt-0.5 truncate"
-                          style={{
-                            color: "#4a7a7a",
-                          }}
+                          style={{ color: "#4a7a7a" }}
                         >
                           {inq.date}
                         </p>
@@ -541,19 +547,14 @@ export default function Inquiries() {
           className={`${
             selected ? "flex" : "hidden lg:flex"
           } flex-1 min-w-0 min-h-0 bg-white rounded-xl border flex-col overflow-hidden`}
-          style={{
-            borderColor: "rgba(13,115,119,0.1)",
-          }}
+          style={{ borderColor: "rgba(13,115,119,0.1)" }}
         >
           {!selected ? (
             <div
               className="flex-1 flex items-center justify-center flex-col gap-3 p-6"
-              style={{
-                color: "#4a7a7a",
-              }}
+              style={{ color: "#4a7a7a" }}
             >
               <MessageSquare className="w-12 h-12 opacity-30" />
-
               <p className="text-sm text-center">
                 Select an inquiry to view details
               </p>
@@ -562,18 +563,13 @@ export default function Inquiries() {
             <>
               <div
                 className="px-3 sm:px-6 py-3 sm:py-4 border-b flex items-center gap-3 flex-shrink-0"
-                style={{
-                  borderColor: "rgba(13,115,119,0.1)",
-                }}
+                style={{ borderColor: "rgba(13,115,119,0.1)" }}
               >
                 <button
                   type="button"
                   onClick={() => setSelected(null)}
                   className="lg:hidden flex-shrink-0 p-2 rounded-lg"
-                  style={{
-                    color: "#0d7377",
-                    background: "#f0f9f8",
-                  }}
+                  style={{ color: "#0d7377", background: "#f0f9f8" }}
                   aria-label="Back to inquiries"
                 >
                   <ArrowLeft className="w-5 h-5" />
@@ -582,19 +578,13 @@ export default function Inquiries() {
                 <div className="min-w-0 flex-1">
                   <h3
                     className="font-medium truncate"
-                    style={{
-                      color: "#0a2e2e",
-                      fontFamily: "Georgia, serif",
-                    }}
+                    style={{ color: "#0a2e2e", fontFamily: "Georgia, serif" }}
                   >
                     {selected.name}
                   </h3>
-
                   <p
                     className="text-xs sm:text-sm truncate"
-                    style={{
-                      color: "#4a7a7a",
-                    }}
+                    style={{ color: "#4a7a7a" }}
                   >
                     {selected.subject} · {selected.date}
                   </p>
@@ -608,6 +598,7 @@ export default function Inquiries() {
                       return (
                         <button
                           key={status}
+                          type="button"
                           onClick={() => updateStatus(selected.id, status)}
                           className="px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm border whitespace-nowrap"
                           style={{
@@ -636,18 +627,9 @@ export default function Inquiries() {
               <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
                   {[
-                    {
-                      label: "Contact",
-                      value: selected.contact,
-                    },
-                    {
-                      label: "Type",
-                      value: selected.type,
-                    },
-                    {
-                      label: "Guests",
-                      value: `${selected.pax} pax`,
-                    },
+                    { label: "Contact", value: selected.contact },
+                    { label: "Type", value: selected.type },
+                    { label: "Guests", value: `${selected.pax} pax` },
                     {
                       label: "Requested Dates",
                       value: selected.dates || "Not specified",
@@ -656,24 +638,14 @@ export default function Inquiries() {
                     <div
                       key={field.label}
                       className="p-3 rounded-lg min-w-0 overflow-hidden"
-                      style={{
-                        background: "#f0f9f8",
-                      }}
+                      style={{ background: "#f0f9f8" }}
                     >
-                      <p
-                        className="text-xs mb-1"
-                        style={{
-                          color: "#4a7a7a",
-                        }}
-                      >
+                      <p className="text-xs mb-1" style={{ color: "#4a7a7a" }}>
                         {field.label}
                       </p>
-
                       <p
                         className="text-sm break-words"
-                        style={{
-                          color: "#0a2e2e",
-                        }}
+                        style={{ color: "#0a2e2e" }}
                       >
                         {field.value}
                       </p>
@@ -690,18 +662,13 @@ export default function Inquiries() {
                 >
                   <p
                     className="text-xs mb-2 font-medium"
-                    style={{
-                      color: "#0d7377",
-                    }}
+                    style={{ color: "#0d7377" }}
                   >
                     Guest Message
                   </p>
-
                   <p
                     className="text-sm break-words whitespace-pre-wrap"
-                    style={{
-                      color: "#0a2e2e",
-                    }}
+                    style={{ color: "#0a2e2e" }}
                   >
                     {selected.message}
                   </p>
@@ -710,21 +677,14 @@ export default function Inquiries() {
                 <div>
                   <p
                     className="text-sm font-medium mb-3"
-                    style={{
-                      color: "#0a2e2e",
-                    }}
+                    style={{ color: "#0a2e2e" }}
                   >
                     Conversation
                   </p>
 
                   <div className="space-y-3">
                     {replies.length === 0 ? (
-                      <p
-                        className="text-sm"
-                        style={{
-                          color: "#4a7a7a",
-                        }}
-                      >
+                      <p className="text-sm" style={{ color: "#4a7a7a" }}>
                         No replies yet.
                       </p>
                     ) : (
@@ -750,7 +710,6 @@ export default function Inquiries() {
                             >
                               {msg.message}
                             </div>
-
                             <p
                               className={`text-[10px] text-gray-400 mt-1 ${
                                 msg.sender === "receptionist"
@@ -771,13 +730,10 @@ export default function Inquiries() {
                 <div className="pb-2">
                   <p
                     className="text-sm font-medium mb-2"
-                    style={{
-                      color: "#0a2e2e",
-                    }}
+                    style={{ color: "#0a2e2e" }}
                   >
                     Reply
                   </p>
-
                   <textarea
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
@@ -804,6 +760,7 @@ export default function Inquiries() {
 
                   <div className="flex justify-end mt-2">
                     <button
+                      type="button"
                       onClick={sendReply}
                       disabled={
                         !reply.trim() ||
@@ -812,9 +769,7 @@ export default function Inquiries() {
                         selected.status === "cancelled"
                       }
                       className="flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-2.5 rounded-lg text-sm text-white disabled:opacity-50"
-                      style={{
-                        background: "#0d7377",
-                      }}
+                      style={{ background: "#0d7377" }}
                     >
                       {sendingReply ? (
                         <>
