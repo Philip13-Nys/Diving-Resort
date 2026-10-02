@@ -957,7 +957,19 @@ export default function RoomManagement() {
                     {roomType.description || "No description available."}
                   </p>
                   <p className="text-sm text-gray-500 mt-1">
-                    {roomType.count} {roomType.count === 1 ? "room" : "rooms"}
+                    {(() => {
+                      const actualCount = rooms.filter(
+                        (room) =>
+                          room.type.trim().toLowerCase() ===
+                          roomType.name.trim().toLowerCase(),
+                      ).length;
+
+                      return (
+                        <>
+                          {actualCount} {actualCount === 1 ? "room" : "rooms"}
+                        </>
+                      );
+                    })()}
                   </p>
                 </div>
                 <div className="flex items-center justify-end gap-2">
@@ -1040,77 +1052,84 @@ export default function RoomManagement() {
                 </tr>
               </thead>
               <tbody>
-                {rooms.map((room) => (
-                  <tr
-                    key={room.id}
-                    className="border-b border-gray-100 hover:bg-gray-50"
-                  >
-                    <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                      {room.roomId}
-                    </td>
+                {[...rooms]
+                  .sort((a, b) => {
+                    const numA = Number(a.roomId.match(/\d+/)?.[0] || 0);
+                    const numB = Number(b.roomId.match(/\d+/)?.[0] || 0);
 
-                    <td className="py-3 px-4 text-sm text-gray-700">
-                      {room.type}
-                    </td>
+                    return numA - numB;
+                  })
+                  .map((room) => (
+                    <tr
+                      key={room.id}
+                      className="border-b border-gray-100 hover:bg-gray-50"
+                    >
+                      <td className="py-3 px-4 text-sm font-medium text-gray-900">
+                        {room.roomId}
+                      </td>
 
-                    <td className="py-3 px-4 text-sm text-gray-700">
-                      Floor {room.floor}
-                    </td>
+                      <td className="py-3 px-4 text-sm text-gray-700">
+                        {room.type}
+                      </td>
 
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-1 rounded text-xs ${
-                          room.status === "available"
-                            ? "bg-green-100 text-green-800"
-                            : room.status === "occupied"
-                              ? "bg-blue-100 text-blue-800"
-                              : room.status === "reserved"
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {room.status.charAt(0).toUpperCase() +
-                          room.status.slice(1)}
-                      </span>
-                    </td>
+                      <td className="py-3 px-4 text-sm text-gray-700">
+                        Floor {room.floor}
+                      </td>
 
-                    <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-1 rounded text-xs ${
-                          room.condition === "excellent"
-                            ? "bg-green-100 text-green-800"
-                            : room.condition === "good"
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-yellow-100 text-yellow-800"
-                        }`}
-                      >
-                        {room.condition.charAt(0).toUpperCase() +
-                          room.condition.slice(1)}
-                      </span>
-                    </td>
-
-                    <td className="py-3 px-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingRoom(room)}
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            room.status === "available"
+                              ? "bg-green-100 text-green-800"
+                              : room.status === "occupied"
+                                ? "bg-blue-100 text-blue-800"
+                                : room.status === "reserved"
+                                  ? "bg-yellow-100 text-yellow-800"
+                                  : "bg-red-100 text-red-800"
+                          }`}
                         >
-                          <Edit className="w-4 h-4" />
-                        </Button>
+                          {room.status.charAt(0).toUpperCase() +
+                            room.status.slice(1)}
+                        </span>
+                      </td>
 
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-red-600 hover:text-red-700"
-                          onClick={() => handleDeleteRoom(room.id)}
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2 py-1 rounded text-xs ${
+                            room.condition === "excellent"
+                              ? "bg-green-100 text-green-800"
+                              : room.condition === "good"
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-yellow-100 text-yellow-800"
+                          }`}
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {room.condition.charAt(0).toUpperCase() +
+                            room.condition.slice(1)}
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditingRoom(room)}
+                          >
+                            <Edit className="w-4 h-4" />
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700"
+                            onClick={() => handleDeleteRoom(room.id)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>
