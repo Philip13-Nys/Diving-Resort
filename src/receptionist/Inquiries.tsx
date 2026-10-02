@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
   MessageSquare,
-  Mail,
   Check,
   Clock,
   X,
@@ -21,6 +20,7 @@ import {
   orderBy,
   onSnapshot,
   Timestamp,
+  setDoc,
 } from "firebase/firestore";
 import { customerDb } from "../app/firebase";
 
@@ -94,6 +94,49 @@ export default function Inquiries() {
   const [sendingReply, setSendingReply] = useState(false);
   const [replies, setReplies] = useState<Reply[]>([]);
 
+  // Create a notification for the customer associated with an inquiry.
+  const notifyCustomer = async ({
+    customerId,
+    eventId,
+    title,
+    message,
+  }: {
+    customerId: string;
+    eventId: string;
+    title: string;
+    message: string;
+  }) => {
+    if (!customerId) {
+      console.warn(
+        `Cannot send notification "${title}": inquiry has no userId.`,
+      );
+      return;
+    }
+
+    const safeEventId = encodeURIComponent(eventId).replace(/\./g, "%2E");
+    const notificationId = `${customerId}_${safeEventId}`;
+
+    try {
+      await setDoc(
+        doc(customerDb, "Notifications", notificationId),
+        {
+          userId: customerId,
+          role: "customer",
+          eventId,
+          type: "inquiry",
+          title,
+          message,
+          targetPath: "/inquiries",
+          read: false,
+          createdAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    } catch (error) {
+      console.error("Could not create customer notification:", error);
+    }
+  };
+
   useEffect(() => {
     const loadInquiries = async () => {
       try {
@@ -109,18 +152,32 @@ export default function Inquiries() {
         const loadedInquiries: Inquiry[] = snapshot.docs.map((inquiryDoc) => {
           const data = inquiryDoc.data();
 
+          const rawStatus = String(data.status ?? "new")
+            .toLowerCase()
+            .replace(/\s+/g, "-");
+
+          const status: Status =
+            rawStatus === "in-progress" ||
+            rawStatus === "resolved" ||
+            rawStatus === "cancelled"
+              ? rawStatus
+              : "new";
+
           return {
             id: inquiryDoc.id,
             userId: String(data.userId ?? ""),
             name: String(data.name ?? ""),
             contact: String(data.contact ?? data.email ?? data.phone ?? "N/A"),
-            type: data.type ?? "email",
+            type:
+              data.type === "phone" || data.type === "walk-in"
+                ? data.type
+                : "email",
             subject: String(data.subject ?? ""),
             message: String(data.message ?? ""),
             date: data.createdAt?.toDate
               ? data.createdAt.toDate().toLocaleString()
               : String(data.date ?? ""),
-            status: data.status ?? "new",
+            status,
             pax: Number(data.pax ?? data.guests ?? 1),
             dates: String(data.dates ?? ""),
             read: data.read === true,
@@ -216,6 +273,15 @@ export default function Inquiries() {
   };
 
   const updateStatus = async (id: string, status: Status) => {
+    const inquiry = inquiries.find((item) => item.id === id);
+
+    if (!inquiry) {
+      alert("Inquiry not found.");
+      return;
+    }
+
+    if (inquiry.status === status) return;
+
     try {
       await updateDoc(doc(customerDb, "Inquiries", id), {
         status,
@@ -223,12 +289,39 @@ export default function Inquiries() {
       });
 
       setInquiries((prev) =>
-        prev.map((inquiry) =>
-          inquiry.id === id ? { ...inquiry, status } : inquiry,
-        ),
+        prev.map((item) => (item.id === id ? { ...item, status } : item)),
       );
 
       setSelected((prev) => (prev?.id === id ? { ...prev, status } : prev));
+
+      const statusMessages: Record<Status, { title: string; message: string }> =
+        {
+          new: {
+            title: "Inquiry Received",
+            message: "Your inquiry has been received.",
+          },
+          "in-progress": {
+            title: "Inquiry Being Reviewed",
+            message: "Our receptionist is now reviewing your inquiry.",
+          },
+          resolved: {
+            title: "Inquiry Resolved",
+            message: "Your inquiry has been marked as resolved.",
+          },
+          cancelled: {
+            title: "Inquiry Cancelled",
+            message: "Your inquiry has been cancelled.",
+          },
+        };
+
+      const notification = statusMessages[status];
+
+      await notifyCustomer({
+        customerId: inquiry.userId,
+        eventId: `inquiry-${status}-${inquiry.id}-${Date.now()}`,
+        title: notification.title,
+        message: `${notification.message} Subject: ${inquiry.subject}`,
+      });
     } catch (error) {
       console.error("Error updating inquiry status:", error);
       alert("Failed to update inquiry status.");
@@ -246,16 +339,25 @@ export default function Inquiries() {
     try {
       setSendingReply(true);
 
+      const replyMessage = reply.trim();
+
       await addDoc(
         collection(customerDb, "Inquiries", selected.id, "replies"),
         {
-          message: reply.trim(),
+          message: replyMessage,
           sender: "receptionist",
           senderName: "Receptionist",
           userId: selected.userId,
           createdAt: serverTimestamp(),
         },
       );
+
+      await notifyCustomer({
+        customerId: selected.userId,
+        eventId: `inquiry-reply-${selected.id}-${Date.now()}`,
+        title: "New Reply to Your Inquiry",
+        message: `The receptionist replied to "${selected.subject}": ${replyMessage}`,
+      });
 
       if (selected.status === "new") {
         await updateStatus(selected.id, "in-progress");
@@ -365,33 +467,7 @@ export default function Inquiries() {
                 return (
                   <button
                     key={inq.id}
-                    onClick={async () => {
-                      setSelected(inq);
-
-                      if (!inq.read) {
-                        try {
-                          await updateDoc(
-                            doc(customerDb, "Inquiries", inq.id),
-                            {
-                              read: true,
-                            },
-                          );
-
-                          setInquiries((prev) =>
-                            prev.map((item) =>
-                              item.id === inq.id
-                                ? { ...item, read: true }
-                                : item,
-                            ),
-                          );
-                        } catch (error) {
-                          console.error(
-                            "Error marking inquiry as read:",
-                            error,
-                          );
-                        }
-                      }
-                    }}
+                    onClick={() => markAsRead(inq)}
                     className="w-full text-left p-3 sm:p-4 transition-colors"
                     style={{
                       background:
@@ -539,12 +615,10 @@ export default function Inquiries() {
                               selected.status === status
                                 ? cfg.color
                                 : "rgba(13,115,119,0.2)",
-
                             background:
                               selected.status === status
                                 ? cfg.bg
                                 : "transparent",
-
                             color:
                               selected.status === status
                                 ? cfg.color

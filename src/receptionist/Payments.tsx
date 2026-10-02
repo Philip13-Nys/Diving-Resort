@@ -7,6 +7,8 @@ import {
   updateDoc,
   doc,
   runTransaction,
+  setDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 
 import { customerDb } from "../app/firebase";
@@ -37,6 +39,7 @@ interface Payment {
 
 interface PendingBalance {
   bookingId: string;
+  userId: string;
   guest: string;
   room: string;
   total: number;
@@ -54,6 +57,52 @@ const METHOD_COLOR: Record<string, { color: string; bg: string }> = {
   cash: { color: "#0d7377", bg: "#e2f3f2" },
   gcash: { color: "#14b8a6", bg: "#f0fdfa" },
 };
+
+/**
+ * Writes a notification for the customer who owns the booking.
+ * The deterministic ID helps prevent duplicate notifications.
+ *
+ * Firestore rules must explicitly authorize the receptionist to
+ * create notifications for customers, or this write should be
+ * performed by a trusted backend.
+ */
+async function notifyCustomer({
+  customerId,
+  eventId,
+  title,
+  message,
+  targetPath,
+}: {
+  customerId: string;
+  eventId: string;
+  title: string;
+  message: string;
+  targetPath: string;
+}) {
+  if (!customerId) {
+    console.warn("Notification skipped: booking has no customer userId.");
+    return;
+  }
+
+  const safeEventId = eventId.replace(/\./g, "%2E");
+  const notificationId = `${customerId}_${safeEventId}`;
+
+  await setDoc(
+    doc(customerDb, "Notifications", notificationId),
+    {
+      userId: customerId,
+      role: "customer",
+      eventId,
+      type: "payment",
+      title,
+      message,
+      targetPath,
+      read: false,
+      createdAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
 
 interface PaymentModalProps {
   booking: PendingBalance;
@@ -234,7 +283,7 @@ export default function Payments() {
   const [successMsg, setSuccessMsg] = useState("");
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, []);
 
   const loadData = async () => {
@@ -310,6 +359,7 @@ export default function Payments() {
 
           return {
             bookingId: docSnap.id,
+            userId: String(d.userId ?? ""),
             guest: d.customerName || "",
             room: d.roomName || "",
             total,
@@ -329,8 +379,7 @@ export default function Payments() {
     }
   };
 
-  // New receptionist-entered payment (e.g. cash).
-  // Do not use this to verify a customer-submitted GCash payment.
+  // Receptionist-entered payment, such as cash or an in-person GCash payment.
   const handlePay = async (method: string, amount: number) => {
     if (!payModal) return;
 
@@ -344,69 +393,101 @@ export default function Payments() {
       const paymentRef = doc(collection(customerDb, "Payments"));
       const now = new Date();
 
-      await runTransaction(customerDb, async (transaction) => {
-        const bookingSnap = await transaction.get(bookingRef);
+      const paymentResult = await runTransaction(
+        customerDb,
+        async (transaction) => {
+          const bookingSnap = await transaction.get(bookingRef);
 
-        if (!bookingSnap.exists()) {
-          throw new Error("Booking not found.");
-        }
+          if (!bookingSnap.exists()) {
+            throw new Error("Booking not found.");
+          }
 
-        const booking = bookingSnap.data();
+          const booking = bookingSnap.data();
 
-        const total = Number(
-          booking.totalPrice ?? booking.totalAmount ?? booking.total ?? 0,
-        );
+          const total = Number(
+            booking.totalPrice ?? booking.totalAmount ?? booking.total ?? 0,
+          );
 
-        const paid = Number(booking.amountPaid ?? 0);
-        const currentBalance = Math.max(0, total - paid);
+          const paid = Number(booking.amountPaid ?? 0);
+          const currentBalance = Math.max(0, total - paid);
 
-        if (currentBalance <= 0) {
-          throw new Error("This booking is already fully paid.");
-        }
+          if (currentBalance <= 0) {
+            throw new Error("This booking is already fully paid.");
+          }
 
-        if (amount > currentBalance) {
-          throw new Error("Payment exceeds the current remaining balance.");
-        }
+          if (amount > currentBalance) {
+            throw new Error("Payment exceeds the current remaining balance.");
+          }
 
-        const newAmountPaid = paid + amount;
-        const remainingBalance = Math.max(0, total - newAmountPaid);
+          const newAmountPaid = paid + amount;
+          const remainingBalance = Math.max(0, total - newAmountPaid);
 
-        const newPay: Omit<Payment, "id"> = {
-          bookingId: payModal.bookingId,
-          guest: booking.customerName || payModal.guest,
-          room: booking.roomName || payModal.room,
-          amount,
-          method: method as Payment["method"],
-          type:
-            remainingBalance === 0
-              ? "balance"
-              : newAmountPaid === amount
-                ? "partial"
-                : "partial",
-          date: now.toLocaleDateString(),
-          time: now.toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          status: "completed",
-          receiptNo: `RCP-${Date.now().toString().slice(-6)}`,
-          referenceNumber: "",
-          verificationStatus: "verified",
-        };
+          const newPay: Omit<Payment, "id"> = {
+            bookingId: payModal.bookingId,
+            guest: booking.customerName || payModal.guest,
+            room: booking.roomName || payModal.room,
+            amount,
+            method: method as Payment["method"],
+            type: remainingBalance === 0 ? "balance" : "partial",
+            date: now.toLocaleDateString(),
+            time: now.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+            status: "completed",
+            receiptNo: `RCP-${Date.now().toString().slice(-6)}`,
+            referenceNumber: "",
+            verificationStatus: "verified",
+          };
 
-        transaction.set(paymentRef, newPay);
+          transaction.set(paymentRef, {
+            ...newPay,
+            userId: booking.userId || "",
+            createdAt: serverTimestamp(),
+          });
 
-        transaction.update(bookingRef, {
-          amountPaid: newAmountPaid,
-          remainingBalance,
-          paymentStatus:
-            remainingBalance === 0
-              ? "paid"
-              : newAmountPaid > 0
-                ? "partial"
-                : "unpaid",
+          transaction.update(bookingRef, {
+            amountPaid: newAmountPaid,
+            remainingBalance,
+            paymentStatus:
+              remainingBalance === 0
+                ? "paid"
+                : newAmountPaid > 0
+                  ? "partial"
+                  : "unpaid",
+          });
+
+          return {
+            userId: String(booking.userId ?? ""),
+            guest: String(booking.customerName || payModal.guest),
+            room: String(booking.roomName || payModal.room),
+            remainingBalance,
+          };
+        },
+      );
+
+      // Payment transaction has succeeded. Notification failure must not
+      // make the receptionist think the payment itself failed.
+      try {
+        await notifyCustomer({
+          customerId: paymentResult.userId,
+          eventId: `payment-received-${paymentRef.id}`,
+          title: "Payment Received",
+          message:
+            `We received your ₱${amount.toLocaleString()} ` +
+            `${method === "gcash" ? "GCash" : "cash"} payment for ` +
+            `${paymentResult.room || "your booking"}. ` +
+            (paymentResult.remainingBalance === 0
+              ? "Your booking is now fully paid."
+              : `Remaining balance: ₱${paymentResult.remainingBalance.toLocaleString()}.`),
+          targetPath: "/booking-history",
         });
-      });
+      } catch (notificationError) {
+        console.error(
+          "Payment saved, but notification failed:",
+          notificationError,
+        );
+      }
 
       setPayModal(null);
       setSuccessMsg(
@@ -427,77 +508,107 @@ export default function Payments() {
   };
 
   // Verify the existing customer-submitted GCash record.
-  // This updates that record; it does not create a second payment.
   const verifyGcashPayment = async (payment: Payment) => {
     try {
       const paymentRef = doc(customerDb, "Payments", payment.id);
       const bookingRef = doc(customerDb, "Bookings", payment.bookingId);
 
-      await runTransaction(customerDb, async (transaction) => {
-        const paymentSnap = await transaction.get(paymentRef);
+      const verifiedBooking = await runTransaction(
+        customerDb,
+        async (transaction) => {
+          const paymentSnap = await transaction.get(paymentRef);
 
-        if (!paymentSnap.exists()) {
-          throw new Error("Payment record not found.");
-        }
+          if (!paymentSnap.exists()) {
+            throw new Error("Payment record not found.");
+          }
 
-        const bookingSnap = await transaction.get(bookingRef);
+          const bookingSnap = await transaction.get(bookingRef);
 
-        if (!bookingSnap.exists()) {
-          throw new Error("Booking not found.");
-        }
+          if (!bookingSnap.exists()) {
+            throw new Error("Booking not found.");
+          }
 
-        const existingPayment = paymentSnap.data();
+          const existingPayment = paymentSnap.data();
 
-        if (
-          existingPayment.verificationStatus === "verified" ||
-          existingPayment.status === "completed"
-        ) {
-          throw new Error("This payment has already been verified.");
-        }
+          if (
+            existingPayment.verificationStatus === "verified" ||
+            existingPayment.status === "completed"
+          ) {
+            throw new Error("This payment has already been verified.");
+          }
 
-        if (existingPayment.verificationStatus === "rejected") {
-          throw new Error("This payment was already rejected.");
-        }
+          if (existingPayment.verificationStatus === "rejected") {
+            throw new Error("This payment was already rejected.");
+          }
 
-        const booking = bookingSnap.data();
-        const amount = Number(existingPayment.amount ?? 0);
-        const total = Number(
-          booking.totalPrice ?? booking.totalAmount ?? booking.total ?? 0,
-        );
-        const paid = Number(booking.amountPaid ?? 0);
-        const balance = Math.max(0, total - paid);
-
-        if (!Number.isFinite(amount) || amount <= 0) {
-          throw new Error("Invalid payment amount.");
-        }
-
-        if (amount > balance) {
-          throw new Error(
-            "Payment amount exceeds the booking's remaining balance.",
+          const booking = bookingSnap.data();
+          const amount = Number(existingPayment.amount ?? 0);
+          const total = Number(
+            booking.totalPrice ?? booking.totalAmount ?? booking.total ?? 0,
           );
-        }
+          const paid = Number(booking.amountPaid ?? 0);
+          const balance = Math.max(0, total - paid);
 
-        const newAmountPaid = paid + amount;
-        const remainingBalance = Math.max(0, total - newAmountPaid);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            throw new Error("Invalid payment amount.");
+          }
 
-        transaction.update(paymentRef, {
-          status: "completed",
-          verificationStatus: "verified",
-          type: remainingBalance === 0 ? "balance" : "partial",
-          verifiedAt: new Date(),
+          if (amount > balance) {
+            throw new Error(
+              "Payment amount exceeds the booking's remaining balance.",
+            );
+          }
+
+          const newAmountPaid = paid + amount;
+          const remainingBalance = Math.max(0, total - newAmountPaid);
+
+          transaction.update(paymentRef, {
+            status: "completed",
+            verificationStatus: "verified",
+            type: remainingBalance === 0 ? "balance" : "partial",
+            verifiedAt: serverTimestamp(),
+          });
+
+          transaction.update(bookingRef, {
+            amountPaid: newAmountPaid,
+            remainingBalance,
+            paymentStatus:
+              remainingBalance === 0
+                ? "paid"
+                : newAmountPaid > 0
+                  ? "partial"
+                  : "unpaid",
+          });
+
+          return {
+            userId: String(booking.userId ?? existingPayment.userId ?? ""),
+            guest: String(booking.customerName ?? payment.guest),
+            room: String(booking.roomName ?? payment.room),
+            amount,
+            remainingBalance,
+          };
+        },
+      );
+
+      try {
+        await notifyCustomer({
+          customerId: verifiedBooking.userId,
+          eventId: `payment-verified-${payment.id}`,
+          title: "GCash Payment Verified",
+          message:
+            `Your GCash payment of ₱${verifiedBooking.amount.toLocaleString()} ` +
+            `for ${verifiedBooking.room || "your booking"} has been verified. ` +
+            (verifiedBooking.remainingBalance === 0
+              ? "Your booking is now fully paid."
+              : `Remaining balance: ₱${verifiedBooking.remainingBalance.toLocaleString()}.`),
+          targetPath: "/booking-history",
         });
-
-        transaction.update(bookingRef, {
-          amountPaid: newAmountPaid,
-          remainingBalance,
-          paymentStatus:
-            remainingBalance === 0
-              ? "paid"
-              : newAmountPaid > 0
-                ? "partial"
-                : "unpaid",
-        });
-      });
+      } catch (notificationError) {
+        console.error(
+          "GCash verified, but notification failed:",
+          notificationError,
+        );
+      }
 
       setSuccessMsg("GCash payment verified successfully!");
       await loadData();
@@ -511,15 +622,46 @@ export default function Payments() {
   };
 
   // Reject the existing customer-submitted payment.
-  // Rejection does not add to amountPaid.
   const rejectGcashPayment = async (payment: Payment) => {
     try {
       const paymentRef = doc(customerDb, "Payments", payment.id);
+      const bookingRef = doc(customerDb, "Bookings", payment.bookingId);
+
+      const bookingSnap = await getDocs(
+        collection(customerDb, "Bookings"),
+      ).then((snapshot) =>
+        snapshot.docs.find((item) => item.id === payment.bookingId),
+      );
+
+      if (!bookingSnap) {
+        throw new Error("Booking not found.");
+      }
+
+      const booking = bookingSnap.data();
 
       await updateDoc(paymentRef, {
         verificationStatus: "rejected",
-        rejectedAt: new Date(),
+        status: "rejected",
+        rejectedAt: serverTimestamp(),
       });
+
+      try {
+        await notifyCustomer({
+          customerId: String(booking.userId ?? ""),
+          eventId: `payment-rejected-${payment.id}`,
+          title: "GCash Payment Rejected",
+          message:
+            `Your GCash payment submission of ₱${payment.amount.toLocaleString()} ` +
+            `for ${booking.roomName || payment.room || "your booking"} was rejected. ` +
+            "Please review your payment details and submit again.",
+          targetPath: "/booking-history",
+        });
+      } catch (notificationError) {
+        console.error(
+          "GCash rejected, but notification failed:",
+          notificationError,
+        );
+      }
 
       setSuccessMsg("GCash submission rejected.");
       await loadData();
@@ -812,7 +954,7 @@ export default function Payments() {
                         style={{ color: "#0a2e2e" }}
                       >
                         {p.referenceNumber || "Not provided"}
-                      </p>{" "}
+                      </p>
                     </div>
 
                     <div className="flex gap-2 mt-3">

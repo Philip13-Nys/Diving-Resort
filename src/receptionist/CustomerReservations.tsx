@@ -7,6 +7,7 @@ import {
   updateDoc,
   doc,
   getDoc,
+  setDoc,
   serverTimestamp,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
@@ -23,7 +24,7 @@ type BookingStatus =
 interface Booking {
   id: string;
   bookingId: string;
-
+  userId?: string;
   guest: string;
   email: string;
   phone: string;
@@ -37,13 +38,10 @@ interface Booking {
   amount: number;
   paid: number;
   notes: string;
-
   acceptedBy?: string;
   acceptedByUid?: string;
-
   checkedInBy?: string;
   checkedInByUid?: string;
-
   cancelledBy?: string;
   cancelledByUid?: string;
 }
@@ -52,31 +50,11 @@ const STATUS: Record<
   BookingStatus,
   { label: string; color: string; bg: string }
 > = {
-  confirmed: {
-    label: "Confirmed",
-    color: "#06b6d4",
-    bg: "#ecfeff",
-  },
-  "checked-in": {
-    label: "Checked In",
-    color: "#0d7377",
-    bg: "#e2f3f2",
-  },
-  "checked-out": {
-    label: "Checked Out",
-    color: "#4a7a7a",
-    bg: "#f0f9f8",
-  },
-  cancelled: {
-    label: "Cancelled",
-    color: "#d4183d",
-    bg: "#fef2f2",
-  },
-  pending: {
-    label: "Pending",
-    color: "#f97316",
-    bg: "#fff7ed",
-  },
+  confirmed: { label: "Confirmed", color: "#06b6d4", bg: "#ecfeff" },
+  "checked-in": { label: "Checked In", color: "#0d7377", bg: "#e2f3f2" },
+  "checked-out": { label: "Checked Out", color: "#4a7a7a", bg: "#f0f9f8" },
+  cancelled: { label: "Cancelled", color: "#d4183d", bg: "#fef2f2" },
+  pending: { label: "Pending", color: "#f97316", bg: "#fff7ed" },
 };
 
 function BookingModal({
@@ -102,16 +80,12 @@ function BookingModal({
         >
           <h3
             className="font-medium"
-            style={{
-              color: "#0a2e2e",
-              fontFamily: "Georgia, serif",
-            }}
+            style={{ color: "#0a2e2e", fontFamily: "Georgia, serif" }}
           >
             {booking.id
               ? `Edit Booking ${booking.bookingId || ""}`
               : "New Booking"}
           </h3>
-
           <button
             type="button"
             onClick={onClose}
@@ -125,41 +99,17 @@ function BookingModal({
         <div className="p-6 space-y-4">
           <div className="grid grid-cols-2 gap-4">
             {[
-              {
-                label: "Guest Name",
-                key: "guest" as const,
-                type: "text",
-              },
-              {
-                label: "Email",
-                key: "email" as const,
-                type: "email",
-              },
-              {
-                label: "Phone",
-                key: "phone" as const,
-                type: "tel",
-              },
-              {
-                label: "Room Number",
-                key: "room" as const,
-                type: "text",
-              },
-              {
-                label: "Check-in Date",
-                key: "checkIn" as const,
-                type: "date",
-              },
+              { label: "Guest Name", key: "guest" as const, type: "text" },
+              { label: "Email", key: "email" as const, type: "email" },
+              { label: "Phone", key: "phone" as const, type: "tel" },
+              { label: "Room Number", key: "room" as const, type: "text" },
+              { label: "Check-in Date", key: "checkIn" as const, type: "date" },
               {
                 label: "Check-out Date",
                 key: "checkOut" as const,
                 type: "date",
               },
-              {
-                label: "No. of Guests",
-                key: "pax" as const,
-                type: "number",
-              },
+              { label: "No. of Guests", key: "pax" as const, type: "number" },
               {
                 label: "Total Amount (₱)",
                 key: "amount" as const,
@@ -173,7 +123,6 @@ function BookingModal({
                 >
                   {f.label}
                 </label>
-
                 <input
                   type={f.type}
                   value={(form[f.key] as string | number) ?? ""}
@@ -200,7 +149,6 @@ function BookingModal({
             <label className="block text-xs mb-1" style={{ color: "#4a7a7a" }}>
               Notes
             </label>
-
             <textarea
               value={form.notes ?? ""}
               onChange={(e) => update("notes", e.target.value)}
@@ -223,14 +171,10 @@ function BookingModal({
             type="button"
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-sm border"
-            style={{
-              borderColor: "rgba(13,115,119,0.2)",
-              color: "#4a7a7a",
-            }}
+            style={{ borderColor: "rgba(13,115,119,0.2)", color: "#4a7a7a" }}
           >
             Cancel
           </button>
-
           <button
             type="button"
             onClick={() => onSave(form as Booking)}
@@ -248,14 +192,11 @@ function BookingModal({
 export default function Reservations() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [search, setSearch] = useState("");
-
   const [statusFilter, setStatusFilter] = useState<BookingStatus | "all">(
     "all",
   );
-
   const [modal, setModal] = useState<Partial<Booking> | null>(null);
   const [detail, setDetail] = useState<Booking | null>(null);
-
   const [receptionistName, setReceptionistName] = useState("Receptionist");
   const [receptionistUid, setReceptionistUid] = useState("");
 
@@ -275,7 +216,6 @@ export default function Reservations() {
 
         if (userSnap.exists()) {
           const data = userSnap.data();
-
           setReceptionistName(
             String(data.name || user.displayName || "Receptionist"),
           );
@@ -291,22 +231,66 @@ export default function Reservations() {
     return () => unsubscribe();
   }, []);
 
+  // Writes a notification to the customer's Notifications collection.
+  // The booking's userId must be the customer's Firebase Auth UID.
+  const notifyCustomer = async ({
+    customerId,
+    eventId,
+    title,
+    message,
+    targetPath,
+  }: {
+    customerId?: string;
+    eventId: string;
+    title: string;
+    message: string;
+    targetPath: string;
+  }) => {
+    if (!customerId) {
+      console.warn(
+        `Cannot send "${title}" notification: booking has no userId.`,
+      );
+      return;
+    }
+
+    const safeEventId = encodeURIComponent(eventId).replace(/\./g, "%2E");
+    const notificationId = `${customerId}_${safeEventId}`;
+
+    try {
+      await setDoc(
+        doc(customerDb, "Notifications", notificationId),
+        {
+          userId: customerId,
+          role: "customer",
+          eventId,
+          type: "booking",
+          title,
+          message,
+          targetPath,
+          read: false,
+          createdAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+    } catch (error) {
+      // Status updates remain successful even if notification write is denied.
+      console.error("Could not create customer notification:", error);
+    }
+  };
+
   const migrateBookingIds = async () => {
     try {
       const snapshot = await getDocs(collection(customerDb, "Bookings"));
-
       let highestNumber = 0;
 
       snapshot.docs.forEach((bookingDoc) => {
-        const data = bookingDoc.data();
-        const existingBookingId = data.bookingId;
+        const existingBookingId = bookingDoc.data().bookingId;
 
         if (
           typeof existingBookingId === "string" &&
           existingBookingId.startsWith("BK-")
         ) {
           const number = Number(existingBookingId.replace("BK-", ""));
-
           if (!isNaN(number) && number > highestNumber) {
             highestNumber = number;
           }
@@ -314,11 +298,8 @@ export default function Reservations() {
       });
 
       for (const bookingDoc of snapshot.docs) {
-        const data = bookingDoc.data();
-
-        if (!data.bookingId) {
+        if (!bookingDoc.data().bookingId) {
           highestNumber++;
-
           const newBookingId = `BK-${highestNumber}`;
 
           await updateDoc(doc(customerDb, "Bookings", bookingDoc.id), {
@@ -341,92 +322,56 @@ export default function Reservations() {
 
       const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
         const data = bookingDoc.data();
-
         const normalizedStatus = String(data.status || "")
           .toLowerCase()
           .replace(/\s+/g, "-");
 
         let status: BookingStatus = "pending";
 
-        if (normalizedStatus === "confirmed") {
-          status = "confirmed";
-        } else if (normalizedStatus === "checked-in") {
-          status = "checked-in";
-        } else if (normalizedStatus === "checked-out") {
-          status = "checked-out";
-        } else if (normalizedStatus === "cancelled") {
-          status = "cancelled";
-        } else if (normalizedStatus === "pending") {
-          status = "pending";
-        }
+        if (normalizedStatus === "confirmed") status = "confirmed";
+        else if (normalizedStatus === "checked-in") status = "checked-in";
+        else if (normalizedStatus === "checked-out") status = "checked-out";
+        else if (normalizedStatus === "cancelled") status = "cancelled";
+        else if (normalizedStatus === "pending") status = "pending";
 
         return {
           id: bookingDoc.id,
-
           bookingId: data.bookingId || "",
-
+          userId: data.userId || "",
           guest: data.customerName || data.guestName || "Unknown Guest",
-
           email: data.customerEmail || data.email || "",
-
           phone: data.customerPhone || data.phone || "",
-
           room: data.roomName || data.roomNumber || "",
-
           roomType: data.roomTypeName || data.roomType || "",
-
           checkIn: data.checkIn || "",
-
           checkOut: data.checkOut || "",
-
           nights: Number(data.nights || 0),
-
           pax: Number(data.guests || data.pax || 0),
-
           status,
-
           amount: Number(
             data.totalPrice ??
               data.totalAmount ??
               data.total ??
               Number(data.roomRate || 0) * Number(data.nights || 0),
           ),
-
           paid: Number(data.amountPaid ?? data.paid ?? 0),
-
           notes: data.notes || data.specialRequests || "",
-
           acceptedBy: data.acceptedBy || "",
-
           acceptedByUid: data.acceptedByUid || "",
-
           checkedInBy: data.checkedInBy || "",
-
           checkedInByUid: data.checkedInByUid || "",
-
           cancelledBy: data.cancelledBy || "",
-
           cancelledByUid: data.cancelledByUid || "",
         };
       });
 
       bookingData.sort((a, b) => {
         const numberA = Number(a.bookingId.replace(/^BK-/, ""));
-
         const numberB = Number(b.bookingId.replace(/^BK-/, ""));
 
-        if (!Number.isFinite(numberA) && !Number.isFinite(numberB)) {
-          return 0;
-        }
-
-        if (!Number.isFinite(numberA)) {
-          return 1;
-        }
-
-        if (!Number.isFinite(numberB)) {
-          return -1;
-        }
-
+        if (!Number.isFinite(numberA) && !Number.isFinite(numberB)) return 0;
+        if (!Number.isFinite(numberA)) return 1;
+        if (!Number.isFinite(numberB)) return -1;
         return numberA - numberB;
       });
 
@@ -441,13 +386,11 @@ export default function Reservations() {
       await migrateBookingIds();
       await loadBookings();
     };
-
     initializeBookings();
   }, []);
 
   const getNextBookingId = async () => {
     const snapshot = await getDocs(collection(customerDb, "Bookings"));
-
     let highestNumber = 0;
 
     snapshot.docs.forEach((bookingDoc) => {
@@ -458,7 +401,6 @@ export default function Reservations() {
         data.bookingId.startsWith("BK-")
       ) {
         const number = Number(data.bookingId.replace("BK-", ""));
-
         if (!isNaN(number) && number > highestNumber) {
           highestNumber = number;
         }
@@ -480,7 +422,6 @@ export default function Reservations() {
         .includes(searchText);
 
     const matchesStatus = statusFilter === "all" || b.status === statusFilter;
-
     return matchesSearch && matchesStatus;
   });
 
@@ -489,39 +430,24 @@ export default function Reservations() {
       if (booking.id) {
         await updateDoc(doc(customerDb, "Bookings", booking.id), {
           customerName: booking.guest,
-
           customerEmail: booking.email,
-
           customerPhone: booking.phone,
-
           roomName: booking.room,
-
           roomType: booking.roomType,
-
           checkIn: booking.checkIn,
-
           checkOut: booking.checkOut,
-
           nights: booking.nights,
-
           guests: booking.pax,
-
           totalPrice: booking.amount,
-
           amountPaid: booking.paid,
-
           status: booking.status,
-
           notes: booking.notes,
-
           updatedAt: serverTimestamp(),
         });
 
         await createActivityLog({
           action: "Updated Booking",
-
           details: `Updated booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
-
           status: "success",
         });
       } else {
@@ -529,46 +455,28 @@ export default function Reservations() {
 
         await addDoc(collection(customerDb, "Bookings"), {
           bookingId,
-
           customerName: booking.guest,
-
           customerEmail: booking.email,
-
           customerPhone: booking.phone,
-
           roomName: booking.room,
-
           roomType: booking.roomType,
-
           checkIn: booking.checkIn,
-
           checkOut: booking.checkOut,
-
           nights: booking.nights,
-
           guests: booking.pax,
-
           totalPrice: booking.amount,
-
           amountPaid: booking.paid,
-
           status: "pending",
-
           notes: booking.notes,
-
           receptionistName,
           receptionistUid,
-
           createdAt: serverTimestamp(),
-
           updatedAt: serverTimestamp(),
         });
 
         await createActivityLog({
           action: "Created Booking",
-
           details: `Created booking ${bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
-
           status: "success",
         });
       }
@@ -577,7 +485,6 @@ export default function Reservations() {
       setModal(null);
     } catch (error) {
       console.error("Error saving booking:", error);
-
       alert("Failed to save booking.");
     }
   };
@@ -592,17 +499,14 @@ export default function Reservations() {
         alert(
           "Receptionist information is not available. Please log in again.",
         );
-
         return;
       }
 
       const booking = bookings.find((item) => item.id === id);
-
       if (!booking) {
         alert("Booking not found.");
         return;
       }
-
       if (booking.status !== "pending") {
         alert("Only pending bookings can be accepted.");
         return;
@@ -610,33 +514,31 @@ export default function Reservations() {
 
       await updateDoc(doc(customerDb, "Bookings", id), {
         status: "confirmed",
-
         acceptedBy: receptionistName,
-
         acceptedByUid: receptionistUid,
-
         updatedAt: serverTimestamp(),
+      });
+
+      await notifyCustomer({
+        customerId: booking.userId,
+        eventId: `booking-confirmed-${booking.id}`,
+        title: "Booking Confirmed",
+        message: `Your booking ${booking.bookingId} has been confirmed. Room: ${booking.room}. Check-in: ${booking.checkIn}.`,
+        targetPath: "/booking-history",
       });
 
       await createActivityLog({
         action: "Accepted Booking",
-
         details: `Accepted booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
-
         status: "success",
       });
 
       await loadBookings();
     } catch (error) {
       console.error("Error accepting booking:", error);
-
       alert("Failed to accept booking.");
     }
   };
-
-  // ============================================================
-  // CHECK IN GUEST
-  // ============================================================
 
   const checkInGuest = async (id: string) => {
     try {
@@ -648,58 +550,41 @@ export default function Reservations() {
         alert(
           "Receptionist information is not available. Please log in again.",
         );
-
         return;
       }
 
       const booking = bookings.find((item) => item.id === id);
-
       if (!booking) {
         alert("Booking not found.");
         return;
       }
-
       if (booking.status !== "confirmed") {
         alert("Only confirmed bookings can be checked in.");
-
         return;
       }
 
       const confirmCheckIn = window.confirm(
         `Check in ${booking.guest} to Room ${booking.room}?`,
       );
+      if (!confirmCheckIn) return;
 
-      if (!confirmCheckIn) {
-        return;
-      }
-
-      // Update booking status
       await updateDoc(doc(customerDb, "Bookings", id), {
         status: "checked-in",
-
         checkedInAt: serverTimestamp(),
-
         checkedInBy: receptionistName,
-
         checkedInByUid: receptionistUid,
-
         updatedAt: serverTimestamp(),
       });
 
-      // Find the matching room in admin database
       const roomSnapshot = await getDocs(collection(db, "rooms"));
-
       const matchingRoom = roomSnapshot.docs.find((roomDoc) => {
         const roomData = roomDoc.data();
-
         const roomNumber = String(
           roomData.roomNumber ?? roomData.number ?? roomData.roomNo ?? "",
         );
-
         return roomNumber === String(booking.room);
       });
 
-      // Mark room as Occupied
       if (matchingRoom) {
         await updateDoc(doc(db, "rooms", matchingRoom.id), {
           status: "Occupied",
@@ -711,31 +596,30 @@ export default function Reservations() {
         );
       }
 
+      await notifyCustomer({
+        customerId: booking.userId,
+        eventId: `booking-checked-in-${booking.id}`,
+        title: "Check-in Completed",
+        message: `You have been checked in for booking ${booking.bookingId}. Room: ${booking.room}. Enjoy your stay!`,
+        targetPath: "/booking-history",
+      });
+
       await createActivityLog({
         action: "Guest Checked In",
-
         details: `Guest ${booking.guest} checked in to Room ${booking.room}. Booking: ${booking.bookingId}. Check-in date: ${booking.checkIn}.`,
-
         status: "success",
       });
 
       await loadBookings();
-
       setDetail(null);
-
       alert(
         `Guest ${booking.guest} has been checked in to Room ${booking.room}.`,
       );
     } catch (error) {
       console.error("Error checking in guest:", error);
-
       alert("Failed to check in guest. Please try again.");
     }
   };
-
-  // ============================================================
-  // CHECK OUT GUEST
-  // ============================================================
 
   const checkOut = async (id: string) => {
     try {
@@ -747,59 +631,44 @@ export default function Reservations() {
         alert(
           "Receptionist information is not available. Please log in again.",
         );
-
         return;
       }
 
       const booking = bookings.find((item) => item.id === id);
-
       if (!booking) {
         alert("Booking not found.");
         return;
       }
-
       if (booking.status !== "confirmed" && booking.status !== "checked-in") {
         alert("Only confirmed or checked-in bookings can be checked out.");
-
         return;
       }
 
       const confirmCheckout = window.confirm(
         `Check out ${booking.guest} from Room ${booking.room}?`,
       );
-
-      if (!confirmCheckout) {
-        return;
-      }
+      if (!confirmCheckout) return;
 
       const roomSnapshot = await getDocs(collection(db, "rooms"));
-
       const matchingRoom = roomSnapshot.docs.find((roomDoc) => {
         const roomData = roomDoc.data();
-
         const roomNumber = String(
           roomData.roomNumber ?? roomData.number ?? roomData.roomNo ?? "",
         );
-
         return roomNumber === String(booking.room);
       });
 
       await updateDoc(doc(customerDb, "Bookings", id), {
         status: "checked-out",
-
         checkedOutAt: serverTimestamp(),
-
         checkedOutBy: receptionistName,
-
         checkedOutByUid: receptionistUid,
-
         updatedAt: serverTimestamp(),
       });
 
       if (matchingRoom) {
         await updateDoc(doc(db, "rooms", matchingRoom.id), {
           status: "Cleaning",
-
           updatedAt: serverTimestamp(),
         });
       } else {
@@ -808,33 +677,32 @@ export default function Reservations() {
         );
       }
 
+      await notifyCustomer({
+        customerId: booking.userId,
+        eventId: `booking-checked-out-${booking.id}`,
+        title: "Check-out Completed",
+        message: `Your check-out for booking ${booking.bookingId} is complete. Thank you for staying with us!`,
+        targetPath: "/booking-history",
+      });
+
       await createActivityLog({
         action: "Guest Checked Out",
-
         details: `Guest ${booking.guest} checked out from Room ${booking.room}. Booking: ${booking.bookingId}. Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}. Total: ₱${booking.amount.toLocaleString()}, Paid: ₱${booking.paid.toLocaleString()}, Balance: ₱${(
           booking.amount - booking.paid
         ).toLocaleString()}.`,
-
         status: "success",
       });
 
       await loadBookings();
-
       setDetail(null);
-
       alert(
         `Guest ${booking.guest} has been checked out. Room ${booking.room} is now under Cleaning.`,
       );
     } catch (error) {
       console.error("Error checking out guest:", error);
-
       alert("Failed to check out guest. Please try again.");
     }
   };
-
-  // ============================================================
-  // CANCEL BOOKING
-  // ============================================================
 
   const cancel = async (id: string) => {
     try {
@@ -846,20 +714,16 @@ export default function Reservations() {
         alert(
           "Receptionist information is not available. Please log in again.",
         );
-
         return;
       }
 
       const booking = bookings.find((item) => item.id === id);
-
       if (!booking) {
         alert("Booking not found.");
         return;
       }
-
       if (booking.status === "checked-out" || booking.status === "cancelled") {
         alert("This booking can no longer be cancelled.");
-
         return;
       }
 
@@ -870,6 +734,14 @@ export default function Reservations() {
         updatedAt: serverTimestamp(),
       });
 
+      await notifyCustomer({
+        customerId: booking.userId,
+        eventId: `booking-cancelled-${booking.id}`,
+        title: "Booking Cancelled",
+        message: `Your booking ${booking.bookingId} for ${booking.room} has been cancelled.`,
+        targetPath: "/booking-history",
+      });
+
       await createActivityLog({
         action: "Cancelled Booking",
         details: `Cancelled booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
@@ -877,13 +749,11 @@ export default function Reservations() {
       });
 
       await loadBookings();
-
       setDetail((currentDetail) =>
         currentDetail?.id === id ? null : currentDetail,
       );
     } catch (error) {
       console.error("Error cancelling booking:", error);
-
       alert("Failed to cancel booking.");
     }
   };
@@ -902,11 +772,8 @@ export default function Reservations() {
         <div className="relative flex-1 min-w-48">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-            style={{
-              color: "#4a7a7a",
-            }}
+            style={{ color: "#4a7a7a" }}
           />
-
           <input
             type="text"
             placeholder="Search by guest, ID, room…"
@@ -951,19 +818,13 @@ export default function Reservations() {
       </div>
 
       <div
-        className="bg-white rounded-xl border overflow-hidden "
-        style={{
-          borderColor: "rgba(13,115,119,0.1)",
-        }}
+        className="bg-white rounded-xl border overflow-hidden"
+        style={{ borderColor: "rgba(13,115,119,0.1)" }}
       >
-        <div className="overflow-x-auto hide-scrollbar ">
+        <div className="overflow-x-auto hide-scrollbar">
           <table className="w-full">
             <thead>
-              <tr
-                style={{
-                  background: "#f0f9f8",
-                }}
-              >
+              <tr style={{ background: "#f0f9f8" }}>
                 {[
                   "Booking ID",
                   "Guest",
@@ -980,10 +841,7 @@ export default function Reservations() {
                   <th
                     key={h}
                     className="text-left px-4 py-3 text-xs whitespace-nowrap"
-                    style={{
-                      color: "#4a7a7a",
-                      fontWeight: 500,
-                    }}
+                    style={{ color: "#4a7a7a", fontWeight: 500 }}
                   >
                     {h}
                   </th>
@@ -1004,7 +862,6 @@ export default function Reservations() {
               ) : (
                 filtered.map((b, i) => {
                   const s = STATUS[b.status];
-
                   const balance = b.amount - b.paid;
 
                   return (
@@ -1017,29 +874,16 @@ export default function Reservations() {
                     >
                       <td
                         className="px-4 py-3 text-sm font-mono"
-                        style={{
-                          color: "#0d7377",
-                        }}
+                        style={{ color: "#0d7377" }}
                       >
                         {b.bookingId}
                       </td>
 
                       <td className="px-4 py-3">
-                        <p
-                          className="text-sm"
-                          style={{
-                            color: "#0a2e2e",
-                          }}
-                        >
+                        <p className="text-sm" style={{ color: "#0a2e2e" }}>
                           {b.guest}
                         </p>
-
-                        <p
-                          className="text-xs"
-                          style={{
-                            color: "#4a7a7a",
-                          }}
-                        >
+                        <p className="text-xs" style={{ color: "#4a7a7a" }}>
                           {b.email}
                         </p>
                       </td>
@@ -1060,13 +904,7 @@ export default function Reservations() {
                                 "Unknown Receptionist"
                               : b.acceptedBy || "Not yet accepted"}
                         </p>
-
-                        <p
-                          className="text-xs"
-                          style={{
-                            color: "#4a7a7a",
-                          }}
-                        >
+                        <p className="text-xs" style={{ color: "#4a7a7a" }}>
                           {b.status === "cancelled"
                             ? "Cancelled"
                             : b.status === "checked-in"
@@ -1078,48 +916,29 @@ export default function Reservations() {
                       </td>
 
                       <td className="px-4 py-3">
-                        <p
-                          className="text-sm"
-                          style={{
-                            color: "#0a2e2e",
-                          }}
-                        >
+                        <p className="text-sm" style={{ color: "#0a2e2e" }}>
                           Rm {b.room}
                         </p>
-
-                        <p
-                          className="text-xs"
-                          style={{
-                            color: "#4a7a7a",
-                          }}
-                        >
+                        <p className="text-xs" style={{ color: "#4a7a7a" }}>
                           {b.roomType}
                         </p>
                       </td>
 
                       <td
                         className="px-4 py-3 text-sm"
-                        style={{
-                          color: "#0a2e2e",
-                        }}
+                        style={{ color: "#0a2e2e" }}
                       >
                         {b.checkIn}
                       </td>
-
                       <td
                         className="px-4 py-3 text-sm"
-                        style={{
-                          color: "#0a2e2e",
-                        }}
+                        style={{ color: "#0a2e2e" }}
                       >
                         {b.checkOut}
                       </td>
-
                       <td
                         className="px-4 py-3 text-sm text-center"
-                        style={{
-                          color: "#0a2e2e",
-                        }}
+                        style={{ color: "#0a2e2e" }}
                       >
                         {b.pax}
                       </td>
@@ -1127,10 +946,7 @@ export default function Reservations() {
                       <td className="px-4 py-3">
                         <span
                           className="inline-block px-2 py-1 rounded-full text-xs"
-                          style={{
-                            background: s.bg,
-                            color: s.color,
-                          }}
+                          style={{ background: s.bg, color: s.color }}
                         >
                           {s.label}
                         </span>
@@ -1138,33 +954,25 @@ export default function Reservations() {
 
                       <td
                         className="px-4 py-3 text-sm"
-                        style={{
-                          color: "#0a2e2e",
-                        }}
+                        style={{ color: "#0a2e2e" }}
                       >
                         ₱{b.amount.toLocaleString()}
                       </td>
-
                       <td
                         className="px-4 py-3 text-sm"
-                        style={{
-                          color: balance > 0 ? "#d4183d" : "#0d7377",
-                        }}
+                        style={{ color: balance > 0 ? "#d4183d" : "#0d7377" }}
                       >
                         {balance > 0 ? `₱${balance.toLocaleString()}` : "Paid"}
                       </td>
 
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
-                          {/* Accept */}
                           {b.status === "pending" && (
                             <button
                               type="button"
                               onClick={() => acceptBooking(b.id)}
                               className="p-1.5 rounded-lg"
-                              style={{
-                                color: "#0d7377",
-                              }}
+                              style={{ color: "#0d7377" }}
                               title="Accept Booking"
                             >
                               <Check className="w-4 h-4" />
@@ -1176,9 +984,7 @@ export default function Reservations() {
                               type="button"
                               onClick={() => checkInGuest(b.id)}
                               className="p-1.5 rounded-lg"
-                              style={{
-                                color: "#0d7377",
-                              }}
+                              style={{ color: "#0d7377" }}
                               title="Check In"
                             >
                               <Check className="w-4 h-4" />
@@ -1190,9 +996,7 @@ export default function Reservations() {
                               type="button"
                               onClick={() => checkOut(b.id)}
                               className="p-1.5 rounded-lg"
-                              style={{
-                                color: "#0d7377",
-                              }}
+                              style={{ color: "#0d7377" }}
                               title="Check Out"
                             >
                               <Check className="w-4 h-4" />
@@ -1203,9 +1007,7 @@ export default function Reservations() {
                             type="button"
                             onClick={() => setDetail(b)}
                             className="p-1.5 rounded-lg"
-                            style={{
-                              color: "#0d7377",
-                            }}
+                            style={{ color: "#0d7377" }}
                             title="View"
                           >
                             <Eye className="w-4 h-4" />
@@ -1215,9 +1017,7 @@ export default function Reservations() {
                             type="button"
                             onClick={() => setModal(b)}
                             className="p-1.5 rounded-lg"
-                            style={{
-                              color: "#06b6d4",
-                            }}
+                            style={{ color: "#06b6d4" }}
                             title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
@@ -1229,9 +1029,7 @@ export default function Reservations() {
                                 type="button"
                                 onClick={() => cancel(b.id)}
                                 className="p-1.5 rounded-lg"
-                                style={{
-                                  color: "#d4183d",
-                                }}
+                                style={{ color: "#d4183d" }}
                                 title="Cancel Booking"
                               >
                                 <X className="w-4 h-4" />
@@ -1253,21 +1051,15 @@ export default function Reservations() {
           <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
             <div
               className="flex items-center justify-between px-6 py-4 border-b"
-              style={{
-                borderColor: "rgba(13,115,119,0.1)",
-              }}
+              style={{ borderColor: "rgba(13,115,119,0.1)" }}
             >
               <div>
                 <h3
                   className="font-medium"
-                  style={{
-                    color: "#0a2e2e",
-                    fontFamily: "Georgia, serif",
-                  }}
+                  style={{ color: "#0a2e2e", fontFamily: "Georgia, serif" }}
                 >
                   {detail.bookingId}
                 </h3>
-
                 <span
                   className="text-xs px-2 py-0.5 rounded-full"
                   style={{
@@ -1278,14 +1070,11 @@ export default function Reservations() {
                   {STATUS[detail.status].label}
                 </span>
               </div>
-
               <button
                 type="button"
                 onClick={() => setDetail(null)}
                 className="p-1.5 rounded-lg"
-                style={{
-                  color: "#4a7a7a",
-                }}
+                style={{ color: "#4a7a7a" }}
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1293,22 +1082,10 @@ export default function Reservations() {
 
             <div className="p-6 grid grid-cols-2 gap-4">
               {[
-                {
-                  label: "Booking ID",
-                  value: detail.bookingId,
-                },
-                {
-                  label: "Guest",
-                  value: detail.guest,
-                },
-                {
-                  label: "Contact",
-                  value: detail.phone,
-                },
-                {
-                  label: "Email",
-                  value: detail.email,
-                },
+                { label: "Booking ID", value: detail.bookingId },
+                { label: "Guest", value: detail.guest },
+                { label: "Contact", value: detail.phone },
+                { label: "Email", value: detail.email },
                 {
                   label:
                     detail.status === "cancelled"
@@ -1316,7 +1093,6 @@ export default function Reservations() {
                       : detail.status === "checked-in"
                         ? "Checked In By"
                         : "Accepted / Accommodated By",
-
                   value:
                     detail.status === "cancelled"
                       ? detail.cancelledBy || "Unknown Receptionist"
@@ -1330,38 +1106,17 @@ export default function Reservations() {
                   label: "Room",
                   value: `${detail.roomType} (Rm ${detail.room})`,
                 },
-                {
-                  label: "Check-in",
-                  value: detail.checkIn,
-                },
-                {
-                  label: "Check-out",
-                  value: detail.checkOut,
-                },
-                {
-                  label: "Nights",
-                  value: `${detail.nights}`,
-                },
-                {
-                  label: "Guests",
-                  value: `${detail.pax} pax`,
-                },
-                {
-                  label: "Total",
-                  value: `₱${detail.amount.toLocaleString()}`,
-                },
-                {
-                  label: "Paid",
-                  value: `₱${detail.paid.toLocaleString()}`,
-                },
+                { label: "Check-in", value: detail.checkIn },
+                { label: "Check-out", value: detail.checkOut },
+                { label: "Nights", value: `${detail.nights}` },
+                { label: "Guests", value: `${detail.pax} pax` },
+                { label: "Total", value: `₱${detail.amount.toLocaleString()}` },
+                { label: "Paid", value: `₱${detail.paid.toLocaleString()}` },
                 {
                   label: "Balance",
                   value: `₱${(detail.amount - detail.paid).toLocaleString()}`,
                 },
-                {
-                  label: "Notes",
-                  value: detail.notes || "—",
-                },
+                { label: "Notes", value: detail.notes || "—" },
               ].map((f) => (
                 <div
                   key={f.label}
@@ -1371,21 +1126,10 @@ export default function Reservations() {
                       : ""
                   }
                 >
-                  <p
-                    className="text-xs mb-0.5"
-                    style={{
-                      color: "#4a7a7a",
-                    }}
-                  >
+                  <p className="text-xs mb-0.5" style={{ color: "#4a7a7a" }}>
                     {f.label}
                   </p>
-
-                  <p
-                    className="text-sm"
-                    style={{
-                      color: "#0a2e2e",
-                    }}
-                  >
+                  <p className="text-sm" style={{ color: "#0a2e2e" }}>
                     {f.value}
                   </p>
                 </div>
@@ -1398,9 +1142,7 @@ export default function Reservations() {
                   type="button"
                   onClick={() => checkInGuest(detail.id)}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
-                  style={{
-                    background: "#0d7377",
-                  }}
+                  style={{ background: "#0d7377" }}
                 >
                   <Check className="w-4 h-4" />
                   Check In Guest
@@ -1413,9 +1155,7 @@ export default function Reservations() {
                   type="button"
                   onClick={() => checkOut(detail.id)}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
-                  style={{
-                    background: "#0d7377",
-                  }}
+                  style={{ background: "#0d7377" }}
                 >
                   <Check className="w-4 h-4" />
                   Check Out Guest

@@ -74,12 +74,6 @@ export default function ReceptionistLayout() {
   const [userEmail, setUserEmail] = useState("");
   const [userInitial, setUserInitial] = useState("R");
 
-  /*
-   * Store the IDs that the receptionist has already viewed.
-   *
-   * localStorage is used so refreshing the receptionist page
-   * does not immediately make all old notifications unread again.
-   */
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(
     () => {
       try {
