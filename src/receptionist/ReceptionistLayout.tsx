@@ -110,13 +110,6 @@ export default function ReceptionistLayout() {
     return () => unsubscribe();
   }, []);
 
-  /*
-   * REAL-TIME BOOKINGS
-   *
-   * Your BookingPage saves bookings here:
-   *
-   * customerDb -> Bookings
-   */
   useEffect(() => {
     const bookingsRef = collection(customerDb, "Bookings");
 
@@ -138,9 +131,6 @@ export default function ReceptionistLayout() {
     return () => unsubscribe();
   }, []);
 
-  /*
-   * USER PROFILE
-   */
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       try {
@@ -187,27 +177,23 @@ export default function ReceptionistLayout() {
     return () => unsubscribe();
   }, []);
 
-  /*
-   * CONVERT INQUIRIES + BOOKINGS INTO ONE NOTIFICATION LIST
-   */
   const notifications: Notification[] = [
     ...inquiries.map((inquiry) => {
       const createdAt =
         inquiry.createdAt?.toMillis?.() ||
-        inquiry.createdAt?.seconds * 1000 ||
-        0;
+        (inquiry.createdAt?.seconds ? inquiry.createdAt.seconds * 1000 : 0);
 
       return {
         id: `inquiry-${inquiry.id}`,
         type: "inquiry" as const,
-        title: inquiry.name || inquiry.customerName || "New Customer Inquiry",
+        title: inquiry.customerName || inquiry.name || "New Inquiry",
         message:
-          inquiry.message ||
           inquiry.subject ||
-          "A customer sent a new inquiry.",
+          inquiry.message ||
+          "A customer submitted an inquiry.",
         timestamp: createdAt,
         unread:
-          inquiry.read !== true &&
+          !inquiry.read &&
           !readNotificationIds.includes(`inquiry-${inquiry.id}`),
       };
     }),
@@ -217,16 +203,40 @@ export default function ReceptionistLayout() {
       .map((booking) => {
         const createdAt =
           booking.createdAt?.toMillis?.() ||
-          booking.createdAt?.seconds * 1000 ||
-          0;
+          (booking.createdAt?.seconds ? booking.createdAt.seconds * 1000 : 0);
 
         const bookingRef = booking.bookingRef || booking.id;
+
+        const isActivityBooking =
+          booking.bookingType === "service" ||
+          booking.bookingType === "package" ||
+          booking.itemType === "service" ||
+          booking.itemType === "package";
+
+        const isPackage =
+          booking.bookingType === "package" || booking.itemType === "package";
+
+        const activityName =
+          booking.itemName ||
+          booking.serviceName ||
+          booking.packageName ||
+          booking.roomName ||
+          "Activity";
 
         return {
           id: `booking-${booking.id}`,
           type: "booking" as const,
-          title: booking.customerName || "New Booking",
-          message: `Booking ${bookingRef} • ${booking.roomName || "Room"}`,
+
+          title: isActivityBooking
+            ? isPackage
+              ? "New Package Booking"
+              : "New Activity Booking"
+            : booking.customerName || "New Room Booking",
+
+          message: isActivityBooking
+            ? `${activityName} • ${booking.bookingDate || booking.checkIn || "Date not set"} at ${booking.bookingTime || "Time not set"}`
+            : `Booking ${bookingRef} • ${booking.roomName || "Room"}`,
+
           timestamp: createdAt,
           unread: !readNotificationIds.includes(`booking-${booking.id}`),
           bookingId: booking.id,
@@ -234,21 +244,12 @@ export default function ReceptionistLayout() {
       }),
   ].sort((a, b) => b.timestamp - a.timestamp);
 
-  /*
-   * ONLY SHOW THE LATEST 10 NOTIFICATIONS
-   */
   const displayedNotifications = notifications.slice(0, 10);
 
-  /*
-   * TOTAL UNREAD
-   */
   const unreadNotificationCount = notifications.filter(
     (notification) => notification.unread,
   ).length;
 
-  /*
-   * MARK ONE NOTIFICATION AS READ
-   */
   const markNotificationAsRead = (notificationId: string) => {
     setReadNotificationIds((previous) => {
       if (previous.includes(notificationId)) {
@@ -266,9 +267,6 @@ export default function ReceptionistLayout() {
     });
   };
 
-  /*
-   * MARK ALL AS READ
-   */
   const markAllNotificationsAsRead = () => {
     const allIds = notifications.map((notification) => notification.id);
 
@@ -280,9 +278,6 @@ export default function ReceptionistLayout() {
     );
   };
 
-  /*
-   * CLICK NOTIFICATION
-   */
   const handleNotificationClick = (notification: Notification) => {
     markNotificationAsRead(notification.id);
     setNotificationsOpen(false);
@@ -298,9 +293,6 @@ export default function ReceptionistLayout() {
     }
   };
 
-  /*
-   * LOGOUT
-   */
   const handleLogout = async () => {
     const confirmLogout = window.confirm("Are you sure you want to log out?");
 
@@ -315,9 +307,6 @@ export default function ReceptionistLayout() {
     }
   };
 
-  /*
-   * NAVIGATION
-   */
   const handleNavigation = (id: (typeof NAV_ITEMS)[number]["id"]) => {
     if (id === "dashboard") {
       navigate("/receptionist");
@@ -563,10 +552,6 @@ export default function ReceptionistLayout() {
           </div>
 
           <div className="ml-auto flex flex-shrink-0 items-center gap-1 sm:gap-3">
-            {/* ========================= */}
-            {/* NOTIFICATION BELL */}
-            {/* ========================= */}
-
             <div className="relative">
               <button
                 type="button"
@@ -645,7 +630,6 @@ export default function ReceptionistLayout() {
                     )}
                   </div>
 
-                  {/* NOTIFICATION LIST */}
                   <div className="max-h-[380px] overflow-y-auto">
                     {displayedNotifications.length === 0 ? (
                       <div className="px-4 py-10 text-center">
@@ -679,7 +663,6 @@ export default function ReceptionistLayout() {
                               : "#fff",
                           }}
                         >
-                          {/* ICON */}
                           <div
                             className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full"
                             style={{
@@ -706,7 +689,6 @@ export default function ReceptionistLayout() {
                             )}
                           </div>
 
-                          {/* CONTENT */}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <p
@@ -716,7 +698,7 @@ export default function ReceptionistLayout() {
                                 }}
                               >
                                 {notification.type === "booking"
-                                  ? "New Booking"
+                                  ? notification.title
                                   : "New Inquiry"}
                               </p>
 
@@ -756,31 +738,52 @@ export default function ReceptionistLayout() {
 
                                 if (!booking) return null;
 
+                                const isActivityBooking =
+                                  booking.bookingType === "service" ||
+                                  booking.bookingType === "package" ||
+                                  booking.itemType === "service" ||
+                                  booking.itemType === "package";
+
                                 return (
-                                  <div className="mt-1.5 flex flex-wrap gap-x-2 text-[11px]">
-                                    <span
-                                      style={{
-                                        color: "#0d7377",
-                                      }}
-                                    >
-                                      {booking.checkIn || "No check-in"}
-                                    </span>
+                                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px]">
+                                    {isActivityBooking ? (
+                                      <>
+                                        <span style={{ color: "#0d7377" }}>
+                                          {booking.bookingDate ||
+                                            booking.checkIn ||
+                                            "No date"}
+                                        </span>
 
-                                    <span
-                                      style={{
-                                        color: "#a0a0a0",
-                                      }}
-                                    >
-                                      →
-                                    </span>
+                                        <span style={{ color: "#a0a0a0" }}>
+                                          •
+                                        </span>
 
-                                    <span
-                                      style={{
-                                        color: "#0d7377",
-                                      }}
-                                    >
-                                      {booking.checkOut || "No check-out"}
-                                    </span>
+                                        <span style={{ color: "#0d7377" }}>
+                                          {booking.bookingTime || "No time"}
+                                        </span>
+
+                                        <span style={{ color: "#4a7a7a" }}>
+                                          {booking.participants ||
+                                            booking.guests ||
+                                            1}{" "}
+                                          participant(s)
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span style={{ color: "#0d7377" }}>
+                                          {booking.checkIn || "No check-in"}
+                                        </span>
+
+                                        <span style={{ color: "#a0a0a0" }}>
+                                          →
+                                        </span>
+
+                                        <span style={{ color: "#0d7377" }}>
+                                          {booking.checkOut || "No check-out"}
+                                        </span>
+                                      </>
+                                    )}
 
                                     {booking.status && (
                                       <span
@@ -808,7 +811,6 @@ export default function ReceptionistLayout() {
                     )}
                   </div>
 
-                  {/* FOOTER */}
                   <div
                     className="border-t p-2"
                     style={{
@@ -833,7 +835,6 @@ export default function ReceptionistLayout() {
               )}
             </div>
 
-            {/* USER */}
             <div className="hidden items-center gap-2 sm:flex">
               <div
                 className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-medium"

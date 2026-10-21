@@ -1,15 +1,13 @@
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Plus, Edit, Trash2, X } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { db } from "../app/firebase";
 import {
   collection,
   getDocs,
   addDoc,
-  query,
-  where,
   deleteDoc,
   doc,
   updateDoc,
@@ -50,53 +48,110 @@ export default function RoomManagement() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
   const [reservations, setReservations] = useState<any[]>([]);
 
-  useEffect(() => {
-    const loadReservations = async () => {
-      try {
-        const snapshot = await getDocs(collection(db, "reservations"));
+  const normalizeName = (value: unknown) =>
+    String(value || "")
+      .trim()
+      .toLowerCase();
 
-        const reservationData = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-
-        setReservations(reservationData);
-
-        console.log("Admin reservations:", reservationData);
-      } catch (error) {
-        console.error("Error loading reservations:", error);
-      }
-    };
-
-    loadReservations();
-  }, []);
-
-  const getRoomAvailability = (
-    roomId: string,
-    roomCount: number,
-    selectedDate: string,
-  ) => {
-    const selected = new Date(`${selectedDate}T00:00:00`);
-
-    const reservedCount = reservations.filter((reservation) => {
-      if (reservation.roomTypeId !== roomId) {
-        return false;
-      }
-
-      if (reservation.status === "cancelled") {
-        return false;
-      }
-
-      const checkIn = new Date(`${reservation.checkIn}T00:00:00`);
-      const checkOut = new Date(`${reservation.checkOut}T00:00:00`);
-      return selected >= checkIn && selected < checkOut;
-    }).length;
+  const mapRoomDocument = (roomDoc: any): Room => {
+    const data = roomDoc.data();
 
     return {
-      reserved: reservedCount,
-
-      available: Math.max(0, roomCount - reservedCount),
+      id: roomDoc.id,
+      roomId: String(data.roomId || ""),
+      roomNumber: Number(data.roomNumber || 0),
+      type: String(data.type || ""),
+      floor: Number(data.floor || 0),
+      status: String(data.status || "available").toLowerCase(),
+      condition: String(data.condition || "good").toLowerCase(),
     };
+  };
+
+  const loadRoomTypes = useCallback(async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "roomTypes"));
+
+      const data: RoomType[] = snapshot.docs.map((roomTypeDoc) => {
+        const value = roomTypeDoc.data();
+
+        return {
+          id: roomTypeDoc.id,
+          name: String(value.name || ""),
+          description: String(value.description || ""),
+          count: Number(value.count || 0),
+          amenities: Array.isArray(value.amenities) ? value.amenities : [],
+          maxGuests: Number(value.maxGuests || 0),
+          basePrice: Number(value.basePrice || 0),
+          image: String(value.image || ""),
+        };
+      });
+
+      setRoomTypes(data);
+    } catch (error) {
+      console.error("Error loading room types:", error);
+    }
+  }, []);
+
+  const loadRooms = useCallback(async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "rooms"));
+      setRooms(snapshot.docs.map(mapRoomDocument));
+    } catch (error) {
+      console.error("Error loading rooms:", error);
+    }
+  }, []);
+
+  const loadReservations = useCallback(async () => {
+    try {
+      const snapshot = await getDocs(collection(db, "reservations"));
+
+      setReservations(
+        snapshot.docs.map((reservationDoc) => ({
+          id: reservationDoc.id,
+          ...reservationDoc.data(),
+        })),
+      );
+    } catch (error) {
+      console.error("Error loading reservations:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadRoomTypes();
+    void loadRooms();
+    void loadReservations();
+  }, [loadRoomTypes, loadRooms, loadReservations]);
+
+  // Recalculate every room type's count using actual room documents.
+  const syncRoomTypeCounts = async () => {
+    const [roomsSnapshot, typesSnapshot] = await Promise.all([
+      getDocs(collection(db, "rooms")),
+      getDocs(collection(db, "roomTypes")),
+    ]);
+
+    const actualRoomTypes = roomsSnapshot.docs.map((roomDoc) =>
+      normalizeName(roomDoc.data().type),
+    );
+
+    await Promise.all(
+      typesSnapshot.docs.map((typeDoc) => {
+        const typeName = normalizeName(typeDoc.data().name);
+
+        const actualCount = actualRoomTypes.filter(
+          (roomTypeName) => roomTypeName === typeName,
+        ).length;
+
+        return updateDoc(doc(db, "roomTypes", typeDoc.id), {
+          count: actualCount,
+          updatedAt: serverTimestamp(),
+        });
+      }),
+    );
+  };
+
+  const refreshRoomData = async () => {
+    await syncRoomTypeCounts();
+    await Promise.all([loadRooms(), loadRoomTypes()]);
   };
 
   const generateRoomId = (existingRooms: Room[]) => {
@@ -106,58 +161,52 @@ export default function RoomManagement() {
         return match ? Number(match[1]) : 0;
       })
       .filter((number) => number > 0);
+
     const nextNumber = numbers.length > 0 ? Math.max(...numbers) + 1 : 1;
+
     return `R-${String(nextNumber).padStart(3, "0")}`;
   };
 
-  useEffect(() => {
-    loadRoomTypes();
-    loadRooms();
-  }, []);
-  const loadRoomTypes = async () => {
-    try {
-      const snapshot = await getDocs(collection(db, "roomTypes"));
+  const getRoomAvailability = (
+    roomTypeId: string,
+    roomCount: number,
+    selectedDate: string,
+  ) => {
+    const selected = new Date(`${selectedDate}T00:00:00`);
 
-      const data: RoomType[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as RoomType[];
+    const reservedCount = reservations.filter((reservation) => {
+      if (reservation.roomTypeId !== roomTypeId) return false;
 
-      setRoomTypes(data);
-    } catch (error) {
-      console.error("Error loading room types:", error);
-    }
-  };
+      if (String(reservation.status || "").toLowerCase() === "cancelled") {
+        return false;
+      }
 
-  const loadRooms = async () => {
-    try {
-      const snapshot = await getDocs(collection(db, "rooms"));
+      if (!reservation.checkIn || !reservation.checkOut) return false;
 
-      const data: Room[] = snapshot.docs.map((roomDoc) => {
-        const roomData = roomDoc.data();
+      const checkIn = new Date(`${reservation.checkIn}T00:00:00`);
+      const checkOut = new Date(`${reservation.checkOut}T00:00:00`);
 
-        return {
-          id: roomDoc.id,
-          roomId: String(roomData.roomId || ""),
-          roomNumber: Number(roomData.roomNumber || 0),
-          type: String(roomData.type || ""),
-          floor: Number(roomData.floor || 0),
-          status: String(roomData.status || "available").toLowerCase(),
-          condition: String(roomData.condition || "good").toLowerCase(),
-        };
-      });
+      return (
+        !Number.isNaN(checkIn.getTime()) &&
+        !Number.isNaN(checkOut.getTime()) &&
+        selected >= checkIn &&
+        selected < checkOut
+      );
+    }).length;
 
-      setRooms(data);
-    } catch (error) {
-      console.error("Error loading rooms:", error);
-    }
+    return {
+      reserved: reservedCount,
+      available: Math.max(0, roomCount - reservedCount),
+    };
   };
 
   useEffect(() => {
     const tab = searchParams.get("tab");
     const action = searchParams.get("action");
+
     if (tab === "rooms") setActiveTab("rooms");
     else if (tab === "types") setActiveTab("types");
+
     if (action === "add") setShowForm(true);
   }, [searchParams]);
 
@@ -172,14 +221,32 @@ export default function RoomManagement() {
     try {
       const roomType = roomTypes.find((item) => item.id === id);
 
+      if (!roomType) {
+        alert("Room type not found.");
+        return;
+      }
+
+      const roomsSnapshot = await getDocs(collection(db, "rooms"));
+
+      const assignedRooms = roomsSnapshot.docs.filter(
+        (roomDoc) =>
+          normalizeName(roomDoc.data().type) === normalizeName(roomType.name),
+      );
+
+      if (assignedRooms.length > 0) {
+        alert(
+          `Cannot delete "${roomType.name}" because ${assignedRooms.length} room(s) are still assigned to it. Delete or reassign those rooms first.`,
+        );
+        return;
+      }
+
       await deleteDoc(doc(db, "roomTypes", id));
 
-      if (roomType) {
-        await createActivityLog({
-          action: "Deleted Room Type",
-          details: `Deleted room type "${roomType.name}".`,
-        });
-      }
+      await createActivityLog({
+        action: "Deleted Room Type",
+        details: `Deleted room type "${roomType.name}".`,
+        status: "success",
+      });
 
       await loadRoomTypes();
 
@@ -197,26 +264,43 @@ export default function RoomManagement() {
       const form = e.currentTarget;
       const data = new FormData(form);
 
-      const name = String(data.get("name") || "");
-      const description = String(data.get("description") || "");
+      const name = String(data.get("name") || "").trim();
+      const description = String(data.get("description") || "").trim();
       const basePrice = Number(data.get("basePrice") || 0);
       const maxGuests = Number(data.get("maxGuests") || 0);
 
       const amenities = String(data.get("amenities") || "")
         .split(",")
-        .map((a) => a.trim())
+        .map((amenity) => amenity.trim())
         .filter(Boolean);
 
-      const imageFile = data.get("image") as File | null;
+      if (!name) {
+        alert("Please enter a room type name.");
+        return;
+      }
 
+      if (
+        roomTypes.some(
+          (type) => normalizeName(type.name) === normalizeName(name),
+        )
+      ) {
+        alert("A room type with this name already exists.");
+        return;
+      }
+
+      if (basePrice < 0 || maxGuests < 1) {
+        alert("Enter a valid base price and maximum guest count.");
+        return;
+      }
+
+      const imageFile = data.get("image") as File | null;
       let imageUrl = "";
+
       if (imageFile && imageFile.size > 0) {
         setUploadingImage(true);
 
         try {
           imageUrl = await uploadToCloudinary(imageFile);
-
-          console.log("Cloudinary image URL:", imageUrl);
         } finally {
           setUploadingImage(false);
         }
@@ -240,7 +324,6 @@ export default function RoomManagement() {
       });
 
       await loadRoomTypes();
-
       closeForm();
 
       alert("Room type added successfully!");
@@ -263,18 +346,38 @@ export default function RoomManagement() {
       const form = e.currentTarget;
       const data = new FormData(form);
 
-      const name = String(data.get("name") || "");
-      const description = String(data.get("description") || "");
+      const name = String(data.get("name") || "").trim();
+      const description = String(data.get("description") || "").trim();
       const basePrice = Number(data.get("basePrice") || 0);
       const maxGuests = Number(data.get("maxGuests") || 0);
 
       const amenities = String(data.get("amenities") || "")
         .split(",")
-        .map((a) => a.trim())
+        .map((amenity) => amenity.trim())
         .filter(Boolean);
 
-      let imageUrl = editingRoomType.image || "";
+      if (!name) {
+        alert("Please enter a room type name.");
+        return;
+      }
 
+      const duplicateType = roomTypes.find(
+        (type) =>
+          type.id !== editingRoomType.id &&
+          normalizeName(type.name) === normalizeName(name),
+      );
+
+      if (duplicateType) {
+        alert("Another room type already uses this name.");
+        return;
+      }
+
+      if (basePrice < 0 || maxGuests < 1) {
+        alert("Enter a valid base price and maximum guest count.");
+        return;
+      }
+
+      let imageUrl = editingRoomType.image || "";
       const imageFile = data.get("image") as File | null;
 
       if (imageFile && imageFile.size > 0) {
@@ -282,13 +385,12 @@ export default function RoomManagement() {
 
         try {
           imageUrl = await uploadToCloudinary(imageFile);
-
-          console.log("New Cloudinary image URL:", imageUrl);
         } finally {
           setUploadingImage(false);
         }
       }
 
+      // Save the room type first.
       await updateDoc(doc(db, "roomTypes", editingRoomType.id), {
         name,
         description,
@@ -299,13 +401,35 @@ export default function RoomManagement() {
         updatedAt: serverTimestamp(),
       });
 
+      // If the name changed, update every room assigned to the old name.
+      if (normalizeName(editingRoomType.name) !== normalizeName(name)) {
+        const roomsSnapshot = await getDocs(collection(db, "rooms"));
+
+        const matchingRooms = roomsSnapshot.docs.filter(
+          (roomDoc) =>
+            normalizeName(roomDoc.data().type) ===
+            normalizeName(editingRoomType.name),
+        );
+
+        await Promise.all(
+          matchingRooms.map((roomDoc) =>
+            updateDoc(doc(db, "rooms", roomDoc.id), {
+              type: name,
+              updatedAt: serverTimestamp(),
+            }),
+          ),
+        );
+      }
+
+      await syncRoomTypeCounts();
+
       await createActivityLog({
         action: "Updated Room Type",
         details: `Updated room type "${name}".`,
         status: "success",
       });
 
-      await loadRoomTypes();
+      await Promise.all([loadRooms(), loadRoomTypes()]);
 
       setEditingRoomType(null);
 
@@ -324,42 +448,70 @@ export default function RoomManagement() {
   const handleAddRoom = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    const form = e.currentTarget;
+    const data = new FormData(form);
+
+    const roomNumber = Number(data.get("roomNumber"));
+    const floor = Number(data.get("floor"));
+    const type = String(data.get("roomType") || "").trim();
+    const condition = String(data.get("condition") || "good").toLowerCase();
+
+    if (!type) {
+      alert("Please select a room type.");
+      return;
+    }
+
+    if (!Number.isInteger(roomNumber) || roomNumber < 1) {
+      alert("Enter a valid room number.");
+      return;
+    }
+
+    if (!Number.isInteger(floor) || floor < 1) {
+      alert("Enter a valid floor number.");
+      return;
+    }
+
     try {
-      const form = e.currentTarget;
-      const data = new FormData(form);
+      const [roomsSnapshot, typesSnapshot] = await Promise.all([
+        getDocs(collection(db, "rooms")),
+        getDocs(collection(db, "roomTypes")),
+      ]);
 
-      const roomNumber = Number(data.get("roomNumber"));
-      const floor = Number(data.get("floor"));
-      const type = String(data.get("roomType") || "");
-      const condition = String(data.get("condition") || "good").toLowerCase();
+      const latestRooms = roomsSnapshot.docs.map(mapRoomDocument);
 
-      const selectedRoomType = roomTypes.find(
-        (roomType) => roomType.name === type,
+      const selectedRoomType = typesSnapshot.docs.find(
+        (typeDoc) => normalizeName(typeDoc.data().name) === normalizeName(type),
       );
 
       if (!selectedRoomType) {
-        alert("Please select a valid room type.");
+        alert(
+          "The selected room type no longer exists. Refresh and try again.",
+        );
         return;
       }
 
-      const roomId = generateRoomId(rooms);
+      const duplicateRoomNumber = latestRooms.some(
+        (room) => room.roomNumber === roomNumber,
+      );
 
-      const newRoom = {
+      if (duplicateRoomNumber) {
+        alert("A room with this room number already exists.");
+        return;
+      }
+
+      const roomId = generateRoomId(latestRooms);
+
+      await addDoc(collection(db, "rooms"), {
         roomId,
         roomNumber,
-        type,
+        type: String(selectedRoomType.data().name),
         floor,
         condition,
         status: "available",
         createdAt: serverTimestamp(),
-      };
-
-      await addDoc(collection(db, "rooms"), newRoom);
-
-      await updateDoc(doc(db, "roomTypes", selectedRoomType.id), {
-        count: (selectedRoomType.count || 0) + 1,
-        updatedAt: serverTimestamp(),
       });
+
+      await syncRoomTypeCounts();
 
       await createActivityLog({
         action: "Added Room",
@@ -367,15 +519,18 @@ export default function RoomManagement() {
         status: "success",
       });
 
-      await loadRooms();
-      await loadRoomTypes();
+      await Promise.all([loadRooms(), loadRoomTypes()]);
 
       closeForm();
-
       alert(`Room ${roomId} added successfully!`);
     } catch (error) {
       console.error("Error adding room:", error);
-      alert("Failed to add room.");
+
+      alert(
+        error instanceof Error
+          ? `Failed to add room: ${error.message}`
+          : "Failed to add room.",
+      );
     }
   };
 
@@ -390,26 +545,17 @@ export default function RoomManagement() {
         return;
       }
 
-      const roomType = roomTypes.find(
-        (roomType) => roomType.name === roomToDelete.type,
-      );
-
       await deleteDoc(doc(db, "rooms", id));
 
-      if (roomType) {
-        await updateDoc(doc(db, "roomTypes", roomType.id), {
-          count: Math.max(0, (roomType.count || 0) - 1),
-          updatedAt: serverTimestamp(),
-        });
-      }
+      await syncRoomTypeCounts();
 
       await createActivityLog({
         action: "Deleted Room",
         details: `Deleted Room ${roomToDelete.roomId} (${roomToDelete.type}).`,
+        status: "success",
       });
 
-      await loadRooms();
-      await loadRoomTypes();
+      await Promise.all([loadRooms(), loadRoomTypes()]);
 
       alert("Room deleted successfully.");
     } catch (error) {
@@ -427,58 +573,78 @@ export default function RoomManagement() {
       const form = e.currentTarget;
       const data = new FormData(form);
 
-      const newType = String(data.get("type") || "");
+      const newType = String(data.get("type") || "").trim();
       const oldType = editingRoom.type;
 
-      const updatedRoom = {
-        roomNumber: Number(data.get("roomNumber")),
+      if (!newType) {
+        alert("Please select a room type.");
+        return;
+      }
+
+      const roomNumber = Number(
+        data.get("roomNumber") || editingRoom.roomNumber,
+      );
+      const floor = Number(data.get("floor"));
+      const condition = String(data.get("condition") || "good").toLowerCase();
+      const status = String(data.get("status") || "available").toLowerCase();
+
+      if (!Number.isInteger(floor) || floor < 1) {
+        alert("Enter a valid floor number.");
+        return;
+      }
+
+      const typesSnapshot = await getDocs(collection(db, "roomTypes"));
+
+      const validType = typesSnapshot.docs.some(
+        (typeDoc) =>
+          normalizeName(typeDoc.data().name) === normalizeName(newType),
+      );
+
+      if (!validType) {
+        alert("The selected room type does not exist.");
+        return;
+      }
+
+      const roomsSnapshot = await getDocs(collection(db, "rooms"));
+
+      const duplicateRoomNumber = roomsSnapshot.docs.some((roomDoc) => {
+        if (roomDoc.id === editingRoom.id) return false;
+
+        return Number(roomDoc.data().roomNumber || 0) === roomNumber;
+      });
+
+      if (duplicateRoomNumber) {
+        alert("Another room already uses this room number.");
+        return;
+      }
+
+      await updateDoc(doc(db, "rooms", editingRoom.id), {
+        roomNumber,
         type: newType,
-        floor: Number(data.get("floor")),
-        condition: String(data.get("condition") || ""),
-        status: String(data.get("status") || ""),
-      };
+        floor,
+        condition,
+        status,
+        updatedAt: serverTimestamp(),
+      });
 
-      await updateDoc(doc(db, "rooms", editingRoom.id), updatedRoom);
-
-      if (oldType !== newType) {
-        const oldRoomType = roomTypes.find(
-          (roomType) => roomType.name === oldType,
-        );
-
-        const newRoomType = roomTypes.find(
-          (roomType) => roomType.name === newType,
-        );
-
-        if (oldRoomType) {
-          await updateDoc(doc(db, "roomTypes", oldRoomType.id), {
-            count: Math.max(0, (oldRoomType.count || 0) - 1),
-            updatedAt: serverTimestamp(),
-          });
-        }
-
-        if (newRoomType) {
-          await updateDoc(doc(db, "roomTypes", newRoomType.id), {
-            count: (newRoomType.count || 0) + 1,
-            updatedAt: serverTimestamp(),
-          });
-        }
+      if (normalizeName(oldType) !== normalizeName(newType)) {
+        await syncRoomTypeCounts();
       }
 
       await createActivityLog({
         action: "Updated Room",
-        details: `Updated Room ${editingRoom.roomId}. Room type: ${newType}, Floor: ${updatedRoom.floor}, Status: ${updatedRoom.status}.`,
+        details: `Updated Room ${editingRoom.roomId}. Room type: ${newType}, Floor: ${floor}, Status: ${status}.`,
         status: "success",
       });
 
-      await loadRooms();
-      await loadRoomTypes();
+      await Promise.all([loadRooms(), loadRoomTypes()]);
 
       setEditingRoom(null);
 
       alert("Room updated successfully.");
     } catch (error) {
       console.error("Error updating room:", error);
-      alert("Failed to update room.");
+      alert(error instanceof Error ? error.message : "Failed to update room.");
     }
   };
 
@@ -491,6 +657,7 @@ export default function RoomManagement() {
             Manage room types and individual rooms
           </p>
         </div>
+
         <Button
           className="hidden md:flex bg-blue-600 hover:bg-blue-700 text-white"
           onClick={() => setShowForm(true)}
@@ -498,25 +665,28 @@ export default function RoomManagement() {
           <Plus className="w-4 h-4 mr-2" />
           Add New {activeTab === "types" ? "Room Type" : "Room"}
         </Button>
+
         <Button
           onClick={() => setShowForm(true)}
-          className="fixed bottom-6 right-6 md:hidden z-40 rounded-full shadow-lg bg-blue-600 hover:bg-blue-700 text-white px-5 py-6 "
+          className="fixed bottom-6 right-6 md:hidden z-40 rounded-full shadow-lg bg-blue-600 hover:bg-blue-700 text-white px-5 py-6"
         >
-          <Plus className="w-5 h-5 " />
+          <Plus className="w-5 h-5" />
           Add {activeTab === "types" ? "Room Type" : "Room"}
         </Button>
       </div>
 
       {showForm && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto">
           <Card className="w-full max-w-md p-6 m-4">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-semibold text-gray-900">
                 {activeTab === "types" ? "Add New Room Type" : "Add New Room"}
               </h2>
+
               <button
                 onClick={closeForm}
                 className="text-gray-400 hover:text-gray-600"
+                type="button"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -530,6 +700,7 @@ export default function RoomManagement() {
                   </label>
                   <input
                     name="name"
+                    required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g. Penthouse Suite"
                   />
@@ -552,7 +723,6 @@ export default function RoomManagement() {
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Room Image
                   </label>
-
                   <input
                     type="file"
                     accept="image/*"
@@ -560,6 +730,7 @@ export default function RoomManagement() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2"
                   />
                 </div>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
@@ -568,10 +739,13 @@ export default function RoomManagement() {
                     <input
                       name="basePrice"
                       type="number"
+                      min="0"
+                      required
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
                     />
                   </div>
+
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
                       Max Guests
@@ -579,6 +753,8 @@ export default function RoomManagement() {
                     <input
                       name="maxGuests"
                       type="number"
+                      min="1"
+                      required
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="2"
                     />
@@ -611,9 +787,7 @@ export default function RoomManagement() {
                     type="submit"
                     disabled={uploadingImage}
                   >
-                    {uploadingImage
-                      ? "Submitting New Room Type..."
-                      : "Add Room Type"}
+                    {uploadingImage ? "Uploading Image..." : "Add Room Type"}
                   </Button>
                 </div>
               </form>
@@ -627,24 +801,49 @@ export default function RoomManagement() {
                     <input
                       name="floor"
                       type="number"
+                      min="1"
+                      required
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="5"
                     />
                   </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">
+                      Room Number
+                    </label>
+                    <input
+                      name="roomNumber"
+                      type="number"
+                      min="1"
+                      required
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      placeholder="e.g. 1"
+                    />
+                  </div>
                 </div>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Room Type
                   </label>
                   <select
                     name="roomType"
+                    required
+                    defaultValue=""
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {roomTypes.map((rt) => (
-                      <option key={rt.id}>{rt.name}</option>
+                    <option value="" disabled>
+                      Select a room type
+                    </option>
+                    {roomTypes.map((roomType) => (
+                      <option key={roomType.id} value={roomType.name}>
+                        {roomType.name}
+                      </option>
                     ))}
                   </select>
                 </div>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Condition
@@ -653,9 +852,11 @@ export default function RoomManagement() {
                     name="condition"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option>Excellent</option>
-                    <option>Good</option>
-                    <option>Fair</option>
+                    <option value="excellent">Excellent</option>
+                    <option value="good" selected>
+                      Good
+                    </option>
+                    <option value="fair">Fair</option>
                   </select>
                 </div>
 
@@ -683,7 +884,7 @@ export default function RoomManagement() {
       )}
 
       {editingRoomType && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 overflow-y-auto">
           <Card className="w-full max-w-md p-6 m-4">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-lg font-semibold text-gray-900">
@@ -691,6 +892,7 @@ export default function RoomManagement() {
               </h2>
 
               <button
+                type="button"
                 onClick={() => setEditingRoomType(null)}
                 className="text-gray-400 hover:text-gray-600"
               >
@@ -703,27 +905,25 @@ export default function RoomManagement() {
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Name
                 </label>
-
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Room Description
-                  </label>
-
-                  <textarea
-                    name="description"
-                    rows={4}
-                    defaultValue={editingRoomType.description || ""}
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Describe the room, its features, and what guests can expect..."
-                  />
-                </div>
-
                 <input
                   name="name"
                   defaultValue={editingRoomType.name}
                   required
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="text-sm font-medium text-gray-700 block mb-1">
+                  Room Description
+                </label>
+                <textarea
+                  name="description"
+                  rows={4}
+                  defaultValue={editingRoomType.description || ""}
+                  required
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Describe the room, its features, and what guests can expect..."
                 />
               </div>
 
@@ -758,10 +958,10 @@ export default function RoomManagement() {
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Base Price / Night
                   </label>
-
                   <input
                     name="basePrice"
                     type="number"
+                    min="0"
                     defaultValue={editingRoomType.basePrice}
                     required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -772,10 +972,10 @@ export default function RoomManagement() {
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Max Guests
                   </label>
-
                   <input
                     name="maxGuests"
                     type="number"
+                    min="1"
                     defaultValue={editingRoomType.maxGuests}
                     required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
@@ -787,7 +987,6 @@ export default function RoomManagement() {
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Amenities (comma-separated)
                 </label>
-
                 <input
                   name="amenities"
                   defaultValue={editingRoomType.amenities.join(", ")}
@@ -827,12 +1026,14 @@ export default function RoomManagement() {
                   Edit Room {editingRoom.roomId}
                 </h2>
                 <button
+                  type="button"
                   onClick={() => setEditingRoom(null)}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
+
               <form onSubmit={handleSaveRoom} className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
@@ -841,15 +1042,31 @@ export default function RoomManagement() {
                   <select
                     name="type"
                     defaultValue={editingRoom.type}
+                    required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    {roomTypes.map((rt) => (
-                      <option key={rt.id} value={rt.name}>
-                        {rt.name}
+                    {roomTypes.map((roomType) => (
+                      <option key={roomType.id} value={roomType.name}>
+                        {roomType.name}
                       </option>
                     ))}
                   </select>
                 </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 block mb-1">
+                    Room Number
+                  </label>
+                  <input
+                    name="roomNumber"
+                    type="number"
+                    min="1"
+                    defaultValue={editingRoom.roomNumber}
+                    required
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Floor
@@ -857,11 +1074,13 @@ export default function RoomManagement() {
                   <input
                     name="floor"
                     type="number"
+                    min="1"
                     defaultValue={editingRoom.floor}
                     required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Condition
@@ -876,6 +1095,7 @@ export default function RoomManagement() {
                     <option value="fair">Fair</option>
                   </select>
                 </div>
+
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Status
@@ -891,6 +1111,7 @@ export default function RoomManagement() {
                     <option value="maintenance">Maintenance</option>
                   </select>
                 </div>
+
                 <div className="flex gap-3 mt-6">
                   <Button
                     type="button"
@@ -924,6 +1145,7 @@ export default function RoomManagement() {
         >
           Room Types
         </button>
+
         <button
           onClick={() => setActiveTab("rooms")}
           className={`whitespace-nowrap px-4 py-3 font-medium transition-colors ${
@@ -938,89 +1160,88 @@ export default function RoomManagement() {
 
       {activeTab === "types" && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {roomTypes.map((roomType) => (
-            <Card key={roomType.id} className="p-6">
-              {roomType.image && (
-                <img
-                  src={roomType.image}
-                  alt={roomType.name}
-                  className="w-full aspect-video object-cover rounded-lg mb-4"
-                />
-              )}
+          {roomTypes.map((roomType) => {
+            const actualCount = rooms.filter(
+              (room) =>
+                normalizeName(room.type) === normalizeName(roomType.name),
+            ).length;
 
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {roomType.name}
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-2 leading-relaxed">
-                    {roomType.description || "No description available."}
-                  </p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    {(() => {
-                      const actualCount = rooms.filter(
-                        (room) =>
-                          room.type.trim().toLowerCase() ===
-                          roomType.name.trim().toLowerCase(),
-                      ).length;
+            return (
+              <Card key={roomType.id} className="p-6">
+                {roomType.image && (
+                  <img
+                    src={roomType.image}
+                    alt={roomType.name}
+                    className="w-full aspect-video object-cover rounded-lg mb-4"
+                  />
+                )}
 
-                      return (
-                        <>
-                          {actualCount} {actualCount === 1 ? "room" : "rooms"}
-                        </>
-                      );
-                    })()}
-                  </p>
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditingRoomType(roomType)}
-                  >
-                    <Edit className="w-4 h-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:text-red-700"
-                    onClick={() => handleDeleteRoomType(roomType.id)}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Base Price</span>
-                  <span className="font-semibold text-gray-900">
-                    ₱{roomType.basePrice}/night
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Max Guests</span>
-                  <span className="font-medium text-gray-900">
-                    {roomType.maxGuests} people
-                  </span>
-                </div>
-                <div>
-                  <span className="text-sm text-gray-600 block mb-2">
-                    Amenities
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    {roomType.amenities.map((amenity, index) => (
-                      <span
-                        key={index}
-                        className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs"
-                      >
-                        {amenity}
-                      </span>
-                    ))}
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      {roomType.name}
+                    </h3>
+                    <p className="text-sm text-gray-600 mt-2 leading-relaxed">
+                      {roomType.description || "No description available."}
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      {actualCount} {actualCount === 1 ? "room" : "rooms"}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingRoomType(roomType)}
+                    >
+                      <Edit className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => handleDeleteRoomType(roomType.id)}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Base Price</span>
+                    <span className="font-semibold text-gray-900">
+                      ₱{roomType.basePrice}/night
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-600">Max Guests</span>
+                    <span className="font-medium text-gray-900">
+                      {roomType.maxGuests} people
+                    </span>
+                  </div>
+
+                  <div>
+                    <span className="text-sm text-gray-600 block mb-2">
+                      Amenities
+                    </span>
+                    <div className="flex flex-wrap gap-2">
+                      {roomType.amenities.map((amenity, index) => (
+                        <span
+                          key={`${roomType.id}-${index}`}
+                          className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs"
+                        >
+                          {amenity}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            );
+          })}
         </div>
       )}
 
@@ -1033,7 +1254,6 @@ export default function RoomManagement() {
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
                     Room ID
                   </th>
-
                   <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
                     Room Type
                   </th>
@@ -1051,12 +1271,12 @@ export default function RoomManagement() {
                   </th>
                 </tr>
               </thead>
+
               <tbody>
                 {[...rooms]
                   .sort((a, b) => {
                     const numA = Number(a.roomId.match(/\d+/)?.[0] || 0);
                     const numB = Number(b.roomId.match(/\d+/)?.[0] || 0);
-
                     return numA - numB;
                   })
                   .map((room) => (
@@ -1130,6 +1350,17 @@ export default function RoomManagement() {
                       </td>
                     </tr>
                   ))}
+
+                {rooms.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="py-8 text-center text-sm text-gray-500"
+                    >
+                      No rooms found. Add a room to get started.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
