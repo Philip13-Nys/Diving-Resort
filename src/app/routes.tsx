@@ -1,6 +1,5 @@
 import { createHashRouter, Navigate } from "react-router-dom";
 
-//admin
 import AdminLayout from "./components/AdminLayout";
 import Dashboard from "./components/Dashboard";
 import ManagerDashboard from "./components/ManagerDashboard";
@@ -10,8 +9,8 @@ import StaffProfiles from "./components/StaffProfiles";
 import PaymentConfiguration from "./components/PaymentConfiguration";
 import CommissionReport from "./components/CommissionReport";
 import SalesReports from "./components/SalesReports";
+import SystemSettings from "./components/SystemSettings";
 
-//manager
 import ManagerLayout from "../manager/ManagerLayout";
 import ManagersDashboard from "../manager/ManagersDashboard";
 import ReceptionistDashboards from "../manager/ReceptionistDashboards";
@@ -27,7 +26,6 @@ import ActivityLogs from "../manager/ActivityLogs";
 import MaintenanceManagement from "../manager/MaintenanceManagement";
 import ServicesManagement from "../manager/ServicesManagement";
 
-//receptionist
 import ReceptionistLayout from "../receptionist/ReceptionistLayout";
 import ReceptionistsDashboard from "../receptionist/ReceptionistsDashboard";
 import CalendarView from "../receptionist/CalendarView";
@@ -39,17 +37,14 @@ import ReceptionistRoomAvailability from "../receptionist/RoomAvailability";
 import Payments from "../receptionist/Payments";
 import ReceptionistReports from "../receptionist/Reports";
 
-//login
 import Login from "../app/login";
 
 export const router = createHashRouter([
-  //login
   {
     path: "/login",
     Component: Login,
   },
 
-  //admin
   {
     path: "admin/",
     Component: AdminLayout,
@@ -65,10 +60,13 @@ export const router = createHashRouter([
         path: "/admin/payment-configuration",
         element: <PaymentConfiguration />,
       },
+      {
+        path: "settings",
+        element: <SystemSettings />,
+      },
     ],
   },
 
-  //manager
   {
     path: "manager/",
     Component: ManagerLayout,
@@ -89,7 +87,6 @@ export const router = createHashRouter([
     ],
   },
 
-  //receptionist
   {
     path: "receptionist/",
     Component: ReceptionistLayout,

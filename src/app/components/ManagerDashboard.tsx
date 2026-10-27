@@ -1,507 +1,799 @@
-import {
-  Users,
-  Calendar,
-  Clock,
-  CheckCircle,
-  Loader2,
-  TrendingUp,
-} from "lucide-react";
-
-import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-
 import { useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
-
 import { db, customerDb } from "../firebase";
+import {
+  BedDouble,
+  DoorOpen,
+  Waves,
+  Package,
+  Users,
+  Wrench,
+  CalendarDays,
+  CheckCircle2,
+  AlertTriangle,
+  MonitorCheck,
+  RefreshCw,
+  Loader2,
+  Search,
+} from "lucide-react";
 
-type Booking = {
+type RecordData = {
   id: string;
-  guest: string;
-  room: string;
-  checkIn: string;
-  checkOut: string;
-  guests: number;
-  total: number;
-  status: string;
-  paymentStatus: string;
+  [key: string]: any;
 };
 
-type StaffMember = {
-  id: string;
-  name: string;
-  position: string;
-  department: string;
-  email: string;
-  status: string;
+type ResourceGroup = {
+  title: string;
+  description: string;
+  icon: typeof BedDouble;
+  color: string;
+  bg: string;
+  records: RecordData[];
+  getName: (item: RecordData) => string;
+  getStatus: (item: RecordData) => string;
+};
+
+const todayString = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
+const tomorrowString = () => {
+  const date = new Date();
+  date.setDate(date.getDate() + 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
+const text = (value: unknown) => String(value ?? "").trim();
+
+const normalized = (value: unknown) =>
+  text(value)
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-");
+
+const recordName = (item: RecordData) =>
+  text(
+    item.name ??
+      item.roomName ??
+      item.roomTypeName ??
+      item.packageName ??
+      item.serviceName ??
+      item.title ??
+      item.equipmentName ??
+      item.taskName,
+  ) || "Unnamed Record";
+
+const recordStatus = (item: RecordData) =>
+  normalized(
+    item.status ??
+      item.availabilityStatus ??
+      (item.isAvailable === false || item.available === false
+        ? "unavailable"
+        : item.isAvailable === true || item.available === true
+          ? "available"
+          : "active"),
+  );
+
+const isMaintenance = (status: string) =>
+  status.includes("maintenance") ||
+  status.includes("out-of-service") ||
+  status.includes("out-of-order") ||
+  status.includes("repair");
+
+const isInactive = (status: string) =>
+  status.includes("inactive") ||
+  status.includes("disabled") ||
+  status.includes("archived") ||
+  status.includes("unavailable") ||
+  status.includes("not-available");
+
+const isCancelled = (status: string) =>
+  status === "cancelled" || status === "canceled";
+
+const isAvailableStatus = (status: string) =>
+  !isMaintenance(status) &&
+  !isInactive(status) &&
+  !status.includes("occupied") &&
+  !status.includes("checked-in") &&
+  !status.includes("reserved") &&
+  !status.includes("booked") &&
+  !status.includes("pending");
+
+const overlaps = (booking: RecordData, checkIn: string, checkOut: string) => {
+  const start = text(booking.checkIn ?? booking.bookingDate);
+  const end = text(booking.checkOut ?? booking.bookingDate);
+
+  if (!start || !end) return false;
+
+  return start < checkOut && end > checkIn;
+};
+
+const StatusBadge = ({ status }: { status: string }) => {
+  let classes = "bg-gray-100 text-gray-700";
+  let label = status.replace(/-/g, " ") || "Unknown";
+
+  if (isMaintenance(status)) {
+    classes = "bg-orange-100 text-orange-700";
+    label = "Maintenance";
+  } else if (isCancelled(status)) {
+    classes = "bg-gray-100 text-gray-500";
+    label = "Cancelled";
+  } else if (
+    status.includes("occupied") ||
+    status.includes("checked-in") ||
+    status.includes("booked")
+  ) {
+    classes = "bg-blue-100 text-blue-700";
+    label = status.replace(/-/g, " ");
+  } else if (isInactive(status)) {
+    classes = "bg-red-100 text-red-700";
+    label = status.replace(/-/g, " ");
+  } else if (status.includes("pending") || status.includes("reserved")) {
+    classes = "bg-amber-100 text-amber-700";
+    label = status.replace(/-/g, " ");
+  } else if (isAvailableStatus(status)) {
+    classes = "bg-green-100 text-green-700";
+    label = "Available";
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium capitalize ${classes}`}
+    >
+      {label}
+    </span>
+  );
 };
 
 export default function ManagerDashboard() {
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [roomTypes, setRoomTypes] = useState<RecordData[]>([]);
+  const [rooms, setRooms] = useState<RecordData[]>([]);
+  const [services, setServices] = useState<RecordData[]>([]);
+  const [packages, setPackages] = useState<RecordData[]>([]);
+  const [staff, setStaff] = useState<RecordData[]>([]);
+  const [maintenance, setMaintenance] = useState<RecordData[]>([]);
+
+  const [bookings, setBookings] = useState<RecordData[]>([]);
+
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("All");
+  const [checkIn, setCheckIn] = useState(todayString);
+  const [checkOut, setCheckOut] = useState(tomorrowString);
 
-  useEffect(() => {
-    loadDashboardData();
-  }, []);
+  const loadDashboardData = async (refresh = false) => {
+    if (refresh) setRefreshing(true);
+    else setLoading(true);
 
-  const loadDashboardData = async () => {
+    setError("");
+
     try {
-      setLoading(true);
-
-      const [bookingSnapshot, staffSnapshot] = await Promise.all([
-        getDocs(collection(customerDb, "Bookings")),
+      const [
+        roomTypesResult,
+        roomsResult,
+        servicesResult,
+        packagesResult,
+        staffResult,
+        maintenanceResult,
+        equipmentResult,
+        bookingsResult,
+      ] = await Promise.allSettled([
+        getDocs(collection(db, "roomTypes")),
+        getDocs(collection(db, "rooms")),
+        getDocs(collection(db, "services")),
+        getDocs(collection(db, "packages")),
         getDocs(collection(db, "Staff")),
+        getDocs(collection(db, "maintenance")),
+        getDocs(collection(db, "equipment")),
+        getDocs(collection(customerDb, "Bookings")),
       ]);
 
-      const bookingData: Booking[] = bookingSnapshot.docs.map((bookingDoc) => {
-        const data = bookingDoc.data();
+      const convert = (
+        result: PromiseSettledResult<any>,
+        collectionName: string,
+      ): RecordData[] => {
+        if (result.status === "fulfilled") {
+          return result.value.docs.map((doc: any) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+        }
 
-        return {
-          id: bookingDoc.id,
-          guest: data.customerName || "Unknown Guest",
-          room: data.roomName || "Unknown Room",
-          checkIn: data.checkIn || "",
-          checkOut: data.checkOut || "",
-          guests: Number(data.guests || 0),
-          total: Number(data.totalPrice ?? data.totalAmount ?? data.total ?? 0),
-          status: data.status || "pending",
-          paymentStatus: data.paymentStatus || "unpaid",
-        };
-      });
+        console.error(`Could not load ${collectionName}:`, result.reason);
+        return [];
+      };
 
-      const staffData: StaffMember[] = staffSnapshot.docs.map((staffDoc) => {
-        const data = staffDoc.data();
+      setRoomTypes(convert(roomTypesResult, "roomTypes"));
+      setRooms(convert(roomsResult, "rooms"));
+      setServices(convert(servicesResult, "services"));
+      setPackages(convert(packagesResult, "packages"));
+      setStaff(convert(staffResult, "Staff"));
+      setMaintenance(convert(maintenanceResult, "maintenance"));
 
-        return {
-          id: staffDoc.id,
-          name: data.name || "Unknown Staff",
-          position: data.position || "",
-          department: data.department || "",
-          email: data.email || "",
-          status: data.status || "Inactive",
-        };
-      });
+      setBookings(convert(bookingsResult, "Bookings"));
 
-      setBookings(bookingData);
-      setStaff(staffData);
-    } catch (error) {
-      console.error("Error loading manager dashboard:", error);
+      const failed = [
+        roomTypesResult,
+        roomsResult,
+        servicesResult,
+        packagesResult,
+        staffResult,
+        maintenanceResult,
+        equipmentResult,
+        bookingsResult,
+      ].some((result) => result.status === "rejected");
+
+      if (failed) {
+        setError(
+          "Some collections could not be loaded. Check the collection names and Firebase permissions.",
+        );
+      }
+    } catch (err) {
+      console.error("Error loading availability dashboard:", err);
+      setError("Unable to load resort availability data.");
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const today = useMemo(() => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    return date;
+  useEffect(() => {
+    void loadDashboardData();
   }, []);
 
-  const getDate = (value: string) => {
-    if (!value) return null;
+  const activeBookings = useMemo(
+    () =>
+      bookings.filter((booking) => !isCancelled(normalized(booking.status))),
+    [bookings],
+  );
 
-    const date = new Date(`${value}T00:00:00`);
+  const roomAvailability = useMemo(() => {
+    return roomTypes.map((type) => {
+      const typeName = normalized(type.name ?? type.roomTypeName ?? type.type);
 
-    return isNaN(date.getTime()) ? null : date;
-  };
+      const typeId = normalized(type.id);
 
-  const isToday = (value: string) => {
-    const date = getDate(value);
-
-    return date ? date.getTime() === today.getTime() : false;
-  };
-
-  const formatPeso = (value: number) =>
-    `₱${value.toLocaleString("en-PH", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-
-  /*
-   * Real database statistics
-   */
-
-  const totalBookings = bookings.filter(
-    (booking) => booking.status !== "cancelled",
-  ).length;
-
-  const revenueToday = bookings
-    .filter(
-      (booking) => isToday(booking.checkIn) && booking.status !== "cancelled",
-    )
-    .reduce((sum, booking) => sum + booking.total, 0);
-
-  const activeGuests = bookings
-    .filter(
-      (booking) =>
-        booking.status === "confirmed" || booking.status === "checked-in",
-    )
-    .reduce((sum, booking) => sum + booking.guests, 0);
-
-  const pendingCheckouts = bookings.filter(
-    (booking) =>
-      isToday(booking.checkOut) &&
-      (booking.status === "confirmed" || booking.status === "checked-in"),
-  ).length;
-
-  const activeStaff = staff.filter(
-    (member) => (member.status || "").toLowerCase() === "active",
-  ).length;
-
-  /*
-   * Revenue for the last 6 months
-   */
-  const revenueData = useMemo(() => {
-    const data = [];
-
-    for (let i = 5; i >= 0; i--) {
-      const date = new Date(today);
-
-      date.setMonth(date.getMonth() - i);
-
-      const month = date.getMonth();
-      const year = date.getFullYear();
-
-      const monthBookings = bookings.filter((booking) => {
-        if (!booking.checkIn) return false;
-
-        const bookingDate = getDate(booking.checkIn);
-
-        if (!bookingDate) return false;
+      const matchingRooms = rooms.filter((room) => {
+        const roomTypeId = normalized(room.roomTypeId ?? room.typeId);
+        const roomTypeName = normalized(
+          room.roomTypeName ?? room.roomType ?? room.typeName,
+        );
 
         return (
-          bookingDate.getMonth() === month &&
-          bookingDate.getFullYear() === year &&
-          booking.status !== "cancelled"
+          (typeId && roomTypeId === typeId) ||
+          (typeName && roomTypeName === typeName)
         );
       });
 
-      data.push({
-        month: date.toLocaleDateString(undefined, {
-          month: "short",
-        }),
+      const inventory = matchingRooms.length
+        ? matchingRooms.length
+        : Number(
+            type.count ??
+              type.quantity ??
+              type.totalRooms ??
+              type.numberOfRooms ??
+              type.availableRooms ??
+              0,
+          );
 
-        revenue: monthBookings.reduce((sum, booking) => sum + booking.total, 0),
+      const maintainedRooms = matchingRooms.filter((room) =>
+        isMaintenance(recordStatus(room)),
+      ).length;
+
+      const reservedBookings = activeBookings.filter((booking) => {
+        if (!overlaps(booking, checkIn, checkOut)) return false;
+
+        const bookingTypeId = normalized(booking.roomTypeId ?? booking.typeId);
+
+        const bookingTypeName = normalized(
+          booking.roomTypeName ?? booking.roomType ?? booking.roomName,
+        );
+
+        const bookingType = normalized(
+          booking.bookingType ?? booking.itemType ?? booking.type,
+        );
+
+        if (
+          bookingType.includes("activity") ||
+          bookingType.includes("service") ||
+          bookingType.includes("package")
+        ) {
+          return false;
+        }
+
+        return (
+          (typeId && bookingTypeId === typeId) ||
+          (typeName && bookingTypeName === typeName)
+        );
       });
-    }
 
-    return data;
-  }, [bookings, today]);
+      const reserved = reservedBookings.reduce(
+        (sum, booking) =>
+          sum +
+          Math.max(
+            1,
+            Number(
+              booking.roomQuantity ??
+                booking.numberOfRooms ??
+                booking.quantity ??
+                1,
+            ),
+          ),
+        0,
+      );
 
-  /*
-   * Real booking status/activity breakdown
-   */
-  const activityData = useMemo(() => {
-    return [
-      {
-        activity: "Pending",
-        count: bookings.filter((booking) => booking.status === "pending")
-          .length,
-      },
-      {
-        activity: "Confirmed",
-        count: bookings.filter((booking) => booking.status === "confirmed")
-          .length,
-      },
-      {
-        activity: "Checked In",
-        count: bookings.filter((booking) => booking.status === "checked-in")
-          .length,
-      },
-      {
-        activity: "Checked Out",
-        count: bookings.filter((booking) => booking.status === "checked-out")
-          .length,
-      },
-      {
-        activity: "Cancelled",
-        count: bookings.filter((booking) => booking.status === "cancelled")
-          .length,
-      },
-    ];
-  }, [bookings]);
+      const available = Math.max(0, inventory - maintainedRooms - reserved);
 
-  /*
-   * Recent real bookings
-   */
-  const recentBookings = useMemo(() => {
-    return [...bookings]
-      .filter((booking) => booking.status !== "cancelled")
-      .sort((a, b) => {
-        const dateA = getDate(a.checkIn)?.getTime() || 0;
+      return {
+        id: type.id,
+        name: recordName(type),
+        inventory,
+        maintained: maintainedRooms,
+        reserved,
+        available,
+      };
+    });
+  }, [roomTypes, rooms, activeBookings, checkIn, checkOut]);
 
-        const dateB = getDate(b.checkIn)?.getTime() || 0;
+  const roomCounts = useMemo(() => {
+    const maintained = rooms.filter((room) =>
+      isMaintenance(recordStatus(room)),
+    ).length;
 
-        return dateB - dateA;
-      })
-      .slice(0, 5);
-  }, [bookings]);
+    const occupied = rooms.filter((room) => {
+      const status = recordStatus(room);
+      return status.includes("occupied") || status.includes("checked-in");
+    }).length;
+
+    const inactive = rooms.filter((room) =>
+      isInactive(recordStatus(room)),
+    ).length;
+
+    const total = rooms.length;
+
+    return {
+      total,
+      maintained,
+      occupied,
+      inactive,
+      available: Math.max(0, total - maintained - occupied - inactive),
+    };
+  }, [rooms]);
+
+  const resourceGroups: ResourceGroup[] = [
+    {
+      title: "Maintenance",
+      description: "Maintenance tasks and service issues",
+      icon: Wrench,
+      color: "text-orange-700",
+      bg: "bg-orange-100",
+      records: maintenance,
+      getName: recordName,
+      getStatus: recordStatus,
+    },
+  ];
+
+  const serviceAvailable = services.filter((item) =>
+    isAvailableStatus(recordStatus(item)),
+  ).length;
+
+  const packageAvailable = packages.filter((item) =>
+    isAvailableStatus(recordStatus(item)),
+  ).length;
+
+  const staffAvailable = staff.filter((item) => {
+    const status = recordStatus(item);
+    return (
+      status === "active" || status === "available" || status === "on-duty"
+    );
+  }).length;
+
+  const maintenancePending = maintenance.filter((item) => {
+    const status = recordStatus(item);
+    return (
+      status.includes("pending") ||
+      status.includes("requested") ||
+      status.includes("in-progress") ||
+      status.includes("ongoing")
+    );
+  }).length;
+
+  const totalRoomTypes = roomTypes.length;
+  const availableRoomTypes = roomAvailability.filter(
+    (type) => type.available > 0,
+  ).length;
+
+  const filteredGroups = resourceGroups
+    .filter((group) => category === "All" || group.title === category)
+    .map((group) => ({
+      ...group,
+      records: group.records.filter((item) => {
+        const name = group.getName(item).toLowerCase();
+        const status = group.getStatus(item);
+        const query = search.trim().toLowerCase();
+
+        return (
+          !query ||
+          name.includes(query) ||
+          status.includes(query) ||
+          group.title.toLowerCase().includes(query)
+        );
+      }),
+    }));
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div className="flex min-h-64 items-center justify-center">
         <div className="flex items-center gap-3 text-gray-500">
           <Loader2 className="size-5 animate-spin" />
-          Loading dashboard...
+          Loading resort availability...
         </div>
       </div>
     );
   }
 
-  const stats = [
+  const summaryCards = [
     {
-      label: "Total Bookings",
-      value: totalBookings.toString(),
-      icon: Calendar,
+      label: "Room Types",
+      value: `${availableRoomTypes}/${totalRoomTypes}`,
+      detail: "Types with rooms available",
+      icon: BedDouble,
+      color: "text-blue-700",
+      bg: "bg-blue-100",
     },
     {
-      label: "Revenue Today",
-      value: formatPeso(revenueToday),
-      icon: null,
+      label: "Available Rooms",
+      value: String(roomCounts.available),
+      detail: `${roomCounts.occupied} currently occupied`,
+      icon: DoorOpen,
+      color: "text-green-700",
+      bg: "bg-green-100",
     },
     {
-      label: "Active Guests",
-      value: activeGuests.toString(),
+      label: "Available Services",
+      value: `${serviceAvailable}/${services.length}`,
+      detail: "Based on record status",
+      icon: Waves,
+      color: "text-cyan-700",
+      bg: "bg-cyan-100",
+    },
+    {
+      label: "Available Packages",
+      value: `${packageAvailable}/${packages.length}`,
+      detail: "Based on record status",
+      icon: Package,
+      color: "text-purple-700",
+      bg: "bg-purple-100",
+    },
+    {
+      label: "Active Staff",
+      value: `${staffAvailable}/${staff.length}`,
+      detail: "Active or available staff",
       icon: Users,
+      color: "text-amber-700",
+      bg: "bg-amber-100",
     },
     {
-      label: "Pending Checkouts",
-      value: pendingCheckouts.toString(),
-      icon: Clock,
+      label: "Maintenance Tasks",
+      value: String(maintenancePending),
+      detail: `${maintenance.length} total records`,
+      icon: Wrench,
+      color: "text-orange-700",
+      bg: "bg-orange-100",
     },
   ];
 
+  const categories = [
+    "All",
+    "Room Types",
+    "Rooms",
+    "Services & Activities",
+    "Packages",
+    "Staff",
+    "Maintenance",
+    "Equipment",
+  ];
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">
-          Manager Dashboard Overview
-        </h1>
+    <div className="min-w-0 space-y-6">
+      {/* Page Header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
+            Resort Availability
+          </h1>
 
-        <p className="text-gray-600 mt-1">
-          Monitor manager activities, performance, and reports
-        </p>
+          <p className="mt-1 text-sm text-gray-600">
+            Monitor rooms, activities, packages, staff, and maintenance.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => void loadDashboardData(true)}
+          disabled={refreshing}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:opacity-60"
+        >
+          <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
+          Refresh data
+        </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className="bg-white rounded-xl p-6 border border-gray-200"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-sm text-gray-600">{stat.label}</span>
+      {error && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <AlertTriangle className="mt-0.5 size-5 shrink-0" />
+          <p>{error}</p>
+        </div>
+      )}
 
-              {stat.icon ? (
-                <stat.icon className="size-5 text-cyan-600" />
-              ) : (
-                <span className="text-2xl font-bold text-green-600">₱</span>
-              )}
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
+
+          return (
+            <div
+              key={card.label}
+              className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">
+                    {card.label}
+                  </p>
+                  <p className="mt-2 text-3xl font-bold text-gray-900">
+                    {card.value}
+                  </p>
+                </div>
+
+                <div className={`rounded-xl p-3 ${card.bg}`}>
+                  <Icon className={`size-6 ${card.color}`} />
+                </div>
+              </div>
+
+              <p className="mt-3 text-xs text-gray-500">{card.detail}</p>
             </div>
-
-            <span className="text-3xl font-bold text-gray-900">
-              {stat.value}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue */}
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Revenue Trend
-            </h3>
-
-            <TrendingUp className="size-5 text-cyan-600" />
+      {/* Room Availability by Type */}
+      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="mb-5 flex items-start gap-3">
+          <div className="rounded-lg bg-blue-100 p-2.5">
+            <CalendarDays className="size-5 text-blue-700" />
           </div>
 
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={revenueData}>
-              <CartesianGrid strokeDasharray="3 3" />
-
-              <XAxis dataKey="month" />
-
-              <YAxis
-                tickFormatter={(value) =>
-                  `₱${Number(value).toLocaleString("en-PH")}`
-                }
-              />
-
-              <Tooltip
-                formatter={(value: number) => formatPeso(Number(value))}
-              />
-
-              <Area
-                type="monotone"
-                dataKey="revenue"
-                stroke="#0891b2"
-                fill="#06b6d4"
-                fillOpacity={0.3}
-                name="Revenue"
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Booking Activity */}
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Booking Activity
-          </h3>
-
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={activityData}>
-              <CartesianGrid strokeDasharray="3 3" />
-
-              <XAxis
-                dataKey="activity"
-                angle={-15}
-                textAnchor="end"
-                height={80}
-              />
-
-              <YAxis />
-
-              <Tooltip />
-
-              <Bar dataKey="count" fill="#0891b2" name="Bookings" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* Recent Bookings */}
-      <div className="bg-white rounded-xl p-6 border border-gray-200">
-        <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">
-              Recent Bookings
-            </h3>
-
-            <p className="text-sm text-gray-500 mt-1">
-              Latest booking records from your database
+            <h2 className="text-lg font-semibold text-gray-900">
+              Room Availability by Type
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Select dates to check room reservations.
             </p>
           </div>
-
-          <span className="text-sm text-gray-500">
-            {bookings.length} total records
-          </span>
         </div>
 
-        <div className="space-y-3">
-          {recentBookings.length > 0 ? (
-            recentBookings.map((booking) => (
-              <div
-                key={booking.id}
-                className="flex items-start gap-4 pb-3 border-b border-gray-100 last:border-0"
-              >
-                <div className="size-10 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 font-semibold">
-                  {booking.guest ? booking.guest.charAt(0).toUpperCase() : "G"}
-                </div>
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <label
+              htmlFor="manager-checkin"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
+            >
+              Check-in date
+            </label>
+            <input
+              id="manager-checkin"
+              type="date"
+              min={todayString()}
+              value={checkIn}
+              onChange={(event) => {
+                const next = event.target.value;
+                setCheckIn(next);
 
-                <div className="flex-1">
-                  <p className="font-medium text-gray-900">{booking.guest}</p>
+                if (next >= checkOut) {
+                  const date = new Date(`${next}T00:00:00`);
+                  date.setDate(date.getDate() + 1);
 
-                  <p className="text-sm text-gray-600">Room {booking.room}</p>
+                  setCheckOut(
+                    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`,
+                  );
+                }
+              }}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+            />
+          </div>
 
-                  <div className="flex items-center gap-2 mt-1">
-                    <span className="text-sm text-gray-500 capitalize">
-                      {booking.status}
-                    </span>
+          <div>
+            <label
+              htmlFor="manager-checkout"
+              className="mb-1.5 block text-sm font-medium text-gray-700"
+            >
+              Check-out date
+            </label>
+            <input
+              id="manager-checkout"
+              type="date"
+              min={checkIn}
+              value={checkOut}
+              onChange={(event) => setCheckOut(event.target.value)}
+              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
+            />
+          </div>
+        </div>
 
-                    <span className="text-gray-400">•</span>
+        {checkOut <= checkIn ? (
+          <p className="rounded-lg bg-red-50 p-4 text-sm text-red-700">
+            Check-out must be after check-in.
+          </p>
+        ) : roomAvailability.length > 0 ? (
+          <div className="space-y-5">
+            {roomAvailability.map((room) => {
+              const percentage =
+                room.inventory > 0
+                  ? Math.min(100, (room.available / room.inventory) * 100)
+                  : 0;
 
-                    <span className="text-sm font-medium text-gray-700">
-                      {formatPeso(booking.total)}
-                    </span>
+              return (
+                <div key={room.id}>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-gray-900">{room.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {room.reserved} reserved · {room.maintained} under
+                        maintenance
+                      </p>
+                    </div>
+
+                    <p className="text-sm font-semibold text-gray-700">
+                      <span
+                        className={
+                          room.available > 0 ? "text-green-700" : "text-red-700"
+                        }
+                      >
+                        {room.available} available
+                      </span>
+                      {" / "}
+                      {room.inventory}
+                    </p>
+                  </div>
+
+                  <div className="h-2.5 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        percentage > 50
+                          ? "bg-green-500"
+                          : percentage > 0
+                            ? "bg-amber-500"
+                            : "bg-red-500"
+                      }`}
+                      style={{ width: `${percentage}%` }}
+                    />
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="py-8 text-center">
+            <BedDouble className="mx-auto mb-3 size-9 text-gray-300" />
+            <p className="font-medium text-gray-700">No room types found</p>
+            <p className="mt-1 text-sm text-gray-500">
+              Check the roomTypes collection in your admin database.
+            </p>
+          </div>
+        )}
+      </section>
 
-                {booking.status === "checked-out" ? (
-                  <CheckCircle className="size-5 text-green-600" />
+      {/* Resource Directory */}
+      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="space-y-6">
+          {filteredGroups.map((group) => {
+            const Icon = group.icon;
+
+            return (
+              <div key={group.title}>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className={`rounded-lg p-2 ${group.bg}`}>
+                      <Icon className={`size-5 ${group.color}`} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-gray-900">
+                        {group.title}
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        {group.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
+                    {group.records.length}
+                  </span>
+                </div>
+
+                {group.records.length > 0 ? (
+                  <div className="overflow-x-auto rounded-lg border border-gray-100">
+                    <table className="w-full min-w-[420px] text-left text-sm">
+                      <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Resource</th>
+                          <th className="px-4 py-3 font-medium">Status</th>
+                        </tr>
+                      </thead>
+
+                      <tbody className="divide-y divide-gray-100">
+                        {group.records.map((item) => {
+                          const status = group.getStatus(item);
+
+                          return (
+                            <tr key={item.id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 font-medium text-gray-800">
+                                {group.getName(item)}
+                              </td>
+
+                              <td className="px-4 py-3">
+                                <StatusBadge status={status} />
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : (
-                  <Clock className="size-5 text-orange-500" />
+                  <div className="rounded-lg border border-dashed border-gray-200 px-4 py-5 text-center text-sm text-gray-500">
+                    {search
+                      ? "No matching records."
+                      : `No ${group.title.toLowerCase()} records found.`}
+                  </div>
                 )}
               </div>
-            ))
-          ) : (
-            <div className="py-8 text-center text-sm text-gray-500">
-              No booking records found.
-            </div>
-          )}
+            );
+          })}
         </div>
-      </div>
+      </section>
 
-      {/* Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl p-6 text-white">
-          <div className="flex items-center gap-3 mb-3">
-            <Calendar className="size-6" />
-
-            <h4 className="text-sm font-medium text-white/80">
-              Today's Reservations
-            </h4>
+      {/* Operational Summary */}
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
+          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-green-700" />
+          <div>
+            <p className="font-semibold text-green-900">Available Resources</p>
+            <p className="mt-1 text-sm text-green-800">
+              {roomCounts.available} rooms, {serviceAvailable} services, and{" "}
+              {packageAvailable} packages are currently marked available.
+            </p>
           </div>
-
-          <p className="text-4xl font-bold">
-            {
-              bookings.filter(
-                (booking) =>
-                  isToday(booking.checkIn) && booking.status !== "cancelled",
-              ).length
-            }
-          </p>
-
-          <p className="text-sm text-white/90 mt-1">
-            Based on today's check-ins
-          </p>
         </div>
 
-        <div className="bg-gradient-to-br from-purple-500 to-pink-600 rounded-xl p-6 text-white">
-          <div className="flex items-center gap-3 mb-3">
-            <Users className="size-6" />
-
-            <h4 className="text-sm font-medium text-white/80">Active Staff</h4>
+        <div className="flex items-start gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4">
+          <Wrench className="mt-0.5 size-5 shrink-0 text-orange-700" />
+          <div>
+            <p className="font-semibold text-orange-900">Maintenance</p>
+            <p className="mt-1 text-sm text-orange-800">
+              {roomCounts.maintained} rooms have a maintenance status and{" "}
+              {maintenancePending} maintenance tasks are pending or ongoing.
+            </p>
           </div>
-
-          <p className="text-4xl font-bold">{activeStaff}</p>
-
-          <p className="text-sm text-white/90 mt-1">From Staff collection</p>
         </div>
 
-        <div className="bg-gradient-to-br from-green-500 to-emerald-600 rounded-xl p-6 text-white">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-2xl font-bold">₱</span>
-
-            <h4 className="text-sm font-medium text-white/80">Total Revenue</h4>
+        <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <MonitorCheck className="mt-0.5 size-5 shrink-0 text-blue-700" />
+          <div>
+            <p className="font-semibold text-blue-900">Data Summary</p>
+            <p className="mt-1 text-sm text-blue-800">
+              Monitoring {rooms.length} rooms, {staff.length} staff,{" "}
+              {services.length + packages.length} activities and packages, and{" "}
+              {bookings.length} booking records.
+            </p>
           </div>
-
-          <p className="text-4xl font-bold">
-            {formatPeso(
-              bookings
-                .filter((booking) => booking.status !== "cancelled")
-                .reduce((sum, booking) => sum + booking.total, 0),
-            )}
-          </p>
-
-          <p className="text-sm text-white/90 mt-1">From booking records</p>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
