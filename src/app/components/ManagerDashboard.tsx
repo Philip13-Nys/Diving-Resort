@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db, customerDb } from "../firebase";
 import {
@@ -14,7 +14,6 @@ import {
   MonitorCheck,
   RefreshCw,
   Loader2,
-  Search,
 } from "lucide-react";
 
 type RecordData = {
@@ -51,44 +50,114 @@ const normalized = (value: unknown) =>
     .toLowerCase()
     .replace(/[_\s]+/g, "-");
 
-const recordName = (item: RecordData) =>
-  text(
-    item.name ??
-      item.roomName ??
-      item.roomTypeName ??
-      item.packageName ??
-      item.serviceName ??
-      item.title ??
-      item.equipmentName ??
-      item.taskName,
-  ) || "Unnamed Record";
-
-const recordStatus = (item: RecordData) =>
-  normalized(
-    item.status ??
-      item.availabilityStatus ??
-      (item.isAvailable === false || item.available === false
-        ? "unavailable"
-        : item.isAvailable === true || item.available === true
-          ? "available"
-          : "active"),
+const isMaintenance = (status: string) => {
+  const value = normalized(status);
+  return (
+    value.includes("maintenance") ||
+    value.includes("out-of-service") ||
+    value.includes("out-of-order") ||
+    value.includes("repair")
   );
+};
 
-const isMaintenance = (status: string) =>
-  status.includes("maintenance") ||
-  status.includes("out-of-service") ||
-  status.includes("out-of-order") ||
-  status.includes("repair");
-
-const isInactive = (status: string) =>
-  status.includes("inactive") ||
-  status.includes("disabled") ||
-  status.includes("archived") ||
-  status.includes("unavailable") ||
-  status.includes("not-available");
+const isInactive = (status: string) => {
+  const value = normalized(status);
+  return (
+    value.includes("inactive") ||
+    value.includes("disabled") ||
+    value.includes("archived") ||
+    value.includes("unavailable") ||
+    value.includes("not-available")
+  );
+};
 
 const isCancelled = (status: string) =>
-  status === "cancelled" || status === "canceled";
+  ["cancelled", "canceled", "rejected"].includes(normalized(status));
+
+const isCompletedTask = (status: string) =>
+  [
+    "completed",
+    "complete",
+    "done",
+    "resolved",
+    "closed",
+    "cancelled",
+    "canceled",
+    "rejected",
+  ].includes(normalized(status));
+
+const getRecordStatuses = (item: RecordData): string[] =>
+  [
+    item.status,
+    item.roomStatus,
+    item.availabilityStatus,
+    item.currentStatus,
+    item.taskStatus,
+    item.maintenanceStatus,
+    item.workStatus,
+  ]
+    .filter(
+      (value) => value !== undefined && value !== null && text(value) !== "",
+    )
+    .map(normalized);
+
+const recordStatus = (item: RecordData): string => {
+  const taskStatuses = [
+    item.taskStatus,
+    item.maintenanceStatus,
+    item.workStatus,
+  ]
+    .filter(
+      (value) => value !== undefined && value !== null && text(value) !== "",
+    )
+    .map(normalized);
+
+  const taskStatus = taskStatuses.find(
+    (status) =>
+      isCompletedTask(status) ||
+      status.includes("pending") ||
+      status.includes("requested") ||
+      status.includes("scheduled") ||
+      status.includes("in-progress") ||
+      status.includes("ongoing") ||
+      isMaintenance(status),
+  );
+
+  if (taskStatus) return taskStatus;
+
+  const statuses = getRecordStatuses(item);
+  const maintenanceStatus = statuses.find(isMaintenance);
+
+  if (maintenanceStatus) return maintenanceStatus;
+
+  if (statuses.length) return statuses[0];
+
+  if (item.isAvailable === false || item.available === false) {
+    return "unavailable";
+  }
+
+  if (item.isAvailable === true || item.available === true) {
+    return "available";
+  }
+
+  return "unknown";
+};
+
+const isPendingMaintenanceTask = (item: RecordData) => {
+  const statuses = getRecordStatuses(item);
+
+  if (statuses.some(isCompletedTask)) return false;
+
+  return statuses.some(
+    (status) =>
+      status.includes("pending") ||
+      status.includes("requested") ||
+      status.includes("scheduled") ||
+      status.includes("in-progress") ||
+      status.includes("ongoing") ||
+      status === "maintenance",
+  );
+};
 
 const isAvailableStatus = (status: string) =>
   !isMaintenance(status) &&
@@ -97,41 +166,262 @@ const isAvailableStatus = (status: string) =>
   !status.includes("checked-in") &&
   !status.includes("reserved") &&
   !status.includes("booked") &&
-  !status.includes("pending");
+  !status.includes("pending") &&
+  !status.includes("unknown");
+
+const recordName = (item: RecordData) =>
+  text(
+    item.name ??
+      item.taskName ??
+      item.title ??
+      item.description ??
+      item.equipmentName ??
+      item.serviceName ??
+      item.packageName,
+  ) || "Unnamed Record";
+
+/**
+ * Your room document uses roomId such as R-006.
+ * A numeric roomNumber of 0 is treated as unset.
+ */
+const getRoomNumber = (room: RecordData) => {
+  const number = room.roomNumber;
+
+  if (
+    number !== undefined &&
+    number !== null &&
+    text(number) !== "" &&
+    Number(number) !== 0
+  ) {
+    return String(number).trim();
+  }
+
+  return text(
+    room.roomId ?? room.roomNo ?? room.roomCode ?? room.roomIdNumber ?? room.id,
+  );
+};
+
+const getRoomTypeName = (room: RecordData, roomTypes: RecordData[]): string => {
+  // Your room documents use type: "Suite Room".
+  const directName = text(
+    room.roomTypeName ?? room.typeName ?? room.roomType ?? room.type,
+  );
+
+  if (directName) {
+    const matchingType = roomTypes.find(
+      (type) =>
+        normalized(type.name ?? type.roomTypeName ?? type.type) ===
+        normalized(directName),
+    );
+
+    if (matchingType) {
+      return text(
+        matchingType.name ?? matchingType.roomTypeName ?? matchingType.type,
+      );
+    }
+
+    // The room already has a readable room type.
+    return directName;
+  }
+
+  // Support rooms that reference a room type by document ID.
+  const typeId = text(
+    room.roomTypeId ??
+      room.typeId ??
+      (typeof room.roomType === "object" ? room.roomType?.id : ""),
+  );
+
+  const matchingType = roomTypes.find(
+    (type) => normalized(type.id) === normalized(typeId),
+  );
+
+  if (matchingType) {
+    return text(
+      matchingType.name ?? matchingType.roomTypeName ?? matchingType.type,
+    );
+  }
+
+  return "Unassigned Room Type";
+};
+
+const getMaintenanceRoomLabel = (
+  item: RecordData,
+  rooms: RecordData[],
+  roomTypes: RecordData[],
+): string => {
+  const roomReference = text(
+    item.roomId ??
+      item.roomID ??
+      item.roomDocumentId ??
+      item.roomRef ??
+      item.roomCode ??
+      item.roomNo ??
+      item.roomNumber ??
+      item.assignedRoomId ??
+      item.selectedRoomId,
+  );
+
+  const typeReference = text(
+    item.roomType ??
+      item.roomTypeName ??
+      item.roomTypeId ??
+      item.type ??
+      item.typeId,
+  );
+
+  const matchedRoom = rooms.find((room) => {
+    const roomIdentifiers = [
+      room.id,
+      room.roomId,
+      room.roomNumber,
+      room.roomNo,
+      room.roomCode,
+    ]
+      .map(normalized)
+      .filter(Boolean);
+
+    return (
+      roomReference !== "" &&
+      roomIdentifiers.includes(normalized(roomReference))
+    );
+  });
+
+  if (matchedRoom) {
+    const roomTypeName = getRoomTypeName(matchedRoom, roomTypes);
+    const roomNumber = getRoomNumber(matchedRoom);
+
+    return `${roomTypeName} — ${roomNumber || "Room number not set"}`;
+  }
+
+  // If the maintenance record stores the room type but not the room ID.
+  if (typeReference) {
+    const matchingType = roomTypes.find(
+      (type) =>
+        normalized(type.id) === normalized(typeReference) ||
+        normalized(type.name ?? type.roomTypeName ?? type.type) ===
+          normalized(typeReference),
+    );
+
+    const typeName = matchingType
+      ? text(
+          matchingType.name ?? matchingType.roomTypeName ?? matchingType.type,
+        )
+      : typeReference;
+
+    return roomReference
+      ? `${typeName} — ${roomReference}`
+      : `${typeName} — Room not specified`;
+  }
+
+  if (roomReference) {
+    return `Room ${roomReference}`;
+  }
+
+  return "No room linked";
+};
+
+const toDateString = (value: unknown): string => {
+  if (!value) return "";
+
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return "";
+
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "toDate" in value &&
+    typeof (value as { toDate?: unknown }).toDate === "function"
+  ) {
+    return toDateString((value as { toDate: () => Date }).toDate());
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "seconds" in value &&
+    typeof (value as { seconds?: unknown }).seconds === "number"
+  ) {
+    return toDateString(
+      new Date((value as { seconds: number }).seconds * 1000),
+    );
+  }
+
+  const raw = text(value);
+
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+
+  const date = new Date(raw);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 
 const overlaps = (booking: RecordData, checkIn: string, checkOut: string) => {
-  const start = text(booking.checkIn ?? booking.bookingDate);
-  const end = text(booking.checkOut ?? booking.bookingDate);
+  const start = toDateString(booking.checkIn ?? booking.bookingDate);
+  const end = toDateString(booking.checkOut ?? booking.bookingDate);
 
   if (!start || !end) return false;
 
   return start < checkOut && end > checkIn;
 };
 
-const StatusBadge = ({ status }: { status: string }) => {
-  let classes = "bg-gray-100 text-gray-700";
-  let label = status.replace(/-/g, " ") || "Unknown";
+const isRoomBooking = (booking: RecordData) => {
+  const type = normalized(
+    booking.bookingType ?? booking.itemType ?? booking.type,
+  );
 
-  if (isMaintenance(status)) {
+  return (
+    !type.includes("activity") &&
+    !type.includes("service") &&
+    !type.includes("package")
+  );
+};
+
+const isCheckedInBooking = (booking: RecordData) =>
+  ["checked-in", "checked-in-occupied"].includes(normalized(booking.status));
+
+const StatusBadge = ({ status }: { status: string }) => {
+  const value = normalized(status);
+
+  let classes = "bg-gray-100 text-gray-700";
+  let label = value.replace(/-/g, " ") || "Unknown";
+
+  if (isCompletedTask(value)) {
+    classes = "bg-green-100 text-green-700";
+    label = "Completed";
+  } else if (isMaintenance(value)) {
     classes = "bg-orange-100 text-orange-700";
     label = "Maintenance";
-  } else if (isCancelled(status)) {
+  } else if (isCancelled(value)) {
     classes = "bg-gray-100 text-gray-500";
     label = "Cancelled";
   } else if (
-    status.includes("occupied") ||
-    status.includes("checked-in") ||
-    status.includes("booked")
+    value.includes("occupied") ||
+    value.includes("checked-in") ||
+    value.includes("booked")
   ) {
     classes = "bg-blue-100 text-blue-700";
-    label = status.replace(/-/g, " ");
-  } else if (isInactive(status)) {
+    label = "Occupied";
+  } else if (isInactive(value)) {
     classes = "bg-red-100 text-red-700";
-    label = status.replace(/-/g, " ");
-  } else if (status.includes("pending") || status.includes("reserved")) {
+    label = "Unavailable";
+  } else if (
+    value.includes("pending") ||
+    value.includes("reserved") ||
+    value.includes("scheduled") ||
+    value.includes("ongoing") ||
+    value.includes("in-progress") ||
+    value.includes("requested")
+  ) {
     classes = "bg-amber-100 text-amber-700";
-    label = status.replace(/-/g, " ");
-  } else if (isAvailableStatus(status)) {
+    label = "Pending";
+  } else if (value === "available") {
     classes = "bg-green-100 text-green-700";
     label = "Available";
   }
@@ -152,41 +442,32 @@ export default function ManagerDashboard() {
   const [packages, setPackages] = useState<RecordData[]>([]);
   const [staff, setStaff] = useState<RecordData[]>([]);
   const [maintenance, setMaintenance] = useState<RecordData[]>([]);
-
   const [bookings, setBookings] = useState<RecordData[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("All");
   const [checkIn, setCheckIn] = useState(todayString);
   const [checkOut, setCheckOut] = useState(tomorrowString);
 
-  const loadDashboardData = async (refresh = false) => {
-    if (refresh) setRefreshing(true);
-    else setLoading(true);
+  const loadDashboardData = useCallback(async (refresh = false) => {
+    if (refresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
 
     setError("");
 
     try {
-      const [
-        roomTypesResult,
-        roomsResult,
-        servicesResult,
-        packagesResult,
-        staffResult,
-        maintenanceResult,
-        equipmentResult,
-        bookingsResult,
-      ] = await Promise.allSettled([
+      const results = await Promise.allSettled([
         getDocs(collection(db, "roomTypes")),
         getDocs(collection(db, "rooms")),
         getDocs(collection(db, "services")),
         getDocs(collection(db, "packages")),
         getDocs(collection(db, "Staff")),
-        getDocs(collection(db, "maintenance")),
-        getDocs(collection(db, "equipment")),
+        getDocs(collection(db, "maintenanceRequests")),
         getDocs(collection(customerDb, "Bookings")),
       ]);
 
@@ -195,9 +476,9 @@ export default function ManagerDashboard() {
         collectionName: string,
       ): RecordData[] => {
         if (result.status === "fulfilled") {
-          return result.value.docs.map((doc: any) => ({
-            id: doc.id,
-            ...doc.data(),
+          return result.value.docs.map((document: any) => ({
+            ...document.data(),
+            id: document.id,
           }));
         }
 
@@ -205,27 +486,25 @@ export default function ManagerDashboard() {
         return [];
       };
 
-      setRoomTypes(convert(roomTypesResult, "roomTypes"));
-      setRooms(convert(roomsResult, "rooms"));
-      setServices(convert(servicesResult, "services"));
-      setPackages(convert(packagesResult, "packages"));
-      setStaff(convert(staffResult, "Staff"));
-      setMaintenance(convert(maintenanceResult, "maintenance"));
-
-      setBookings(convert(bookingsResult, "Bookings"));
-
-      const failed = [
+      const [
         roomTypesResult,
         roomsResult,
         servicesResult,
         packagesResult,
         staffResult,
         maintenanceResult,
-        equipmentResult,
         bookingsResult,
-      ].some((result) => result.status === "rejected");
+      ] = results;
 
-      if (failed) {
+      setRoomTypes(convert(roomTypesResult, "roomTypes"));
+      setRooms(convert(roomsResult, "rooms"));
+      setServices(convert(servicesResult, "services"));
+      setPackages(convert(packagesResult, "packages"));
+      setStaff(convert(staffResult, "Staff"));
+      setMaintenance(convert(maintenanceResult, "maintenanceRequests"));
+      setBookings(convert(bookingsResult, "Bookings"));
+
+      if (results.some((result) => result.status === "rejected")) {
         setError(
           "Some collections could not be loaded. Check the collection names and Firebase permissions.",
         );
@@ -237,53 +516,58 @@ export default function ManagerDashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void loadDashboardData();
-  }, []);
+  }, [loadDashboardData]);
 
   const activeBookings = useMemo(
-    () =>
-      bookings.filter((booking) => !isCancelled(normalized(booking.status))),
+    () => bookings.filter((booking) => !isCancelled(booking.status)),
     [bookings],
   );
 
   const roomAvailability = useMemo(() => {
     return roomTypes.map((type) => {
+      const typeId = normalized(type.id);
       const typeName = normalized(type.name ?? type.roomTypeName ?? type.type);
 
-      const typeId = normalized(type.id);
-
       const matchingRooms = rooms.filter((room) => {
-        const roomTypeId = normalized(room.roomTypeId ?? room.typeId);
-        const roomTypeName = normalized(
-          room.roomTypeName ?? room.roomType ?? room.typeName,
+        const roomTypeId = normalized(
+          room.roomTypeId ??
+            room.typeId ??
+            (typeof room.roomType === "object" ? room.roomType?.id : ""),
         );
 
+        const roomTypeName = normalized(getRoomTypeName(room, roomTypes));
+
         return (
-          (typeId && roomTypeId === typeId) ||
-          (typeName && roomTypeName === typeName)
+          (typeId !== "" && roomTypeId === typeId) ||
+          (typeName !== "" && roomTypeName === typeName)
         );
       });
 
       const inventory = matchingRooms.length
         ? matchingRooms.length
-        : Number(
-            type.count ??
-              type.quantity ??
-              type.totalRooms ??
-              type.numberOfRooms ??
-              type.availableRooms ??
-              0,
+        : Math.max(
+            0,
+            Number(
+              type.count ??
+                type.quantity ??
+                type.totalRooms ??
+                type.numberOfRooms ??
+                type.availableRooms ??
+                0,
+            ) || 0,
           );
 
       const maintainedRooms = matchingRooms.filter((room) =>
-        isMaintenance(recordStatus(room)),
+        getRecordStatuses(room).some(isMaintenance),
       ).length;
 
       const reservedBookings = activeBookings.filter((booking) => {
         if (!overlaps(booking, checkIn, checkOut)) return false;
+        if (!isRoomBooking(booking)) return false;
 
         const bookingTypeId = normalized(booking.roomTypeId ?? booking.typeId);
 
@@ -291,21 +575,9 @@ export default function ManagerDashboard() {
           booking.roomTypeName ?? booking.roomType ?? booking.roomName,
         );
 
-        const bookingType = normalized(
-          booking.bookingType ?? booking.itemType ?? booking.type,
-        );
-
-        if (
-          bookingType.includes("activity") ||
-          bookingType.includes("service") ||
-          bookingType.includes("package")
-        ) {
-          return false;
-        }
-
         return (
-          (typeId && bookingTypeId === typeId) ||
-          (typeName && bookingTypeName === typeName)
+          (typeId !== "" && bookingTypeId === typeId) ||
+          (typeName !== "" && bookingTypeName === typeName)
         );
       });
 
@@ -319,12 +591,10 @@ export default function ManagerDashboard() {
                 booking.numberOfRooms ??
                 booking.quantity ??
                 1,
-            ),
+            ) || 1,
           ),
         0,
       );
-
-      const available = Math.max(0, inventory - maintainedRooms - reserved);
 
       return {
         id: type.id,
@@ -332,35 +602,61 @@ export default function ManagerDashboard() {
         inventory,
         maintained: maintainedRooms,
         reserved,
-        available,
+        available: Math.max(0, inventory - maintainedRooms - reserved),
       };
     });
   }, [roomTypes, rooms, activeBookings, checkIn, checkOut]);
 
   const roomCounts = useMemo(() => {
-    const maintained = rooms.filter((room) =>
-      isMaintenance(recordStatus(room)),
-    ).length;
+    const maintainedRoomIds = new Set(
+      rooms
+        .filter((room) => getRecordStatuses(room).some(isMaintenance))
+        .map((room) => room.id),
+    );
 
-    const occupied = rooms.filter((room) => {
-      const status = recordStatus(room);
-      return status.includes("occupied") || status.includes("checked-in");
-    }).length;
+    maintenance.filter(isPendingMaintenanceTask).forEach((task) => {
+      const roomReference = text(
+        task.roomId ??
+          task.roomID ??
+          task.roomDocumentId ??
+          task.roomRef ??
+          task.roomCode ??
+          task.roomNo ??
+          task.roomNumber ??
+          task.assignedRoomId ??
+          task.selectedRoomId,
+      );
+
+      const matchedRoom = rooms.find((room) =>
+        [room.id, room.roomId, room.roomNumber, room.roomNo, room.roomCode]
+          .map(normalized)
+          .includes(normalized(roomReference)),
+      );
+
+      if (matchedRoom) {
+        maintainedRoomIds.add(matchedRoom.id);
+      }
+    });
+
+    const occupied = bookings.filter(
+      (booking) => isRoomBooking(booking) && isCheckedInBooking(booking),
+    ).length;
 
     const inactive = rooms.filter((room) =>
-      isInactive(recordStatus(room)),
+      getRecordStatuses(room).some(isInactive),
     ).length;
 
-    const total = rooms.length;
-
     return {
-      total,
-      maintained,
+      total: rooms.length,
+      maintained: maintainedRoomIds.size,
       occupied,
       inactive,
-      available: Math.max(0, total - maintained - occupied - inactive),
+      available: Math.max(
+        0,
+        rooms.length - maintainedRoomIds.size - occupied - inactive,
+      ),
     };
-  }, [rooms]);
+  }, [rooms, bookings, maintenance]);
 
   const resourceGroups: ResourceGroup[] = [
     {
@@ -370,7 +666,16 @@ export default function ManagerDashboard() {
       color: "text-orange-700",
       bg: "bg-orange-100",
       records: maintenance,
-      getName: recordName,
+      getName: (item) =>
+        text(
+          item.taskName ??
+            item.title ??
+            item.name ??
+            item.description ??
+            item.issue ??
+            item.problem ??
+            item.maintenanceType,
+        ) || "Unnamed Record",
       getStatus: recordStatus,
     },
   ];
@@ -383,45 +688,36 @@ export default function ManagerDashboard() {
     isAvailableStatus(recordStatus(item)),
   ).length;
 
-  const staffAvailable = staff.filter((item) => {
-    const status = recordStatus(item);
-    return (
-      status === "active" || status === "available" || status === "on-duty"
-    );
-  }).length;
-
-  const maintenancePending = maintenance.filter((item) => {
-    const status = recordStatus(item);
-    return (
-      status.includes("pending") ||
-      status.includes("requested") ||
-      status.includes("in-progress") ||
-      status.includes("ongoing")
-    );
-  }).length;
-
-  const totalRoomTypes = roomTypes.length;
-  const availableRoomTypes = roomAvailability.filter(
-    (type) => type.available > 0,
+  const staffAvailable = staff.filter((item) =>
+    getRecordStatuses(item).some((status) =>
+      ["active", "available", "on-duty"].includes(status),
+    ),
   ).length;
 
-  const filteredGroups = resourceGroups
-    .filter((group) => category === "All" || group.title === category)
-    .map((group) => ({
-      ...group,
-      records: group.records.filter((item) => {
-        const name = group.getName(item).toLowerCase();
-        const status = group.getStatus(item);
-        const query = search.trim().toLowerCase();
+  const maintenancePending = maintenance.filter(
+    isPendingMaintenanceTask,
+  ).length;
 
-        return (
-          !query ||
-          name.includes(query) ||
-          status.includes(query) ||
-          group.title.toLowerCase().includes(query)
-        );
-      }),
-    }));
+  const filteredGroups = resourceGroups.map((group) => ({
+    ...group,
+    records: group.records.filter((item) => {
+      const name = group.getName(item).toLowerCase();
+      const status = group.getStatus(item);
+      const query = search.trim().toLowerCase();
+
+      const roomNumber = text(
+        item.displayRoomNumber ?? item.roomNumber ?? item.roomNo ?? item.roomId,
+      ).toLowerCase();
+
+      return (
+        !query ||
+        name.includes(query) ||
+        status.includes(query) ||
+        roomNumber.includes(query) ||
+        group.title.toLowerCase().includes(query)
+      );
+    }),
+  }));
 
   if (loading) {
     return (
@@ -437,40 +733,40 @@ export default function ManagerDashboard() {
   const summaryCards = [
     {
       label: "Room Types",
-      value: `${availableRoomTypes}/${totalRoomTypes}`,
-      detail: "Types with rooms available",
+      value: String(roomTypes.length),
+      detail: `${roomAvailability.filter((room) => room.available > 0).length} types with availability`,
       icon: BedDouble,
       color: "text-blue-700",
       bg: "bg-blue-100",
     },
     {
-      label: "Available Rooms",
-      value: String(roomCounts.available),
+      label: "Rooms",
+      value: String(roomCounts.total),
       detail: `${roomCounts.occupied} currently occupied`,
       icon: DoorOpen,
       color: "text-green-700",
       bg: "bg-green-100",
     },
     {
-      label: "Available Services",
-      value: `${serviceAvailable}/${services.length}`,
-      detail: "Based on record status",
+      label: "Services",
+      value: String(services.length),
+      detail: `${serviceAvailable} available`,
       icon: Waves,
       color: "text-cyan-700",
       bg: "bg-cyan-100",
     },
     {
-      label: "Available Packages",
-      value: `${packageAvailable}/${packages.length}`,
-      detail: "Based on record status",
+      label: "Packages",
+      value: String(packages.length),
+      detail: `${packageAvailable} available`,
       icon: Package,
       color: "text-purple-700",
       bg: "bg-purple-100",
     },
     {
-      label: "Active Staff",
-      value: `${staffAvailable}/${staff.length}`,
-      detail: "Active or available staff",
+      label: "Staff",
+      value: String(staff.length),
+      detail: `${staffAvailable} active or available`,
       icon: Users,
       color: "text-amber-700",
       bg: "bg-amber-100",
@@ -485,26 +781,13 @@ export default function ManagerDashboard() {
     },
   ];
 
-  const categories = [
-    "All",
-    "Room Types",
-    "Rooms",
-    "Services & Activities",
-    "Packages",
-    "Staff",
-    "Maintenance",
-    "Equipment",
-  ];
-
   return (
     <div className="min-w-0 space-y-6">
-      {/* Page Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
             Resort Availability
           </h1>
-
           <p className="mt-1 text-sm text-gray-600">
             Monitor rooms, activities, packages, staff, and maintenance.
           </p>
@@ -528,7 +811,6 @@ export default function ManagerDashboard() {
         </div>
       )}
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {summaryCards.map((card) => {
           const Icon = card.icon;
@@ -559,7 +841,6 @@ export default function ManagerDashboard() {
         })}
       </div>
 
-      {/* Room Availability by Type */}
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="mb-5 flex items-start gap-3">
           <div className="rounded-lg bg-blue-100 p-2.5">
@@ -584,6 +865,7 @@ export default function ManagerDashboard() {
             >
               Check-in date
             </label>
+
             <input
               id="manager-checkin"
               type="date"
@@ -613,6 +895,7 @@ export default function ManagerDashboard() {
             >
               Check-out date
             </label>
+
             <input
               id="manager-checkout"
               type="date"
@@ -687,7 +970,6 @@ export default function ManagerDashboard() {
         )}
       </section>
 
-      {/* Resource Directory */}
       <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="space-y-6">
           {filteredGroups.map((group) => {
@@ -718,26 +1000,41 @@ export default function ManagerDashboard() {
 
                 {group.records.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border border-gray-100">
-                    <table className="w-full min-w-[420px] text-left text-sm">
+                    <table className="w-full min-w-[500px] text-left text-sm">
                       <thead className="bg-gray-50 text-xs uppercase text-gray-500">
                         <tr>
                           <th className="px-4 py-3 font-medium">Resource</th>
+                          <th className="px-4 py-3 font-medium">
+                            Room Number / Details
+                          </th>
                           <th className="px-4 py-3 font-medium">Status</th>
                         </tr>
                       </thead>
 
                       <tbody className="divide-y divide-gray-100">
                         {group.records.map((item) => {
-                          const status = group.getStatus(item);
+                          const isRoomGroup = group.title === "Rooms";
 
                           return (
                             <tr key={item.id} className="hover:bg-gray-50">
                               <td className="px-4 py-3 font-medium text-gray-800">
-                                {group.getName(item)}
+                                {isRoomGroup
+                                  ? getRoomTypeName(item, roomTypes)
+                                  : group.getName(item)}
+                              </td>
+
+                              <td className="px-4 py-3 text-gray-600">
+                                {isRoomGroup
+                                  ? getRoomNumber(item) || "Room number not set"
+                                  : getMaintenanceRoomLabel(
+                                      item,
+                                      rooms,
+                                      roomTypes,
+                                    ) || "No room linked"}
                               </td>
 
                               <td className="px-4 py-3">
-                                <StatusBadge status={status} />
+                                <StatusBadge status={group.getStatus(item)} />
                               </td>
                             </tr>
                           );
@@ -758,10 +1055,10 @@ export default function ManagerDashboard() {
         </div>
       </section>
 
-      {/* Operational Summary */}
       <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
           <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-green-700" />
+
           <div>
             <p className="font-semibold text-green-900">Available Resources</p>
             <p className="mt-1 text-sm text-green-800">
@@ -773,6 +1070,7 @@ export default function ManagerDashboard() {
 
         <div className="flex items-start gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4">
           <Wrench className="mt-0.5 size-5 shrink-0 text-orange-700" />
+
           <div>
             <p className="font-semibold text-orange-900">Maintenance</p>
             <p className="mt-1 text-sm text-orange-800">
@@ -784,6 +1082,7 @@ export default function ManagerDashboard() {
 
         <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
           <MonitorCheck className="mt-0.5 size-5 shrink-0 text-blue-700" />
+
           <div>
             <p className="font-semibold text-blue-900">Data Summary</p>
             <p className="mt-1 text-sm text-blue-800">

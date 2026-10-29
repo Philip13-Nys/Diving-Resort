@@ -439,10 +439,10 @@ export default function ManagerDashboard() {
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-gray-900">
-              Manager Dashboard
+              Receptionist Dashboard
             </h1>
             <p className="mt-1 text-sm text-gray-500">
-              Manage resort operations, bookings, and guest activities.
+              Receptionist resort operations, bookings, and guest activities.
             </p>
           </div>
 
@@ -490,95 +490,6 @@ export default function ManagerDashboard() {
             icon={CreditCard}
             iconClass="bg-orange-100 text-orange-700"
           />
-        </section>
-
-        {/* Quick Actions */}
-        <section>
-          <h2 className="mb-3 text-base font-semibold text-gray-900">
-            Quick Actions
-          </h2>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <Link
-              to="/walk-in"
-              className="group min-w-0 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div className="flex items-center justify-between">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
-                  <ClipboardList size={19} />
-                </span>
-                <ArrowRight
-                  size={17}
-                  className="text-gray-400 transition group-hover:translate-x-1"
-                />
-              </div>
-              <h3 className="mt-3 text-sm font-semibold text-gray-900">
-                New Walk-in
-              </h3>
-              <p className="mt-1 text-xs text-gray-500">
-                Create a walk-in booking
-              </p>
-            </Link>
-
-            <Link
-              to="/room-availability"
-              className="group min-w-0 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div className="flex items-center justify-between">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
-                  <DoorOpen size={19} />
-                </span>
-                <ArrowRight
-                  size={17}
-                  className="text-gray-400 transition group-hover:translate-x-1"
-                />
-              </div>
-              <h3 className="mt-3 text-sm font-semibold text-gray-900">
-                Check Room Availability
-              </h3>
-              <p className="mt-1 text-xs text-gray-500">View available rooms</p>
-            </Link>
-
-            <Link
-              to="/payments"
-              className="group min-w-0 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div className="flex items-center justify-between">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
-                  <CreditCard size={19} />
-                </span>
-                <ArrowRight
-                  size={17}
-                  className="text-gray-400 transition group-hover:translate-x-1"
-                />
-              </div>
-              <h3 className="mt-3 text-sm font-semibold text-gray-900">
-                Process Payment
-              </h3>
-              <p className="mt-1 text-xs text-gray-500">
-                Manage guest payments
-              </p>
-            </Link>
-
-            <Link
-              to="/reports"
-              className="group min-w-0 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div className="flex items-center justify-between">
-                <span className="flex size-10 items-center justify-center rounded-xl bg-gray-100 text-gray-600">
-                  <FileBarChart size={19} />
-                </span>
-                <ArrowRight
-                  size={17}
-                  className="text-gray-400 transition group-hover:translate-x-1"
-                />
-              </div>
-              <h3 className="mt-3 text-sm font-semibold text-gray-900">
-                View Reports
-              </h3>
-              <p className="mt-1 text-xs text-gray-500">View booking reports</p>
-            </Link>
-          </div>
         </section>
 
         {/* Today's Schedule and Guest Overview */}
@@ -669,12 +580,7 @@ export default function ManagerDashboard() {
                   value: todaysCheckIns.length,
                   color: "text-green-700",
                 },
-                {
-                  label: "Today's Check-outs",
-                  value:
-                    todaysCheckOuts.length + todaysCompletedCheckOuts.length,
-                  color: "text-orange-700",
-                },
+
                 {
                   label: "Currently Checked In",
                   value: occupiedBookings.length,
@@ -799,15 +705,6 @@ export default function ManagerDashboard() {
             />
           )}
         </section>
-
-        {/* Footer */}
-        <div className="flex flex-col gap-2 border-t border-gray-200 pt-4 text-xs text-gray-500 sm:flex-row sm:items-center sm:justify-between">
-          <span>Resort operations overview</span>
-          <span className="inline-flex items-center gap-1.5">
-            <CheckCircle2 size={14} />
-            Dashboard data loaded from Firebase
-          </span>
-        </div>
       </div>
     </main>
   );
