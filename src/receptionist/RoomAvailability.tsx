@@ -1,7 +1,16 @@
+import { useBookingInventory } from "../app/useBookingInventory";
+import {
+  activeBooking,
+  assignedRoomIds,
+  blockedRoom,
+  dateOnly,
+  localDate,
+  normalizeBookingValue,
+  roomBookingsOnDate,
+} from "../app/bookingAvailability";
+import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import { BedDouble, Waves, Trees, Anchor, Loader2 } from "lucide-react";
-import { collection, getDocs } from "firebase/firestore";
-import { db, customerDb } from "../app/firebase";
 
 type RoomStatus =
   | "available"
@@ -83,6 +92,7 @@ const TYPE_ICON: Record<
   string,
   React.ComponentType<{
     className?: string;
+    style?: React.CSSProperties;
   }>
 > = {
   "Beachfront Suite": Waves,
@@ -95,419 +105,96 @@ function getRoomIcon(type: string) {
   return TYPE_ICON[type] || BedDouble;
 }
 
-function normalizeDate(value: unknown): Date | null {
-  if (!value) {
-    return null;
-  }
-
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "toDate" in value &&
-    typeof (
-      value as {
-        toDate?: unknown;
-      }
-    ).toDate === "function"
-  ) {
-    const date = (
-      value as {
-        toDate: () => Date;
-      }
-    ).toDate();
-
-    return isNaN(date.getTime()) ? null : date;
-  }
-
-  if (value instanceof Date) {
-    return isNaN(value.getTime()) ? null : value;
-  }
-
-  if (typeof value === "object" && value !== null && "seconds" in value) {
-    const seconds = Number(
-      (
-        value as {
-          seconds: number;
-        }
-      ).seconds,
-    );
-
-    if (!isNaN(seconds)) {
-      return new Date(seconds * 1000);
-    }
-  }
-
-  const stringValue = String(value).trim();
-
-  if (!stringValue) {
-    return null;
-  }
-
-  let date = new Date(`${stringValue}T00:00:00`);
-
-  if (isNaN(date.getTime())) {
-    date = new Date(stringValue);
-  }
-
-  return isNaN(date.getTime()) ? null : date;
-}
-
 function formatDate(value: string) {
-  const date = normalizeDate(value);
-
-  if (!date) {
-    return value || "—";
-  }
-
-  return date.toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function startOfDay(date: Date) {
-  const result = new Date(date);
-
-  result.setHours(0, 0, 0, 0);
-
-  return result;
-}
-
-function isDateToday(value: string, today: Date) {
-  const date = normalizeDate(value);
-
-  if (!date) {
-    return false;
-  }
-
-  return startOfDay(date).getTime() === today.getTime();
-}
-
-function normalizeRoomValue(value: unknown) {
-  return String(value ?? "")
-    .trim()
-    .toLowerCase();
-}
-
-function isBookingCancelledOrFinished(booking: BookingRecord) {
-  const status = booking.status.toLowerCase().trim();
-
-  return (
-    status === "cancelled" || status === "checked-out" || status === "completed"
-  );
-}
-
-function isBookingCurrentlyCheckedIn(booking: BookingRecord) {
-  return booking.status.toLowerCase().trim() === "checked-in";
-}
-
-function isBookingConfirmed(booking: BookingRecord) {
-  const status = booking.status.toLowerCase().trim();
-
-  return status === "confirmed" || status === "pending";
-}
-
-function roomMatchesBooking(room: Room, booking: BookingRecord) {
-  const roomIdentifiers = [room.id, room.firestoreId];
-  const roomDataIdentifiers = [room.id];
-  const bookingIdentifiers = [booking.room, booking.roomId];
-  const normalizedRoomIdentifiers = [...roomIdentifiers, ...roomDataIdentifiers]
-    .filter(Boolean)
-    .map(normalizeRoomValue);
-
-  const normalizedBookingIdentifiers = bookingIdentifiers
-    .filter(Boolean)
-    .map(normalizeRoomValue);
-
-  return normalizedBookingIdentifiers.some((bookingIdentifier) =>
-    normalizedRoomIdentifiers.includes(bookingIdentifier),
-  );
-}
-
-function getBookingForRoom(room: Room, bookings: BookingRecord[], today: Date) {
-  return bookings.find((booking) => {
-    if (!roomMatchesBooking(room, booking)) {
-      return false;
-    }
-
-    if (isBookingCancelledOrFinished(booking)) {
-      return false;
-    }
-
-    const checkIn = normalizeDate(booking.checkIn);
-    const checkOut = normalizeDate(booking.checkOut);
-
-    if (!checkIn || !checkOut) {
-      return false;
-    }
-
-    const todayTime = today.getTime();
-    const checkInTime = startOfDay(checkIn).getTime();
-    const checkOutTime = startOfDay(checkOut).getTime();
-
-    if (isBookingCurrentlyCheckedIn(booking)) {
-      return todayTime >= checkInTime && todayTime < checkOutTime;
-    }
-
-    if (isBookingConfirmed(booking)) {
-      return todayTime >= checkInTime && todayTime < checkOutTime;
-    }
-
-    return false;
-  });
-}
-
-function getFutureBookingForRoom(
-  room: Room,
-  bookings: BookingRecord[],
-  today: Date,
-) {
-  return [...bookings]
-    .filter((booking) => {
-      if (!roomMatchesBooking(room, booking)) {
-        return false;
-      }
-
-      if (isBookingCancelledOrFinished(booking)) {
-        return false;
-      }
-
-      const checkIn = normalizeDate(booking.checkIn);
-
-      if (!checkIn) {
-        return false;
-      }
-
-      return startOfDay(checkIn).getTime() > today.getTime();
-    })
-    .sort((a, b) => {
-      const aDate = normalizeDate(a.checkIn);
-
-      const bDate = normalizeDate(b.checkIn);
-
-      return (aDate?.getTime() || 0) - (bDate?.getTime() || 0);
-    })[0];
+  const date = new Date(value + "T12:00:00");
+  return Number.isFinite(date.getTime())
+    ? date.toLocaleDateString("en-PH", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      })
+    : value;
 }
 
 export default function RoomAvailability() {
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [bookings, setBookings] = useState<BookingRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const {
+    rooms: inventory,
+    reservations,
+    loading,
+    error,
+  } = useBookingInventory();
   const [filter, setFilter] = useState<RoomStatus | "all">("all");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [selected, setSelected] = useState<Room | null>(null);
-
-  useEffect(() => {
-    loadRoomData();
-  }, []);
-
-  const loadRoomData = async () => {
-    try {
-      setLoading(true);
-      setError("");
-
-      const [roomSnapshot, bookingSnapshot] = await Promise.all([
-        getDocs(collection(db, "rooms")),
-        getDocs(collection(customerDb, "Bookings")),
-      ]);
-
-      const bookingData: BookingRecord[] = bookingSnapshot.docs.map(
-        (docSnap) => {
-          const data = docSnap.data();
-
-          return {
-            id: docSnap.id,
-
-            room: String(
-              data.room ?? data.roomName ?? data.roomNumber ?? "",
-            ).trim(),
-
-            roomId: data.roomId ? String(data.roomId).trim() : undefined,
-
-            roomType: data.roomType ? String(data.roomType) : undefined,
-
-            guest:
-              data.guest ??
-              data.guestName ??
-              data.customerName ??
-              "Unknown Guest",
-
-            checkIn: data.checkIn ?? "",
-
-            checkOut: data.checkOut ?? "",
-
-            status: String(data.status ?? "pending").toLowerCase(),
-          };
-        },
-      );
-
-      setBookings(bookingData);
-
-      const today = startOfDay(new Date());
-
-      let roomData: Room[] = roomSnapshot.docs.map((docSnap) => {
-        const data = docSnap.data();
-
-        const roomNumber = String(
-          data.roomNumber ?? data.room ?? data.number ?? docSnap.id,
-        ).trim();
-
-        const roomType = String(
-          data.type ?? data.roomType ?? data.category ?? "Room",
+  const today = localDate();
+  const rooms: Room[] = useMemo(() => {
+    const current = roomBookingsOnDate(inventory, reservations, today);
+    const futureDates = [
+      ...new Set(
+        reservations
+          .filter(activeBooking)
+          .map((b) => dateOnly(b.checkIn))
+          .filter((date) => date > today),
+      ),
+    ].sort();
+    const futureMaps = futureDates.map((date) =>
+      roomBookingsOnDate(inventory, reservations, date),
+    );
+    return inventory
+      .map((room) => {
+        const booking = current.get(room.id);
+        const future = futureMaps.map((map) => map.get(room.id)).find(Boolean);
+        const departing = reservations.find(
+          (b) =>
+            normalizeBookingValue(b.status) === "checked-in" &&
+            dateOnly(b.checkOut) === today &&
+            assignedRoomIds(b, inventory).includes(room.id),
         );
-
-        const capacity = Number(
-          data.capacity ?? data.maxGuests ?? data.guests ?? 0,
-        );
-
-        const floor = Number(data.floor ?? data.floorNumber ?? 0);
-
-        const rate = Number(
-          data.rate ??
-            data.roomRate ??
-            data.basePrice ??
-            data.price ??
-            data.pricePerNight ??
-            0,
-        );
-
-        let features: string[] = [];
-
-        if (Array.isArray(data.features)) {
-          features = data.features.map((feature: unknown) => String(feature));
-        } else if (Array.isArray(data.amenities)) {
-          features = data.amenities.map((feature: unknown) => String(feature));
-        } else if (typeof data.features === "string") {
-          features = data.features
-            .split(",")
-            .map((item: string) => item.trim())
-            .filter(Boolean);
-        }
-
-        const databaseStatus = String(data.status ?? "")
-          .toLowerCase()
-          .trim();
-
-        const room: Room = {
-          id: roomNumber,
-          firestoreId: docSnap.id,
-          type: roomType,
-          capacity,
-          floor,
-          rate,
-          status: "available",
-          features,
-        };
-
-        const currentBooking = getBookingForRoom(room, bookingData, today);
-        const futureBooking = getFutureBookingForRoom(room, bookingData, today);
         let status: RoomStatus = "available";
-
-        if (
-          databaseStatus === "maintenance" ||
-          databaseStatus === "under-maintenance"
-        ) {
-          status = "maintenance";
-        } else if (currentBooking) {
-          const checkoutToday = isDateToday(currentBooking.checkOut, today);
-
-          status = checkoutToday ? "checkout-today" : "occupied";
-        } else if (futureBooking) {
-          status = "reserved";
-        } else {
-          status = "available";
-        }
-
+        if (blockedRoom(room)) status = "maintenance";
+        else if (departing) status = "checkout-today";
+        else if (booking)
+          status = ["checked-in", "checkedin", "occupied"].includes(
+            normalizeBookingValue(booking.status),
+          )
+            ? "occupied"
+            : "reserved";
+        else if (["occupied", "checked-in"].includes(room.status))
+          status = "occupied";
+        else if (future) status = "reserved";
+        const guestBooking = departing || booking || future;
         return {
-          ...room,
+          id: room.roomNumber,
+          firestoreId: room.id,
+          type: room.type,
+          capacity: room.capacity,
+          floor: Number(room.floor || 0),
+          rate: Number(room.rate ?? room.basePrice ?? room.price ?? 0),
           status,
-          guest: currentBooking?.guest,
-          checkOut: currentBooking?.checkOut,
+          features: Array.isArray(room.features ?? room.amenities)
+            ? (room.features ?? room.amenities).map(String)
+            : [],
+          guest: guestBooking
+            ? String(
+                guestBooking.customerName ||
+                  guestBooking.guestName ||
+                  guestBooking.guest ||
+                  "Guest",
+              )
+            : undefined,
+          checkOut: guestBooking ? dateOnly(guestBooking.checkOut) : undefined,
         };
-      });
-
-      if (roomData.length === 0) {
-        const roomMap = new Map<string, Room>();
-
-        bookingData.forEach((booking) => {
-          if (!booking.room) {
-            return;
-          }
-
-          const roomId = booking.room;
-
-          if (roomMap.has(roomId)) {
-            return;
-          }
-
-          roomMap.set(roomId, {
-            id: roomId,
-            firestoreId: roomId,
-            type: booking.roomType || "Room",
-            capacity: 0,
-            floor: 0,
-            rate: 0,
-            status: "available",
-            features: [],
-          });
-        });
-
-        roomData = Array.from(roomMap.values()).map((room) => {
-          const currentBooking = getBookingForRoom(room, bookingData, today);
-
-          const futureBooking = getFutureBookingForRoom(
-            room,
-            bookingData,
-            today,
-          );
-
-          let status: RoomStatus = "available";
-
-          if (currentBooking) {
-            status = isDateToday(currentBooking.checkOut, today)
-              ? "checkout-today"
-              : "occupied";
-          } else if (futureBooking) {
-            status = "reserved";
-          }
-
-          return {
-            ...room,
-
-            status,
-
-            guest: currentBooking?.guest,
-
-            checkOut: currentBooking?.checkOut,
-          };
-        });
-      }
-
-      roomData.sort((a, b) =>
-        a.id.localeCompare(b.id, undefined, {
-          numeric: true,
-        }),
-      );
-
-      setRooms(roomData);
-
-      setSelected((previous) => {
-        if (!previous) {
-          return null;
-        }
-
-        return roomData.find((room) => room.id === previous.id) || null;
-      });
-    } catch (err) {
-      console.error("Error loading rooms:", err);
-
-      setError("Unable to load rooms from Firebase.");
-    } finally {
-      setLoading(false);
-    }
-  };
+      })
+      .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
+  }, [inventory, reservations, today]);
+  useEffect(() => {
+    setSelected((previous) =>
+      previous
+        ? rooms.find((room) => room.firestoreId === previous.firestoreId) ||
+          null
+        : null,
+    );
+  }, [rooms]);
 
   const roomTypes = useMemo(
     () => ["all", ...Array.from(new Set(rooms.map((room) => room.type)))],
@@ -586,7 +273,7 @@ export default function RoomAvailability() {
             bg: "#f0f9f8",
           },
         ].map((s) => (
-          <button
+          <AsyncButton
             key={s.label}
             onClick={() => setFilter(filter === s.status ? "all" : s.status)}
             className="rounded-xl border p-4 text-left transition-all"
@@ -615,7 +302,7 @@ export default function RoomAvailability() {
             >
               {s.label}
             </div>
-          </button>
+          </AsyncButton>
         ))}
       </div>
 
@@ -630,7 +317,7 @@ export default function RoomAvailability() {
         </span>
 
         {roomTypes.map((type) => (
-          <button
+          <AsyncButton
             key={type}
             onClick={() => setTypeFilter(type)}
             className="rounded-lg border px-3 py-1.5 text-xs transition-all"
@@ -644,7 +331,7 @@ export default function RoomAvailability() {
             }}
           >
             {type === "all" ? "All Types" : type}
-          </button>
+          </AsyncButton>
         ))}
       </div>
 
@@ -656,7 +343,7 @@ export default function RoomAvailability() {
             const Icon = getRoomIcon(room.type);
 
             return (
-              <button
+              <AsyncButton
                 key={room.firestoreId}
                 onClick={() => setSelected(room === selected ? null : room)}
                 className="rounded-xl border-2 p-4 text-left transition-all hover:shadow-md"
@@ -722,7 +409,7 @@ export default function RoomAvailability() {
                     {status.label}
                   </span>
                 </div>
-              </button>
+              </AsyncButton>
             );
           })}
 
@@ -760,7 +447,7 @@ export default function RoomAvailability() {
                   Room {selected.id}
                 </span>
 
-                <button
+                <AsyncButton
                   onClick={() => setSelected(null)}
                   className="rounded px-2 py-1 text-xs"
                   style={{
@@ -768,7 +455,7 @@ export default function RoomAvailability() {
                   }}
                 >
                   ✕
-                </button>
+                </AsyncButton>
               </div>
 
               <p
@@ -956,7 +643,7 @@ export default function RoomAvailability() {
               )}
 
               {selected.status === "available" && (
-                <button
+                <AsyncButton
                   className="w-full rounded-lg py-2.5 text-sm text-white"
                   style={{
                     background: "#0d7377",
@@ -964,7 +651,7 @@ export default function RoomAvailability() {
                   onClick={() => console.log("Book room:", selected.id)}
                 >
                   Book This Room
-                </button>
+                </AsyncButton>
               )}
             </div>
           </div>

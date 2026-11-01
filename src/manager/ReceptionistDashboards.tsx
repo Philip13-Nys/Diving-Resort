@@ -1,5 +1,5 @@
+import { getBookingSnapshot } from "../app/bookingStore";
 import { Card } from "../app/components/ui/card";
-import { Button } from "../app/components/ui/button";
 
 import {
   ClipboardCheck,
@@ -10,7 +10,6 @@ import {
   Users,
 } from "lucide-react";
 
-import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 
@@ -45,7 +44,6 @@ interface Booking {
 }
 
 export default function ReceptionistDashboards() {
-  const navigate = useNavigate();
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -55,7 +53,7 @@ export default function ReceptionistDashboards() {
       try {
         setLoading(true);
 
-        const snapshot = await getDocs(collection(customerDb, "Bookings"));
+        const snapshot = await getBookingSnapshot();
 
         console.log("Bookings found:", snapshot.size);
 
@@ -238,12 +236,6 @@ export default function ReceptionistDashboards() {
           </div>
         </div>
 
-        <Button
-          onClick={() => navigate("/manager/bookings")}
-          className="w-full md:w-auto bg-blue-600 hover:bg-blue-700 text-white"
-        >
-          View All Bookings
-        </Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

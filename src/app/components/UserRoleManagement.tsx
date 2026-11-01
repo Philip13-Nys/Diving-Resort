@@ -1,3 +1,4 @@
+import { AsyncButton, AsyncForm } from "./ui/async-action";
 import { Edit, Trash2, Plus, Search, X, Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -316,13 +317,13 @@ export default function UserRoleManagement() {
           </p>
         </div>
 
-        <button
+        <AsyncButton
           onClick={openAdd}
           className="flex shrink-0 items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-white transition-colors hover:bg-cyan-700"
         >
           <Plus className="size-4" />
           Add New User
-        </button>
+        </AsyncButton>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -418,38 +419,38 @@ export default function UserRoleManagement() {
                   <td className="whitespace-nowrap px-6 py-4">
                     {deleteConfirm === user.id ? (
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => void handleDelete(user.id)}
+                        <AsyncButton
+                          onClick={() => handleDelete(user.id)}
                           className="rounded-lg bg-red-600 px-3 py-1 text-xs text-white transition-colors hover:bg-red-700"
                         >
                           Confirm
-                        </button>
-                        <button
+                        </AsyncButton>
+                        <AsyncButton
                           onClick={() => setDeleteConfirm(null)}
                           className="rounded-lg border border-gray-300 px-3 py-1 text-xs transition-colors hover:bg-gray-50"
                         >
                           Cancel
-                        </button>
+                        </AsyncButton>
                       </div>
                     ) : (
                       <div className="flex items-center gap-2">
-                        <button
+                        <AsyncButton
                           onClick={() => openEdit(user)}
                           className="rounded-lg p-2 transition-colors hover:bg-gray-100"
                           title="Edit user"
                           aria-label={`Edit ${user.username || user.name}`}
                         >
                           <Edit className="size-4 text-gray-600" />
-                        </button>
+                        </AsyncButton>
 
-                        <button
+                        <AsyncButton
                           onClick={() => setDeleteConfirm(user.id)}
                           className="rounded-lg p-2 transition-colors hover:bg-red-50"
                           title="Delete user"
                           aria-label={`Delete ${user.username || user.name}`}
                         >
                           <Trash2 className="size-4 text-red-600" />
-                        </button>
+                        </AsyncButton>
                       </div>
                     )}
                   </td>
@@ -479,7 +480,7 @@ export default function UserRoleManagement() {
                 {editUser ? "Edit User" : "Add New User"}
               </h2>
 
-              <button
+              <AsyncButton
                 type="button"
                 onClick={closeModal}
                 disabled={saving}
@@ -487,10 +488,10 @@ export default function UserRoleManagement() {
                 aria-label="Close modal"
               >
                 <X className="size-5" />
-              </button>
+              </AsyncButton>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4 p-6">
+            <AsyncForm onSubmit={handleSubmit} className="space-y-4 p-6">
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">
                   Full Name *
@@ -602,16 +603,16 @@ export default function UserRoleManagement() {
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
-                <button
+                <AsyncButton
                   type="button"
                   onClick={closeModal}
                   disabled={saving}
                   className="rounded-lg border border-gray-300 px-4 py-2 text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
                 >
                   Cancel
-                </button>
+                </AsyncButton>
 
-                <button
+                <AsyncButton
                   type="submit"
                   disabled={saving}
                   className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -624,9 +625,9 @@ export default function UserRoleManagement() {
                     : editUser
                       ? "Save Changes"
                       : "Add User"}
-                </button>
+                </AsyncButton>
               </div>
-            </form>
+            </AsyncForm>
           </div>
         </div>
       )}

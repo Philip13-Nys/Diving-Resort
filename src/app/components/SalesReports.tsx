@@ -1,3 +1,5 @@
+import { getBookingSnapshot } from "../bookingStore";
+import { AsyncButton, AsyncForm } from "./ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
   TrendingUp,
@@ -94,7 +96,7 @@ export default function SalesReports() {
     try {
       setLoading(true);
 
-      const snapshot = await getDocs(collection(db, "Bookings"));
+      const snapshot = await getBookingSnapshot();
 
       const data: Booking[] = snapshot.docs.map((bookingDoc) => {
         const value = bookingDoc.data();
@@ -701,21 +703,21 @@ export default function SalesReports() {
 
       {/* Buttons */}
       <div className="flex flex-wrap gap-3">
-        <button
+        <AsyncButton
           onClick={openReportModal}
           className="flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700"
         >
           <span className="font-bold">₱</span>
           Generate Financial Report
-        </button>
+        </AsyncButton>
 
-        <button
+        <AsyncButton
           onClick={handleExportData}
           className="flex items-center gap-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50"
         >
           <Download className="size-4" />
           Export Data
-        </button>
+        </AsyncButton>
       </div>
 
       {/* Generate Financial Report Modal */}
@@ -727,17 +729,17 @@ export default function SalesReports() {
                 Generate Financial Report
               </h2>
 
-              <button
+              <AsyncButton
                 onClick={() => setShowReportModal(false)}
                 className="text-white/80 hover:text-white"
               >
                 <X className="size-5" />
-              </button>
+              </AsyncButton>
             </div>
 
             <div className="p-6">
               {!reportReady ? (
-                <form onSubmit={handleGenerate} className="space-y-4">
+                <AsyncForm onSubmit={handleGenerate} className="space-y-4">
                   <p className="text-sm text-gray-600">
                     Configure the reporting period. The report uses your actual
                     Firebase booking records.
@@ -751,7 +753,7 @@ export default function SalesReports() {
                     <div className="flex gap-2">
                       {(["monthly", "quarterly", "annual"] as const).map(
                         (type) => (
-                          <button
+                          <AsyncButton
                             key={type}
                             type="button"
                             onClick={() => setReportPeriod(type)}
@@ -762,7 +764,7 @@ export default function SalesReports() {
                             }`}
                           >
                             {type}
-                          </button>
+                          </AsyncButton>
                         ),
                       )}
                     </div>
@@ -879,15 +881,15 @@ export default function SalesReports() {
                   )}
 
                   <div className="flex justify-end gap-3 pt-2">
-                    <button
+                    <AsyncButton
                       type="button"
                       onClick={() => setShowReportModal(false)}
                       className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700"
                     >
                       Cancel
-                    </button>
+                    </AsyncButton>
 
-                    <button
+                    <AsyncButton
                       type="submit"
                       disabled={generating}
                       className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg disabled:opacity-60"
@@ -903,9 +905,9 @@ export default function SalesReports() {
                           Generate Report
                         </>
                       )}
-                    </button>
+                    </AsyncButton>
                   </div>
-                </form>
+                </AsyncForm>
               ) : (
                 <div className="space-y-4">
                   <div className="flex items-center gap-3 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg">
@@ -955,20 +957,20 @@ export default function SalesReports() {
                   </div>
 
                   <div className="flex justify-end gap-3">
-                    <button
+                    <AsyncButton
                       onClick={() => setShowReportModal(false)}
                       className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700"
                     >
                       Close
-                    </button>
+                    </AsyncButton>
 
-                    <button
+                    <AsyncButton
                       onClick={handleDownloadReport}
                       className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg"
                     >
                       <Download className="size-4" />
                       Download CSV
-                    </button>
+                    </AsyncButton>
                   </div>
                 </div>
               )}

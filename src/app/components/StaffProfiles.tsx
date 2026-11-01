@@ -1,3 +1,4 @@
+import { AsyncButton, AsyncForm } from "./ui/async-action";
 import {
   User,
   Mail,
@@ -207,13 +208,13 @@ export default function StaffProfiles() {
             View, add, update, and maintain staff records and information
           </p>
         </div>
-        <button
+        <AsyncButton
           onClick={openAdd}
           className="flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700 transition-colors"
         >
           <Plus className="size-4" />
           Add Staff Member
-        </button>
+        </AsyncButton>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -245,17 +246,17 @@ export default function StaffProfiles() {
               />
             </div>
             <div className="relative">
-              <button
+              <AsyncButton
                 onClick={() => setShowFilter(!showFilter)}
                 className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <Filter className="size-4" />
                 {filterDept === "All" ? "Filter" : filterDept}
-              </button>
+              </AsyncButton>
               {showFilter && (
                 <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-40">
                   {["All", ...departmentOptions].map((dept) => (
-                    <button
+                    <AsyncButton
                       key={dept}
                       onClick={() => {
                         setFilterDept(dept);
@@ -268,7 +269,7 @@ export default function StaffProfiles() {
                       }`}
                     >
                       {dept}
-                    </button>
+                    </AsyncButton>
                   ))}
                 </div>
               )}
@@ -345,35 +346,35 @@ export default function StaffProfiles() {
                   </div>
 
                   <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
-                    <button
+                    <AsyncButton
                       onClick={() => openEdit(member)}
                       className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-cyan-700 px-2 py-1 rounded hover:bg-cyan-50 transition-colors"
                     >
                       <Edit className="size-3.5" />
                       Edit
-                    </button>
+                    </AsyncButton>
                     {deleteConfirm === member.id ? (
                       <>
-                        <button
+                        <AsyncButton
                           onClick={() => setDeleteConfirm(member.id)}
                           className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded transition-colors"
                         >
-                          Confirm Delete
-                        </button>
-                        <button
+                          Delete
+                        </AsyncButton>
+                        <AsyncButton
                           onClick={() => setDeleteConfirm(null)}
                           className="text-xs text-gray-600 border border-gray-300 px-2 py-1 rounded hover:bg-gray-50 transition-colors"
                         >
                           Cancel
-                        </button>
+                        </AsyncButton>
                       </>
                     ) : (
-                      <button
+                      <AsyncButton
                         onClick={() => handleDelete(member.id)}
                         className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded transition-colors"
                       >
                         Confirm Delete
-                      </button>
+                      </AsyncButton>
                     )}
                   </div>
                 </div>
@@ -395,15 +396,15 @@ export default function StaffProfiles() {
               <h2 className="text-lg font-semibold text-white">
                 {editStaff ? "Edit Staff Member" : "Add Staff Member"}
               </h2>
-              <button
+              <AsyncButton
                 onClick={closeModal}
                 className="text-white/80 hover:text-white transition-colors"
               >
                 <X className="size-5" />
-              </button>
+              </AsyncButton>
             </div>
 
-            <form
+            <AsyncForm
               onSubmit={handleSubmit}
               className="p-6 space-y-4 overflow-y-auto"
             >
@@ -532,21 +533,21 @@ export default function StaffProfiles() {
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
-                <button
+                <AsyncButton
                   type="button"
                   onClick={closeModal}
                   className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                 >
                   Cancel
-                </button>
-                <button
+                </AsyncButton>
+                <AsyncButton
                   type="submit"
                   className="px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors font-medium"
                 >
                   {editStaff ? "Save Changes" : "Add Staff Member"}
-                </button>
+                </AsyncButton>
               </div>
-            </form>
+            </AsyncForm>
           </div>
         </div>
       )}

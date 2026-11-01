@@ -1,3 +1,4 @@
+import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useState } from "react";
 import {
   MessageSquare,
@@ -446,7 +447,7 @@ export default function Inquiries() {
               {(
                 ["all", "new", "in-progress", "resolved", "cancelled"] as const
               ).map((status) => (
-                <button
+                <AsyncButton
                   key={status}
                   type="button"
                   onClick={() => setFilter(status)}
@@ -457,7 +458,7 @@ export default function Inquiries() {
                   }}
                 >
                   {status === "all" ? "All" : STATUS_CONFIG[status].label}
-                </button>
+                </AsyncButton>
               ))}
             </div>
           </div>
@@ -482,7 +483,7 @@ export default function Inquiries() {
                 const status = STATUS_CONFIG[inq.status];
 
                 return (
-                  <button
+                  <AsyncButton
                     key={inq.id}
                     type="button"
                     onClick={() => markAsRead(inq)}
@@ -536,7 +537,7 @@ export default function Inquiries() {
                         </p>
                       </div>
                     </div>
-                  </button>
+                  </AsyncButton>
                 );
               })
             )}
@@ -565,7 +566,7 @@ export default function Inquiries() {
                 className="px-3 sm:px-6 py-3 sm:py-4 border-b flex items-center gap-3 flex-shrink-0"
                 style={{ borderColor: "rgba(13,115,119,0.1)" }}
               >
-                <button
+                <AsyncButton
                   type="button"
                   onClick={() => setSelected(null)}
                   className="lg:hidden flex-shrink-0 p-2 rounded-lg"
@@ -573,7 +574,7 @@ export default function Inquiries() {
                   aria-label="Back to inquiries"
                 >
                   <ArrowLeft className="w-5 h-5" />
-                </button>
+                </AsyncButton>
 
                 <div className="min-w-0 flex-1">
                   <h3
@@ -596,7 +597,7 @@ export default function Inquiries() {
                       const cfg = STATUS_CONFIG[status];
 
                       return (
-                        <button
+                        <AsyncButton
                           key={status}
                           type="button"
                           onClick={() => updateStatus(selected.id, status)}
@@ -617,7 +618,7 @@ export default function Inquiries() {
                           }}
                         >
                           {cfg.label}
-                        </button>
+                        </AsyncButton>
                       );
                     },
                   )}
@@ -759,7 +760,7 @@ export default function Inquiries() {
                   />
 
                   <div className="flex justify-end mt-2">
-                    <button
+                    <AsyncButton
                       type="button"
                       onClick={sendReply}
                       disabled={
@@ -782,7 +783,7 @@ export default function Inquiries() {
                           Send Reply
                         </>
                       )}
-                    </button>
+                    </AsyncButton>
                   </div>
                 </div>
               </div>

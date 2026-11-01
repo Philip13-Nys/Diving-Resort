@@ -1,3 +1,4 @@
+import { AsyncButton } from "./ui/async-action";
 import { useEffect, useState } from "react";
 import type { ElementType, ReactNode } from "react";
 import {
@@ -678,7 +679,7 @@ export default function SystemSettings() {
       </SettingsSection>
 
       <div className="flex flex-col-reverse gap-3 border-t border-gray-200 pt-5 sm:flex-row sm:justify-end">
-        <button
+        <AsyncButton
           type="button"
           onClick={handleReset}
           disabled={saving}
@@ -686,9 +687,9 @@ export default function SystemSettings() {
         >
           <RotateCcw className="size-4" />
           Reset to Defaults
-        </button>
+        </AsyncButton>
 
-        <button
+        <AsyncButton
           type="button"
           onClick={handleSave}
           disabled={saving}
@@ -701,7 +702,7 @@ export default function SystemSettings() {
           )}
 
           {saving ? "Saving Settings..." : "Save Settings"}
-        </button>
+        </AsyncButton>
       </div>
     </div>
   );

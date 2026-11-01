@@ -1,3 +1,5 @@
+import { getBookingSnapshot } from "../app/bookingStore";
+import { AsyncButton } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import {
   BarChart,
@@ -352,7 +354,7 @@ export default function Dashboard() {
 
     try {
       const [bookingSnapshot, roomSnapshot] = await Promise.all([
-        getDocs(collection(customerDb, "Bookings")),
+        getBookingSnapshot(),
         getDocs(collection(db, "rooms")),
       ]);
 
@@ -530,7 +532,7 @@ export default function Dashboard() {
           </p>
         </div>
 
-        <button
+        <AsyncButton
           type="button"
           onClick={() => void loadDashboard(true)}
           disabled={loading || refreshing}
@@ -542,7 +544,7 @@ export default function Dashboard() {
             <RefreshCw className="size-4" />
           )}
           {refreshing ? "Refreshing..." : "Refresh Dashboard"}
-        </button>
+        </AsyncButton>
       </div>
 
       {error && (
@@ -551,13 +553,13 @@ export default function Dashboard() {
           className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
         >
           {error}
-          <button
+          <AsyncButton
             type="button"
             onClick={() => void loadDashboard(true)}
             className="ml-2 font-semibold underline underline-offset-2"
           >
             Try again
-          </button>
+          </AsyncButton>
         </div>
       )}
 
@@ -641,7 +643,7 @@ export default function Dashboard() {
             const Icon = action.icon;
 
             return (
-              <button
+              <AsyncButton
                 key={action.label}
                 type="button"
                 title={action.description}
@@ -656,7 +658,7 @@ export default function Dashboard() {
                 <span className="text-xs font-medium leading-snug text-gray-700 sm:text-sm">
                   {action.label}
                 </span>
-              </button>
+              </AsyncButton>
             );
           })}
         </div>
@@ -849,14 +851,14 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <button
+          <AsyncButton
             type="button"
             onClick={() => navigate("/manager/reservations")}
             className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 sm:self-auto"
           >
             <CalendarDays className="size-4" />
             View Reservations
-          </button>
+          </AsyncButton>
         </div>
 
         {loading ? (

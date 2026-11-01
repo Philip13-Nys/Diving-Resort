@@ -1,3 +1,4 @@
+import { AsyncButton } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Edit, Mail, Phone, Calendar, X, Save } from "lucide-react";
@@ -305,7 +306,7 @@ export default function StaffProfiles() {
               <h2 className="text-lg font-semibold text-gray-900">
                 Edit Staff Member
               </h2>
-              <button
+              <AsyncButton
                 onClick={() => {
                   setEditing(null);
                   setForm(null);
@@ -313,7 +314,7 @@ export default function StaffProfiles() {
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">

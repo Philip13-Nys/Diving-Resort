@@ -1,3 +1,5 @@
+import { getBookingSnapshot, getPaymentSnapshot } from "../app/bookingStore";
+import { AsyncButton } from "../app/components/ui/async-action";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -11,7 +13,7 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
-import { customerDb } from "../app/firebase";
+import { db, customerDb } from "../app/firebase";
 import {
   Search,
   CreditCard,
@@ -22,22 +24,24 @@ import {
 } from "lucide-react";
 
 interface Payment {
+  bookingStore?: "staff" | "customer";
   id: string;
   bookingId: string;
   guest: string;
   room: string;
   amount: number;
-  method: "cash" | "gcash";
+  method: "cash" | "gcash" | "card";
   type: "full" | "partial" | "balance";
   date: string;
   time: string;
-  status: "completed" | "pending";
+  status: "completed" | "pending" | "rejected";
   receiptNo: string;
   referenceNumber: string;
   verificationStatus: "pending" | "verified" | "rejected";
 }
 
 interface PendingBalance {
+  bookingStore?: "staff" | "customer";
   bookingId: string;
   userId: string;
   guest: string;
@@ -51,11 +55,13 @@ interface PendingBalance {
 const METHOD_ICON: Record<string, LucideIcon> = {
   cash: Banknote,
   gcash: Smartphone,
+  card: CreditCard,
 };
 
 const METHOD_COLOR: Record<string, { color: string; bg: string }> = {
   cash: { color: "#0d7377", bg: "#e2f3f2" },
   gcash: { color: "#14b8a6", bg: "#f0fdfa" },
+  card: { color: "#7c3aed", bg: "#f5f3ff" },
 };
 
 /**
@@ -135,9 +141,9 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
               {booking.bookingId} · {booking.guest}
             </p>
           </div>
-          <button onClick={onClose} style={{ color: "#4a7a7a" }}>
+          <AsyncButton onClick={onClose} style={{ color: "#4a7a7a" }}>
             <X className="w-5 h-5" />
-          </button>
+          </AsyncButton>
         </div>
 
         <div className="p-6 space-y-5">
@@ -165,13 +171,13 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
             <label className="block text-sm mb-2" style={{ color: "#4a7a7a" }}>
               Payment Method
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              {(["cash", "gcash"] as const).map((m) => {
+            <div className="grid grid-cols-3 gap-3">
+              {(["cash", "card", "gcash"] as const).map((m) => {
                 const Icon = METHOD_ICON[m];
                 const c = METHOD_COLOR[m];
 
                 return (
-                  <button
+                  <AsyncButton
                     key={m}
                     onClick={() => setMethod(m)}
                     className="flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all"
@@ -183,9 +189,9 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
                   >
                     <Icon className="w-5 h-5" style={{ color: c.color }} />
                     <span className="text-xs" style={{ color: "#0a2e2e" }}>
-                      {m === "gcash" ? "GCash" : "Cash"}
+                      {m === "gcash" ? "GCash" : m === "card" ? "Card" : "Cash"}
                     </span>
-                  </button>
+                  </AsyncButton>
                 );
               })}
             </div>
@@ -210,7 +216,7 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
               }}
             />
             <div className="flex gap-2 mt-2">
-              <button
+              <AsyncButton
                 onClick={() => setAmount(booking.balance.toString())}
                 className="text-xs px-3 py-1.5 rounded-lg border"
                 style={{
@@ -219,8 +225,8 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
                 }}
               >
                 Full Balance
-              </button>
-              <button
+              </AsyncButton>
+              <AsyncButton
                 onClick={() => setAmount((booking.balance / 2).toFixed(2))}
                 className="text-xs px-3 py-1.5 rounded-lg border"
                 style={{
@@ -229,7 +235,7 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
                 }}
               >
                 Half
-              </button>
+              </AsyncButton>
             </div>
             {invalidAmount && (
               <p className="text-xs mt-2" style={{ color: "#d4183d" }}>
@@ -253,21 +259,21 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
           className="flex gap-3 px-6 py-4 border-t"
           style={{ borderColor: "rgba(13,115,119,0.1)" }}
         >
-          <button
+          <AsyncButton
             onClick={onClose}
             className="flex-1 py-2.5 rounded-lg border text-sm"
             style={{ borderColor: "rgba(13,115,119,0.2)", color: "#4a7a7a" }}
           >
             Cancel
-          </button>
-          <button
+          </AsyncButton>
+          <AsyncButton
             disabled={invalidAmount}
             onClick={() => onPay(method, numericAmount)}
             className="flex-1 py-2.5 rounded-lg text-sm text-white flex items-center justify-center gap-2 disabled:opacity-50"
             style={{ background: "#0d7377" }}
           >
             <Check className="w-4 h-4" /> Confirm Payment
-          </button>
+          </AsyncButton>
         </div>
       </div>
     </div>
@@ -290,7 +296,7 @@ export default function Payments() {
     try {
       setLoading(true);
 
-      const paymentSnap = await getDocs(collection(customerDb, "Payments"));
+      const paymentSnap = await getPaymentSnapshot();
 
       const paymentData: Payment[] = paymentSnap.docs.map((docSnap) => {
         const d = docSnap.data();
@@ -322,15 +328,17 @@ export default function Payments() {
 
         return {
           id: docSnap.id,
+          bookingStore: (d._bookingStore === "staff" ? "staff" : "customer") as "staff" | "customer",
           bookingId: d.bookingId || "",
           guest: d.guest || d.customerName || "",
           room: d.room || d.roomName || "",
           amount: Number(d.amount || 0),
-          method: rawMethod.includes("gcash") ? "gcash" : "cash",
+          method: rawMethod.includes("gcash") ? "gcash" : rawMethod.includes("card") ? "card" : "cash",
           type: d.type || "partial",
           date,
           time,
           status:
+            rawStatus === "rejected" || rawVerification === "rejected" ? "rejected" :
             rawStatus === "pending" || rawStatus === "pending_verification"
               ? "pending"
               : "completed",
@@ -347,7 +355,7 @@ export default function Payments() {
 
       setPayments(paymentData);
 
-      const bookingSnap = await getDocs(collection(customerDb, "Bookings"));
+      const bookingSnap = await getBookingSnapshot();
 
       const balances: PendingBalance[] = bookingSnap.docs
         .map((docSnap) => {
@@ -359,6 +367,7 @@ export default function Payments() {
 
           return {
             bookingId: docSnap.id,
+            bookingStore: (d._bookingStore === "staff" ? "staff" : "customer") as "staff" | "customer",
             userId: String(d.userId ?? ""),
             guest: d.customerName || "",
             room: d.roomName || "",
@@ -389,12 +398,13 @@ export default function Payments() {
     }
 
     try {
-      const bookingRef = doc(customerDb, "Bookings", payModal.bookingId);
-      const paymentRef = doc(collection(customerDb, "Payments"));
+      const store = payModal.bookingStore === "staff" ? db : customerDb;
+      const bookingRef = doc(store, payModal.bookingStore === "staff" ? "reservations" : "Bookings", payModal.bookingId);
+      const paymentRef = doc(collection(store, "Payments"));
       const now = new Date();
 
       const paymentResult = await runTransaction(
-        customerDb,
+        store,
         async (transaction) => {
           const bookingSnap = await transaction.get(bookingRef);
 
@@ -449,6 +459,7 @@ export default function Payments() {
           transaction.update(bookingRef, {
             amountPaid: newAmountPaid,
             remainingBalance,
+            balance: remainingBalance,
             paymentStatus:
               remainingBalance === 0
                 ? "paid"
@@ -475,7 +486,7 @@ export default function Payments() {
           title: "Payment Received",
           message:
             `We received your ₱${amount.toLocaleString()} ` +
-            `${method === "gcash" ? "GCash" : "cash"} payment for ` +
+            `${method === "gcash" ? "GCash" : method === "card" ? "card" : "cash"} payment for ` +
             `${paymentResult.room || "your booking"}. ` +
             (paymentResult.remainingBalance === 0
               ? "Your booking is now fully paid."
@@ -510,8 +521,9 @@ export default function Payments() {
   // Verify the existing customer-submitted GCash record.
   const verifyGcashPayment = async (payment: Payment) => {
     try {
-      const paymentRef = doc(customerDb, "Payments", payment.id);
-      const bookingRef = doc(customerDb, "Bookings", payment.bookingId);
+      const store = payment.bookingStore === "staff" ? db : customerDb;
+      const paymentRef = doc(store, "Payments", payment.id);
+      const bookingRef = doc(store, payment.bookingStore === "staff" ? "reservations" : "Bookings", payment.bookingId);
 
       const verifiedBooking = await runTransaction(
         customerDb,
@@ -572,6 +584,7 @@ export default function Payments() {
           transaction.update(bookingRef, {
             amountPaid: newAmountPaid,
             remainingBalance,
+            balance: remainingBalance,
             paymentStatus:
               remainingBalance === 0
                 ? "paid"
@@ -624,12 +637,10 @@ export default function Payments() {
   // Reject the existing customer-submitted payment.
   const rejectGcashPayment = async (payment: Payment) => {
     try {
-      const paymentRef = doc(customerDb, "Payments", payment.id);
-      const bookingRef = doc(customerDb, "Bookings", payment.bookingId);
+      const store = payment.bookingStore === "staff" ? db : customerDb;
+      const paymentRef = doc(store, "Payments", payment.id);
 
-      const bookingSnap = await getDocs(
-        collection(customerDb, "Bookings"),
-      ).then((snapshot) =>
+      const bookingSnap = await getBookingSnapshot().then((snapshot) =>
         snapshot.docs.find((item) => item.id === payment.bookingId),
       );
 
@@ -702,6 +713,8 @@ export default function Payments() {
     .filter((p) => p.method === "gcash" && p.status === "completed")
     .reduce((a, b) => a + b.amount, 0);
 
+  const cardTotal = payments.filter(payment => payment.method === "card" && payment.status === "completed").reduce((sum,payment) => sum + payment.amount, 0);
+
   const pendingTotal = pendingBalances.reduce((a, b) => a + b.balance, 0);
 
   if (loading) {
@@ -741,7 +754,7 @@ export default function Payments() {
       )}
 
       {/* Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           {
             label: "Today's Collection",
@@ -757,6 +770,11 @@ export default function Payments() {
             label: "GCash Payments",
             value: `₱${gcashTotal.toLocaleString()}`,
             color: "#0891b2",
+          },
+          {
+            label: "Card Payments",
+            value: `₱${cardTotal.toLocaleString()}`,
+            color: "#7c3aed",
           },
           {
             label: "Pending Balances",
@@ -866,14 +884,14 @@ export default function Payments() {
                   </div>
                 </div>
 
-                <button
+                <AsyncButton
                   onClick={() => setPayModal(b)}
                   className="w-full py-2 rounded-lg text-sm text-white flex items-center justify-center gap-2 transition-colors"
                   style={{ background: "#0d7377" }}
                 >
                   <CreditCard className="w-4 h-4" />
                   Process Payment
-                </button>
+                </AsyncButton>
               </div>
             ))}
           </div>
@@ -958,15 +976,15 @@ export default function Payments() {
                     </div>
 
                     <div className="flex gap-2 mt-3">
-                      <button
+                      <AsyncButton
                         onClick={() => verifyGcashPayment(p)}
                         className="flex-1 py-2 rounded-lg text-sm text-white flex items-center justify-center gap-1"
                         style={{ background: "#0d7377" }}
                       >
                         <Check className="w-4 h-4" />
                         Verify Payment
-                      </button>
-                      <button
+                      </AsyncButton>
+                      <AsyncButton
                         onClick={() => rejectGcashPayment(p)}
                         className="flex-1 py-2 rounded-lg text-sm border flex items-center justify-center gap-1"
                         style={{
@@ -976,7 +994,7 @@ export default function Payments() {
                       >
                         <X className="w-4 h-4" />
                         Reject
-                      </button>
+                      </AsyncButton>
                     </div>
                   </div>
                 ))
@@ -1104,7 +1122,7 @@ export default function Payments() {
                               }}
                             >
                               <Icon className="w-3 h-3" />
-                              {p.method === "gcash" ? "GCash" : "Cash"}
+                              {p.method === "gcash" ? "GCash" : p.method === "card" ? "Card" : "Cash"}
                             </span>
                           </td>
 

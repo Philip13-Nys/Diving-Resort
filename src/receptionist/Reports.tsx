@@ -1,3 +1,5 @@
+import { getBookingSnapshot, getPaymentSnapshot } from "../app/bookingStore";
+import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
@@ -118,8 +120,8 @@ export default function Reports() {
       setLoading(true);
 
       const [bookingSnapshot, paymentSnapshot] = await Promise.all([
-        getDocs(collection(customerDb, "Bookings")),
-        getDocs(collection(customerDb, "Payments")),
+        getBookingSnapshot(),
+        getPaymentSnapshot(),
       ]);
 
       const bookingData: Booking[] = bookingSnapshot.docs.map((docSnap) => {
@@ -467,7 +469,7 @@ export default function Reports() {
         <div className="flex gap-2">
           {(["daily", "weekly", "monthly", "yearly"] as ReportPeriod[]).map(
             (p) => (
-              <button
+              <AsyncButton
                 key={p}
                 onClick={() => setPeriod(p)}
                 className="px-4 py-2 rounded-lg text-sm capitalize border transition-all"
@@ -479,12 +481,12 @@ export default function Reports() {
                 }}
               >
                 {p}
-              </button>
+              </AsyncButton>
             ),
           )}
         </div>
 
-        <button
+        <AsyncButton
           onClick={exportReport}
           className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg text-sm border"
           style={{
@@ -494,7 +496,7 @@ export default function Reports() {
         >
           <Download className="w-4 h-4" />
           Export Report
-        </button>
+        </AsyncButton>
       </div>
 
       {/* KPI */}

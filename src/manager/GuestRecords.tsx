@@ -1,3 +1,5 @@
+import { getBookingSnapshot } from "../app/bookingStore";
+import { AsyncButton } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Search, Eye, Mail, Phone, X } from "lucide-react";
@@ -41,7 +43,7 @@ export default function GuestRecords() {
       try {
         setLoading(true);
 
-        const snapshot = await getDocs(collection(customerDb, "Bookings"));
+        const snapshot = await getBookingSnapshot();
 
         const guestMap = new Map<string, GuestWithHistory>();
 
@@ -282,12 +284,12 @@ export default function GuestRecords() {
           />
 
           {search && (
-            <button
+            <AsyncButton
               onClick={() => setSearch("")}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
               <X className="w-4 h-4" />
-            </button>
+            </AsyncButton>
           )}
         </div>
 
@@ -451,12 +453,12 @@ export default function GuestRecords() {
                 </div>
               </div>
 
-              <button
+              <AsyncButton
                 onClick={() => setViewingGuest(null)}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
 
             <div className="grid grid-cols-2 gap-4 mb-6">

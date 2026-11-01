@@ -1,3 +1,4 @@
+import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import {
@@ -490,17 +491,17 @@ export default function ServicesManagement() {
                   : "Add New Package"}
               </h2>
 
-              <button
+              <AsyncButton
                 type="button"
                 onClick={closeAddModal}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
 
             {activeTab === "services" ? (
-              <form onSubmit={handleAddService} className="space-y-4">
+              <AsyncForm onSubmit={handleAddService} className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Service Name
@@ -548,13 +549,13 @@ export default function ServicesManagement() {
                         alt="Selected service"
                         className="w-full h-48 object-cover rounded-lg"
                       />
-                      <button
+                      <AsyncButton
                         type="button"
                         onClick={resetImageSelection}
                         className="mt-2 text-sm text-red-600 hover:text-red-700"
                       >
                         Remove image
-                      </button>
+                      </AsyncButton>
                     </div>
                   )}
                 </div>
@@ -645,9 +646,9 @@ export default function ServicesManagement() {
                     {uploading ? "Uploading..." : "Add Service"}
                   </Button>
                 </div>
-              </form>
+              </AsyncForm>
             ) : (
-              <form onSubmit={handleAddPackage} className="space-y-4">
+              <AsyncForm onSubmit={handleAddPackage} className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Package Name
@@ -744,7 +745,7 @@ export default function ServicesManagement() {
                     Add Package
                   </Button>
                 </div>
-              </form>
+              </AsyncForm>
             )}
           </Card>
         </div>
@@ -759,16 +760,16 @@ export default function ServicesManagement() {
                 Edit Service
               </h2>
 
-              <button
+              <AsyncButton
                 type="button"
                 onClick={closeEditService}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
 
-            <form onSubmit={handleSaveService} className="space-y-4">
+            <AsyncForm onSubmit={handleSaveService} className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Name
@@ -829,13 +830,13 @@ export default function ServicesManagement() {
                 </p>
 
                 {imagePreview && (
-                  <button
+                  <AsyncButton
                     type="button"
                     onClick={resetImageSelection}
                     className="mt-2 text-sm text-red-600 hover:text-red-700"
                   >
                     Cancel image change
-                  </button>
+                  </AsyncButton>
                 )}
               </div>
 
@@ -925,7 +926,7 @@ export default function ServicesManagement() {
                   {uploading ? "Uploading..." : "Save Changes"}
                 </Button>
               </div>
-            </form>
+            </AsyncForm>
           </Card>
         </div>
       )}
@@ -939,16 +940,16 @@ export default function ServicesManagement() {
                 Edit Package
               </h2>
 
-              <button
+              <AsyncButton
                 type="button"
                 onClick={() => setEditingPackage(null)}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
 
-            <form onSubmit={handleSavePackage} className="space-y-4">
+            <AsyncForm onSubmit={handleSavePackage} className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Name
@@ -1045,14 +1046,14 @@ export default function ServicesManagement() {
                   Save Changes
                 </Button>
               </div>
-            </form>
+            </AsyncForm>
           </Card>
         </div>
       )}
 
       {/* Tabs */}
       <div className="flex gap-4 mb-6 border-b border-gray-200">
-        <button
+        <AsyncButton
           onClick={() => setActiveTab("services")}
           className={`pb-3 px-4 font-medium transition-colors ${
             activeTab === "services"
@@ -1061,9 +1062,9 @@ export default function ServicesManagement() {
           }`}
         >
           Individual Services
-        </button>
+        </AsyncButton>
 
-        <button
+        <AsyncButton
           onClick={() => setActiveTab("packages")}
           className={`pb-3 px-4 font-medium transition-colors ${
             activeTab === "packages"
@@ -1072,7 +1073,7 @@ export default function ServicesManagement() {
           }`}
         >
           Service Packages
-        </button>
+        </AsyncButton>
       </div>
 
       {/* Services Tab */}

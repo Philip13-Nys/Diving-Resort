@@ -18,7 +18,6 @@ import RoomManagement from "../manager/RoomManagement";
 import RoomAvailability from "../manager/RoomAvailability";
 import PricingManagement from "../manager/PricingManagement";
 import SalesAnalytics from "../manager/SalesAnalytics";
-import BookingOverview from "../manager/BookingOverview";
 import GuestRecords from "../manager/GuestRecords";
 import Reports from "../manager/Reports";
 import ManagersStaffProfiles from "../manager/ManagersStaffProfiles";
@@ -77,7 +76,7 @@ export const router = createHashRouter([
       { path: "room-availability", Component: RoomAvailability },
       { path: "pricing", Component: PricingManagement },
       { path: "sales-analytics", Component: SalesAnalytics },
-      { path: "bookings", Component: BookingOverview },
+      { path: "bookings", element: <Navigate to="/manager/receptionist-dashboard" replace /> },
       { path: "guests", Component: GuestRecords },
       { path: "reports", Component: Reports },
       { path: "staff", Component: ManagersStaffProfiles },

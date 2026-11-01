@@ -1,3 +1,4 @@
+import { getBookingSnapshot } from "../bookingStore";
 import {
   TrendingUp,
   Calendar,
@@ -76,7 +77,7 @@ export default function Dashboard() {
         setLoading(true);
 
         const [bookingSnapshot, staffSnapshot] = await Promise.all([
-          getDocs(collection(customerDb, "Bookings")),
+          getBookingSnapshot(),
           getDocs(collection(db, "Staff")),
         ]);
 

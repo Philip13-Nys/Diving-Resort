@@ -1,3 +1,5 @@
+import { getBookingSnapshot } from "../bookingStore";
+import { AsyncButton } from "./ui/async-action";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { collection, getDocs, Timestamp } from "firebase/firestore";
@@ -247,7 +249,7 @@ export default function ManagerDashboard() {
     setLoadError("");
 
     try {
-      const snapshot = await getDocs(collection(customerDb, "Bookings"));
+      const snapshot = await getBookingSnapshot();
 
       const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
         const data = bookingDoc.data();
@@ -446,7 +448,7 @@ export default function ManagerDashboard() {
             </p>
           </div>
 
-          <button
+          <AsyncButton
             type="button"
             onClick={() => void loadBookings(true)}
             disabled={refreshing}
@@ -454,7 +456,7 @@ export default function ManagerDashboard() {
           >
             <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
             Refresh
-          </button>
+          </AsyncButton>
         </div>
 
         {loadError && (

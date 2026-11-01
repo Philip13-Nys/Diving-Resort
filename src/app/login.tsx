@@ -1,3 +1,4 @@
+import { AsyncButton, AsyncForm } from "./components/ui/async-action";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { loginUser } from "./auth";
@@ -221,7 +222,7 @@ export default function Login() {
           </div>
         )}
 
-        <form onSubmit={handleLogin} className="space-y-5">
+        <AsyncForm onSubmit={handleLogin} className="space-y-5">
           {/* Username */}
           <div>
             <label
@@ -270,7 +271,7 @@ export default function Login() {
                 className="h-[52px] w-full rounded-lg border border-white/20 bg-white/10 py-3 pl-4 pr-12 text-white outline-none backdrop-blur-sm transition-all placeholder:text-gray-300 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-500 disabled:opacity-60"
               />
 
-              <button
+              <AsyncButton
                 type="button"
                 aria-label={showPassword ? "Hide password" : "Show password"}
                 aria-pressed={showPassword}
@@ -279,26 +280,19 @@ export default function Login() {
                 className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center text-gray-200 transition-colors hover:text-white disabled:opacity-50"
               >
                 <EyeIcon visible={showPassword} />
-              </button>
+              </AsyncButton>
             </div>
           </div>
 
           {/* Submit */}
-          <button
+          <AsyncButton
             type="submit"
             disabled={loading}
             className="mt-2 flex h-[52px] w-full items-center justify-center rounded-lg bg-cyan-600 font-semibold text-white shadow-md transition-all duration-200 hover:bg-cyan-700 hover:shadow-lg active:scale-[0.99] disabled:cursor-not-allowed disabled:bg-cyan-800"
           >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                Logging in...
-              </span>
-            ) : (
-              "Login"
-            )}
-          </button>
-        </form>
+            {loading ? "Logging in..." : "Login"}
+          </AsyncButton>
+        </AsyncForm>
 
         <p className="mt-6 text-center text-xs text-gray-200/70">
           Secure Resort Management System

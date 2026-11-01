@@ -1,3 +1,5 @@
+import { getBookingSnapshot } from "../app/bookingStore";
+import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
@@ -237,7 +239,7 @@ export default function CalendarView() {
       setLoading(true);
       setError("");
 
-      const snapshot = await getDocs(collection(customerDb, "Bookings"));
+      const snapshot = await getBookingSnapshot();
 
       const bookingData: Booking[] = [];
       const roomMap = new Map<string, string>();
@@ -431,7 +433,7 @@ export default function CalendarView() {
         </div>
 
         <div className="flex items-center gap-1 ml-2">
-          <button
+          <AsyncButton
             onClick={() => setAnchor(addDays(anchor, -7))}
             className="w-8 h-8 flex items-center justify-center rounded-lg border"
             style={{
@@ -441,13 +443,13 @@ export default function CalendarView() {
             aria-label="Previous week"
           >
             <ChevronLeft className="w-4 h-4" />
-          </button>
+          </AsyncButton>
 
           <span className="text-sm px-2" style={{ color: "#0a2e2e" }}>
             {rangeLabel}
           </span>
 
-          <button
+          <AsyncButton
             onClick={() => setAnchor(addDays(anchor, 7))}
             className="w-8 h-8 flex items-center justify-center rounded-lg border"
             style={{
@@ -457,9 +459,9 @@ export default function CalendarView() {
             aria-label="Next week"
           >
             <ChevronRight className="w-4 h-4" />
-          </button>
+          </AsyncButton>
 
-          <button
+          <AsyncButton
             onClick={() => setAnchor(today)}
             className="px-2 py-1 rounded-lg text-xs border"
             style={{
@@ -468,12 +470,12 @@ export default function CalendarView() {
             }}
           >
             Today
-          </button>
+          </AsyncButton>
         </div>
 
         <div className="ml-auto flex items-center gap-2">
           <div className="relative">
-            <button
+            <AsyncButton
               onClick={() => setFilterOpen((open) => !open)}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
               style={{
@@ -483,11 +485,11 @@ export default function CalendarView() {
             >
               <Filter className="w-3.5 h-3.5" />
               {filterRoom === "All" ? "All" : `Room ${filterRoom}`}
-            </button>
+            </AsyncButton>
 
             {filterOpen && (
               <div className="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-30 min-w-36">
-                <button
+                <AsyncButton
                   onClick={() => {
                     setFilterRoom("All");
                     setFilterOpen(false);
@@ -495,10 +497,10 @@ export default function CalendarView() {
                   className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
                 >
                   All Rooms
-                </button>
+                </AsyncButton>
 
                 {rooms.map((room) => (
-                  <button
+                  <AsyncButton
                     key={room.id}
                     onClick={() => {
                       setFilterRoom(room.id);
@@ -507,13 +509,13 @@ export default function CalendarView() {
                     className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
                   >
                     #{room.id}
-                  </button>
+                  </AsyncButton>
                 ))}
               </div>
             )}
           </div>
 
-          <button
+          <AsyncButton
             onClick={exportCalendar}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
             style={{
@@ -523,7 +525,7 @@ export default function CalendarView() {
           >
             <Download className="w-3.5 h-3.5" />
             Export
-          </button>
+          </AsyncButton>
         </div>
       </div>
 

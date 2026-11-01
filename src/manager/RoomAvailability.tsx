@@ -1,8 +1,13 @@
+import { useBookingInventory } from "../app/useBookingInventory";
+import {
+  blockedRoom,
+  normalizeBookingValue,
+  roomBookingsOnDate,
+  type BookingRecord,
+} from "../app/bookingAvailability";
 import { Card } from "../app/components/ui/card";
 import { Calendar, CheckCircle, XCircle, Clock, Wrench } from "lucide-react";
-import { useEffect, useState } from "react";
-import { customerDb, db } from "../app/firebase";
-import { collection, getDocs } from "firebase/firestore";
+import { useMemo } from "react";
 
 const formatLocalDate = (date: Date) => {
   const year = date.getFullYear();
@@ -71,57 +76,50 @@ interface BookingData {
 }
 
 export default function RoomAvailability() {
-  const [rooms, setRooms] = useState<RoomAvailabilityData[]>([]);
-  const [bookings, setBookings] = useState<BookingData[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const weekDates = getWeekDates();
+  const {
+    rooms: inventory,
+    reservations,
+    loading,
+    error,
+  } = useBookingInventory();
+  const rooms = useMemo<BookingRecord[]>(
+    () =>
+      inventory.map((room) => ({
+        ...room,
+        room: room.roomNumber,
+        roomId: String(room.roomId || room.id),
+      })),
+    [inventory],
+  );
+  const weekDates = useMemo(getWeekDates, []);
   const today = new Date();
-
-  const getRoomStatusForDate = (room: RoomAvailabilityData, date: Date) => {
-    const dateString = formatLocalDate(date);
-    const todayString = formatLocalDate(new Date());
-
-    if (room.status === "maintenance") {
-      return "maintenance";
-    }
-
-    const roomBooking = bookings.find((booking) => {
-      if (!booking.roomId) return false;
-      if (booking.status === "cancelled" || booking.status === "rejected")
-        return false;
-
-      const roomMatches = booking.roomId === room.roomTypeId;
-      if (!roomMatches) return false;
-
-      return dateString >= booking.checkIn && dateString < booking.checkOut;
-    });
-
-    if (!roomBooking) {
-      return "available";
-    }
-
-    if (
-      roomBooking.status === "confirmed" ||
-      roomBooking.status === "approved"
-    ) {
-      if (
-        dateString === todayString &&
-        todayString >= roomBooking.checkIn &&
-        todayString < roomBooking.checkOut
-      ) {
-        return "occupied";
-      }
-      return "reserved";
-    }
-
-    if (roomBooking.status === "pending") {
-      return "reserved";
-    }
-
-    return "available";
+  const dayMaps = useMemo(
+    () =>
+      new Map(
+        [
+          ...weekDates.map((item) => formatLocalDate(item.fullDate)),
+          formatLocalDate(today),
+        ].map((date) => [
+          date,
+          roomBookingsOnDate(inventory, reservations, date),
+        ]),
+      ),
+    [inventory, reservations, weekDates, formatLocalDate(today)],
+  );
+  const getRoomStatusForDate = (room: (typeof rooms)[number], date: Date) => {
+    if (blockedRoom(room)) return "maintenance";
+    const booking = dayMaps.get(formatLocalDate(date))?.get(room.id);
+    if (!booking)
+      return room.status === "occupied" &&
+        formatLocalDate(date) === formatLocalDate(today)
+        ? "occupied"
+        : "available";
+    return ["checked-in", "checkedin", "occupied"].includes(
+      normalizeBookingValue(booking.status),
+    )
+      ? "occupied"
+      : "reserved";
   };
-
   const availableCount = rooms.filter(
     (room) => getRoomStatusForDate(room, today) === "available",
   ).length;
@@ -135,81 +133,16 @@ export default function RoomAvailability() {
     (room) => getRoomStatusForDate(room, today) === "maintenance",
   ).length;
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const roomTypesSnapshot = await getDocs(collection(db, "roomTypes"));
-        const nameToRoomTypeId: Record<string, string> = {};
-
-        roomTypesSnapshot.docs.forEach((rtDoc) => {
-          const data = rtDoc.data();
-          const name = String(data.name || "")
-            .trim()
-            .toLowerCase();
-          if (name) {
-            nameToRoomTypeId[name] = rtDoc.id;
-          }
-        });
-
-        const roomsSnapshot = await getDocs(collection(db, "rooms"));
-
-        const roomData: RoomAvailabilityData[] = roomsSnapshot.docs.map(
-          (roomDoc) => {
-            const data = roomDoc.data();
-            const typeName = String(data.type || data.roomType || "Unknown");
-            const resolvedRoomTypeId =
-              nameToRoomTypeId[typeName.trim().toLowerCase()] || "";
-
-            return {
-              id: roomDoc.id,
-              roomId: String(data.roomId || roomDoc.id),
-              roomTypeId: resolvedRoomTypeId,
-              room: String(data.roomNumber || data.room || roomDoc.id),
-              type: typeName,
-              status: String(data.status || "available").toLowerCase(),
-            };
-          },
-        );
-
-        const bookingsSnapshot = await getDocs(
-          collection(customerDb, "Bookings"),
-        );
-
-        const bookingData: BookingData[] = bookingsSnapshot.docs.map(
-          (bookingDoc) => {
-            const data = bookingDoc.data();
-
-            return {
-              id: bookingDoc.id,
-              roomId: String(data.roomId || ""),
-              roomTypeId: String(data.roomTypeId || data.roomId || ""),
-              checkIn: String(data.checkIn || ""),
-              checkOut: String(data.checkOut || ""),
-              status: String(data.status || "").toLowerCase(),
-              paymentStatus: String(data.paymentStatus || "").toLowerCase(),
-            };
-          },
-        );
-
-        console.log("ROOM TYPES MAP (name -> id):", nameToRoomTypeId);
-        console.log("ROOMS FROM FIRESTORE:", roomData);
-        console.log("BOOKINGS FROM CUSTOMER FIRESTORE:", bookingData);
-
-        setRooms(roomData);
-        setBookings(bookingData);
-      } catch (error) {
-        console.error("Error fetching room availability:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
-
   return (
     <div className="p-8">
+      {error && (
+        <p
+          role="alert"
+          className="mb-4 rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        >
+          {error}
+        </p>
+      )}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">
           Room Availability & Status

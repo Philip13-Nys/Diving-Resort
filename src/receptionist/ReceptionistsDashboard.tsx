@@ -1,3 +1,5 @@
+import { getBookingSnapshot } from "../app/bookingStore";
+import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
@@ -231,9 +233,7 @@ export default function ReceptionistsDashboard() {
     try {
       setLoading(true);
 
-      const bookingsSnapshot = await getDocs(
-        collection(customerDb, "Bookings"),
-      );
+      const bookingsSnapshot = await getBookingSnapshot();
 
       const bookingData: Booking[] = bookingsSnapshot.docs.map((doc) => ({
         id: doc.id,
@@ -504,7 +504,7 @@ export default function ReceptionistsDashboard() {
               const Icon = action.icon;
 
               return (
-                <button
+                <AsyncButton
                   key={action.title}
                   onClick={() => navigate(action.path)}
                   className="group rounded-xl bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
@@ -524,7 +524,7 @@ export default function ReceptionistsDashboard() {
                   <p className="mt-1 text-sm text-gray-500">
                     {action.description}
                   </p>
-                </button>
+                </AsyncButton>
               );
             })}
           </div>
@@ -708,13 +708,13 @@ export default function ReceptionistsDashboard() {
               </p>
             </div>
 
-            <button
+            <AsyncButton
               onClick={() => navigate("/receptionist/reservations")}
               className="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-700"
             >
               View All
               <ArrowRight className="h-4 w-4" />
-            </button>
+            </AsyncButton>
           </div>
 
           <div className="overflow-x-auto">

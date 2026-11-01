@@ -1,3 +1,4 @@
+import { AsyncButton } from "../app/components/ui/async-action";
 import {
   LayoutDashboard,
   Users,
@@ -5,7 +6,6 @@ import {
   CalendarCheck,
   DollarSign,
   TrendingUp,
-  BookOpen,
   UserCircle,
   FileText,
   Settings,
@@ -49,7 +49,6 @@ const navigation = [
     href: "/manager/sales-analytics",
     icon: TrendingUp,
   },
-  { name: "Bookings", href: "/manager/bookings", icon: BookOpen },
   { name: "Guest Records", href: "/manager/guests", icon: UserCircle },
   { name: "Reports", href: "/manager/reports", icon: FileText },
   { name: "Staff Profiles", href: "/manager/staff", icon: Settings },
@@ -128,9 +127,9 @@ export default function ManagerLayout() {
           <div className="p-6 border-b border-gray-200">
             <h1 className="text-2xl font-bold text-blue-600">Resort Manager</h1>
             <p className="text-sm text-gray-500 mt-1">Beach & Diving Resort</p>
-            <button className="lg:hidden" onClick={() => setSidebarOpen(false)}>
+            <AsyncButton className="lg:hidden" onClick={() => setSidebarOpen(false)}>
               <X className="w-5 h-5" />
-            </button>
+            </AsyncButton>
           </div>
 
           <nav className="p-4 space-y-1">
@@ -176,13 +175,13 @@ export default function ManagerLayout() {
               </div>
 
               {/* Logout */}
-              <button
+              <AsyncButton
                 onClick={handleLogout}
                 className="p-2 text-white hover:bg-blue-700 rounded-lg transition-colors flex-shrink-0"
                 title="Logout"
               >
                 <LogOut className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
           </div>
         </aside>
@@ -190,9 +189,9 @@ export default function ManagerLayout() {
         {/* Main Content */}
         <div className="flex-1 overflow-auto">
           <header className="lg:hidden flex items-center justify-between p-4 bg-white border-b">
-            <button onClick={() => setSidebarOpen(true)}>
+            <AsyncButton onClick={() => setSidebarOpen(true)}>
               <Menu className="w-6 h-6" />
-            </button>
+            </AsyncButton>
 
             <h1 className="font-semibold">Resort Manager</h1>
           </header>

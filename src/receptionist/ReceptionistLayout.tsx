@@ -1,3 +1,4 @@
+import { AsyncButton } from "../app/components/ui/async-action";
 import { useState, useEffect } from "react";
 import {
   LayoutDashboard,
@@ -328,7 +329,7 @@ export default function ReceptionistLayout() {
       style={{ background: "#f0f9f8" }}
     >
       {sidebarOpen && (
-        <button
+        <AsyncButton
           type="button"
           aria-label="Close sidebar"
           className="fixed inset-0 z-40 bg-black/50 lg:hidden"
@@ -375,14 +376,14 @@ export default function ReceptionistLayout() {
             </div>
           </div>
 
-          <button
+          <AsyncButton
             type="button"
             className="flex-shrink-0 rounded-lg p-1.5 text-teal-300 lg:hidden"
             onClick={() => setSidebarOpen(false)}
             aria-label="Close menu"
           >
             <X className="h-5 w-5" />
-          </button>
+          </AsyncButton>
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto py-3">
@@ -401,7 +402,7 @@ export default function ReceptionistLayout() {
                   : 0;
 
               return (
-                <button
+                <AsyncButton
                   key={item.id}
                   type="button"
                   onClick={() => handleNavigation(item.id)}
@@ -448,7 +449,7 @@ export default function ReceptionistLayout() {
                   {active && (
                     <ChevronRight className="h-4 w-4 flex-shrink-0 opacity-50" />
                   )}
-                </button>
+                </AsyncButton>
               );
             })}
           </div>
@@ -479,7 +480,7 @@ export default function ReceptionistLayout() {
               </div>
             </div>
 
-            <button
+            <AsyncButton
               type="button"
               onClick={handleLogout}
               className="flex-shrink-0 rounded-lg p-1.5 transition-colors"
@@ -494,7 +495,7 @@ export default function ReceptionistLayout() {
               aria-label="Logout"
             >
               <LogOut className="h-4 w-4" />
-            </button>
+            </AsyncButton>
           </div>
         </div>
       </aside>
@@ -506,7 +507,7 @@ export default function ReceptionistLayout() {
             borderColor: "rgba(13,115,119,0.12)",
           }}
         >
-          <button
+          <AsyncButton
             type="button"
             className="flex-shrink-0 rounded-lg p-2 lg:hidden"
             style={{ color: "#0d7377" }}
@@ -514,7 +515,7 @@ export default function ReceptionistLayout() {
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
-          </button>
+          </AsyncButton>
 
           <div className="min-w-0 flex-shrink-0">
             <h1
@@ -553,7 +554,7 @@ export default function ReceptionistLayout() {
 
           <div className="ml-auto flex flex-shrink-0 items-center gap-1 sm:gap-3">
             <div className="relative">
-              <button
+              <AsyncButton
                 type="button"
                 className="relative rounded-lg p-2 transition-colors hover:bg-[#f0f9f8]"
                 style={{
@@ -576,7 +577,7 @@ export default function ReceptionistLayout() {
                       : unreadNotificationCount}
                   </span>
                 )}
-              </button>
+              </AsyncButton>
 
               {notificationsOpen && (
                 <div
@@ -617,7 +618,7 @@ export default function ReceptionistLayout() {
                     </div>
 
                     {unreadNotificationCount > 0 && (
-                      <button
+                      <AsyncButton
                         type="button"
                         onClick={markAllNotificationsAsRead}
                         className="text-xs font-medium"
@@ -626,7 +627,7 @@ export default function ReceptionistLayout() {
                         }}
                       >
                         Mark all read
-                      </button>
+                      </AsyncButton>
                     )}
                   </div>
 
@@ -651,7 +652,7 @@ export default function ReceptionistLayout() {
                       </div>
                     ) : (
                       displayedNotifications.map((notification) => (
-                        <button
+                        <AsyncButton
                           key={notification.id}
                           type="button"
                           onClick={() => handleNotificationClick(notification)}
@@ -806,7 +807,7 @@ export default function ReceptionistLayout() {
                                 );
                               })()}
                           </div>
-                        </button>
+                        </AsyncButton>
                       ))
                     )}
                   </div>
@@ -817,7 +818,7 @@ export default function ReceptionistLayout() {
                       borderColor: "rgba(13,115,119,0.12)",
                     }}
                   >
-                    <button
+                    <AsyncButton
                       type="button"
                       className="w-full rounded-lg py-2 text-center text-sm font-medium transition-colors hover:bg-[#f0f9f8]"
                       style={{
@@ -829,7 +830,7 @@ export default function ReceptionistLayout() {
                       }}
                     >
                       View reservations
-                    </button>
+                    </AsyncButton>
                   </div>
                 </div>
               )}

@@ -1,50 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
-import { Check, UserPlus } from "lucide-react";
+import { useBookingInventory } from "../app/useBookingInventory";
 import {
-  addDoc,
-  collection,
-  doc,
-  getDocs,
-  serverTimestamp,
-  writeBatch,
-} from "firebase/firestore";
-import { db, customerDb } from "../app/firebase";
+  typeAvailability,
+  stayDates,
+  moneyCents,
+  localDate,
+} from "../app/bookingAvailability";
+import { saveWalkIn, walkInTotals } from "../app/saveWalkIn";
+import { AsyncButton } from "../app/components/ui/async-action";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, UserPlus } from "lucide-react";
+import { collection, doc, getDocs, getDoc } from "firebase/firestore";
+import { db } from "../app/firebase";
 import { createActivityLog } from "../app/activitylogss";
-
-type Room = {
-  id: string;
-  type: string;
-  capacity: number;
-  rate: number;
-  status: string;
-};
-
-type RoomType = {
-  id: string;
-  name: string;
-  capacity: number;
-  rate: number;
-};
 
 type AddOn = {
   id: string;
   name: string;
   price: number;
   category: "Service" | "Package";
-};
-
-type Reservation = {
-  roomType?: string;
-  roomTypeName?: string;
-  roomName?: string;
-  roomTypeId?: string;
-  roomId?: string;
-  roomsBooked?: number;
-  numberOfRooms?: number;
-  quantity?: number;
-  checkIn?: string;
-  checkOut?: string;
-  status?: string;
 };
 
 type FormData = {
@@ -88,252 +61,191 @@ const initialForm = (): FormData => ({
   specialRequests: "",
 });
 
-const nightsBetween = (start: string, end: string) => {
-  if (!start || !end) return 0;
-  const a = new Date(`${start}T12:00:00`);
-  const b = new Date(`${end}T12:00:00`);
-  return Math.round((b.getTime() - a.getTime()) / 86400000);
-};
-
 const money = (value: number) =>
   `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
 
-const activeReservation = (r: Reservation) =>
-  !["cancelled", "canceled", "rejected", "completed"].includes(
-    String(r.status ?? "").toLowerCase(),
-  );
-
-const overlaps = (aStart: string, aEnd: string, bStart: string, bEnd: string) =>
-  aStart < bEnd && bStart < aEnd;
-
 export default function WalkIn() {
   const [step, setStep] = useState(1);
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
-  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const {
+    rooms,
+    roomTypes,
+    reservations,
+    loading: inventoryLoading,
+    error: inventoryError,
+  } = useBookingInventory();
   const [addOns, setAddOns] = useState<AddOn[]>([]);
-  const [loadingRooms, setLoadingRooms] = useState(true);
+  const [loadingPrices, setLoadingPrices] = useState(true);
+  const [priceError, setPriceError] = useState("");
+  const [reservationFeePercent, setReservationFeePercent] = useState(5);
+  const [saveError, setSaveError] = useState("");
+  const [assignedNumbers, setAssignedNumbers] = useState<string[]>([]);
+  const pendingSave = useRef<{ fingerprint: string; id: string } | null>(null);
+  const loadingRooms = inventoryLoading || loadingPrices;
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [bookingReference, setBookingReference] = useState("");
   const [form, setForm] = useState<FormData>(initialForm);
 
-  const update = <K extends keyof FormData>(key: K, value: FormData[K]) =>
-    setForm((p) => ({ ...p, [key]: value }));
+  const update = <K extends keyof FormData>(key: K, value: FormData[K]) => {
+    pendingSave.current = null;
+    setForm((current) => ({ ...current, [key]: value }));
+  };
 
-  const nights = nightsBetween(form.checkIn, form.checkOut);
+  const nights = (() => {
+    try {
+      return stayDates(form.checkIn, form.checkOut).length;
+    } catch {
+      return 0;
+    }
+  })();
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       try {
-        setLoadingRooms(true);
-
-        const [
-          roomsSnap,
-          typesSnap,
-          bookingsSnap,
-          reservationsSnap,
-          servicesSnap,
-          packagesSnap,
-        ] = await Promise.all([
-          getDocs(collection(db, "rooms")),
-          getDocs(collection(db, "roomTypes")),
-          getDocs(collection(customerDb, "Bookings")),
-          getDocs(collection(db, "reservations")),
+        const [services, packages, fee] = await Promise.all([
           getDocs(collection(db, "services")),
           getDocs(collection(db, "packages")),
+          getDoc(doc(db, "settings", "reservationFee")),
         ]);
-
-        const loadedRooms: Room[] = roomsSnap.docs.map((d) => {
-          const x = d.data();
-          return {
-            id: d.id,
-            type: String(
-              x.type ?? x.roomType ?? x.roomTypeName ?? x.name ?? "",
-            ),
-            capacity: Number(x.capacity ?? x.maxGuests ?? x.pax ?? 2),
-            rate: Number(
-              x.rate ??
-                x.price ??
-                x.pricePerNight ??
-                x.nightlyRate ??
-                x.basePrice ??
-                0,
-            ),
-            status: String(x.status ?? "Available"),
-          };
-        });
-
-        const loadedTypes: RoomType[] = typesSnap.docs.map((d) => {
-          const x = d.data();
-          return {
-            id: d.id,
-            name: String(x.name ?? x.type ?? x.roomType ?? "Room"),
-            capacity: Number(x.maxGuests ?? x.capacity ?? x.pax ?? 2),
-            rate: Number(
-              x.basePrice ?? x.rate ?? x.price ?? x.pricePerNight ?? 0,
-            ),
-          };
-        });
-
-        const loadedReservations: Reservation[] = [
-          ...bookingsSnap.docs.map((d) => d.data() as Reservation),
-          ...reservationsSnap.docs.map((d) => d.data() as Reservation),
-        ];
-
-        const loadAddOns = (
-          docs: typeof servicesSnap.docs,
+        if (cancelled) return;
+        const mapOptions = (
+          snapshot: typeof services,
           category: "Service" | "Package",
-        ): AddOn[] =>
-          docs
-            .map((d) => {
-              const x = d.data();
-              return {
-                id: `${category.toLowerCase()}-${d.id}`,
-                name: String(x.name ?? x.title ?? category),
-                price: Number(
-                  x.price ?? x.rate ?? x.amount ?? x.packagePrice ?? 0,
-                ),
-                category,
-              };
-            })
-            .filter((x) => x.price >= 0);
-
-        setRooms(loadedRooms);
-        setRoomTypes(loadedTypes);
-        setReservations(loadedReservations);
+        ) =>
+          snapshot.docs.map((document) => {
+            const value = document.data();
+            return {
+              id: category.toLowerCase() + "-" + document.id,
+              name: String(value.name ?? value.title ?? category),
+              price: Number(
+                category === "Package"
+                  ? (value.packagePrice ?? value.price ?? value.rate ?? 0)
+                  : (value.price ?? value.rate ?? value.amount ?? 0),
+              ),
+              category,
+            };
+          });
         setAddOns([
-          ...loadAddOns(servicesSnap.docs, "Service"),
-          ...loadAddOns(packagesSnap.docs, "Package"),
+          ...mapOptions(services, "Service"),
+          ...mapOptions(packages, "Package"),
         ]);
+        setReservationFeePercent(Number(fee.data()?.percent ?? 5));
       } catch (error) {
-        console.error("Error loading walk-in data:", error);
-        alert("Failed to load booking data. Please refresh the page.");
+        if (!cancelled)
+          setPriceError(
+            "Unable to load current prices. Refresh before creating a booking.",
+          );
+        console.error(error);
       } finally {
-        setLoadingRooms(false);
+        if (!cancelled) setLoadingPrices(false);
       }
     };
-
-    load();
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const roomOptions = useMemo(() => {
-    const end = form.checkOut;
-    const start = form.checkIn;
-
-    return roomTypes
-      .map((type) => {
-        const matchingRooms = rooms.filter(
-          (r) => r.type.trim().toLowerCase() === type.name.trim().toLowerCase(),
-        );
-
-        const capacity =
-          type.capacity || Math.max(0, ...matchingRooms.map((r) => r.capacity));
-
-        const roomCount = matchingRooms.length;
-        const unavailableByStatus = matchingRooms.filter(
-          (r) =>
-            !["available", "vacant"].includes(r.status.trim().toLowerCase()),
-        ).length;
-
-        const overlappingReservations = reservations.filter((r) => {
-          if (!activeReservation(r) || !start || !end || nights < 1) {
-            return false;
-          }
-
-          const reservedType = String(
-            r.roomType ?? r.roomTypeName ?? r.roomName ?? "",
-          )
-            .trim()
-            .toLowerCase();
-
-          const matches =
-            (r.roomTypeId && r.roomTypeId === type.id) ||
-            reservedType === type.name.trim().toLowerCase();
-
-          if (!matches) return false;
-
-          const ci = String(r.checkIn ?? "").slice(0, 10);
-          const co = String(r.checkOut ?? "").slice(0, 10);
-          return ci && co && overlaps(start, end, ci, co);
-        });
-
-        const reservedCount = overlappingReservations.reduce(
-          (sum, r) =>
-            sum +
-            Math.max(
-              1,
-              Number(r.roomsBooked ?? r.numberOfRooms ?? r.quantity ?? 1),
-            ),
-          0,
-        );
-
-        const legacyReservedIds = new Set(
-          overlappingReservations.map((r) => r.roomId).filter(Boolean),
-        );
-
-        const legacyCount = reservations.filter((r) => {
-          if (
-            !activeReservation(r) ||
-            !r.roomId ||
-            !start ||
-            !end ||
-            nights < 1
-          )
-            return false;
-
-          const ci = String(r.checkIn ?? "").slice(0, 10);
-          const co = String(r.checkOut ?? "").slice(0, 10);
-          if (!ci || !co || !overlaps(start, end, ci, co)) {
-            return false;
-          }
-
-          const room = matchingRooms.find((x) => x.id === r.roomId);
-          return Boolean(room) && !legacyReservedIds.has(r.roomId);
-        }).length;
-
-        const unavailable = Math.min(
-          roomCount,
-          unavailableByStatus + reservedCount + legacyCount,
-        );
-
-        return {
-          ...type,
-          capacity,
-          roomCount,
-          available: Math.max(0, roomCount - unavailable),
-        };
-      })
-      .filter((t) => t.capacity >= form.pax);
-  }, [
-    roomTypes,
-    rooms,
-    reservations,
-    form.checkIn,
-    form.checkOut,
-    form.pax,
-    nights,
-  ]);
-
-  const selectedRoomType = roomOptions.find(
-    (r) => r.id === form.selectedRoomType,
+  const roomOptions = useMemo(
+    () =>
+      roomTypes
+        .map((type) => {
+          const capacity = Number(
+            type.maxGuests ?? type.capacity ?? type.pax ?? 2,
+          );
+          const rate = Number(
+            type.basePrice ??
+              type.rate ??
+              type.price ??
+              type.pricePerNight ??
+              0,
+          );
+          const result =
+            nights > 0
+              ? typeAvailability(
+                  rooms,
+                  reservations,
+                  type,
+                  form.checkIn,
+                  form.checkOut,
+                )
+              : { available: 0 };
+          return {
+            ...type,
+            id: String(type.id),
+            name: String(type.name),
+            capacity,
+            rate,
+            available: result.available,
+          };
+        })
+        .filter(
+          (type) => type.capacity * Math.max(type.available, 1) >= form.pax,
+        ),
+    [
+      rooms,
+      roomTypes,
+      reservations,
+      form.checkIn,
+      form.checkOut,
+      form.pax,
+      nights,
+    ],
   );
+
+  const selectedRoomType =
+    roomOptions.find((type) => type.id === form.selectedRoomType) ||
+    (() => {
+      // Keep the original quote available for an idempotent retry after an
+      // uncertain network failure, even if the committed booking filled the room.
+      if (!pendingSave.current) return undefined;
+      const type = roomTypes.find((item) => item.id === form.selectedRoomType);
+      return type
+        ? {
+            ...type,
+            id: String(type.id),
+            name: String(type.name),
+            capacity: Number(type.maxGuests ?? type.capacity ?? 2),
+            rate: Number(type.basePrice ?? type.rate ?? type.price ?? 0),
+            available: 0,
+          }
+        : undefined;
+    })();
 
   const selectedAddOns = addOns.filter((a) =>
     form.selectedAddOns.includes(a.id),
   );
 
-  const roomTotal =
-    (selectedRoomType?.rate ?? 0) * form.roomQuantity * Math.max(0, nights);
-
-  const addOnTotal = selectedAddOns.reduce((sum, a) => sum + a.price, 0);
-
-  const total = roomTotal + addOnTotal;
+  const pricing = (() => {
+    try {
+      return {
+        ...walkInTotals(
+          selectedRoomType ? selectedRoomType.rate : 0,
+          form.roomQuantity,
+          nights,
+          selectedAddOns,
+          reservationFeePercent,
+        ),
+        error: "",
+      };
+    } catch (error) {
+      return {
+        roomTotal: 0,
+        addOnTotal: 0,
+        subtotal: 0,
+        reservationFee: 0,
+        total: 0,
+        error: error instanceof Error ? error.message : "Invalid pricing.",
+      };
+    }
+  })();
+  const { roomTotal, addOnTotal, subtotal, reservationFee, total } = pricing;
   const payment = Number(form.downPayment || 0);
-  const balance = total - payment;
+  const balance = Math.round((total - payment) * 100) / 100;
 
   useEffect(() => {
-    if (!form.selectedRoomType) return;
+    if (submitting || pendingSave.current || !form.selectedRoomType) return;
     const current = roomOptions.find((r) => r.id === form.selectedRoomType);
     if (!current || current.available < 1) {
       setForm((p) => ({
@@ -347,231 +259,61 @@ export default function WalkIn() {
         roomQuantity: current.available,
       }));
     }
-  }, [roomOptions, form.selectedRoomType, form.roomQuantity]);
+  }, [roomOptions, form.selectedRoomType, form.roomQuantity, submitting]);
 
   const handleSubmit = async () => {
-    if (submitting) return;
-
-    if (!form.firstName.trim() || !form.lastName.trim()) {
-      alert("Please enter the guest's first and last name.");
-      setStep(1);
+    if (submitting || loadingRooms) return;
+    setSaveError("");
+    if (inventoryError || priceError || pricing.error) {
+      setSaveError(inventoryError || priceError || pricing.error);
       return;
     }
-    if (!form.phone.trim()) {
-      alert("Please enter the guest's phone number.");
-      setStep(1);
-      return;
-    }
-    if (
-      form.email.trim() &&
-      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())
-    ) {
-      alert("Please enter a valid email address.");
-      setStep(1);
-      return;
-    }
-    if (!form.checkIn || !form.checkOut || nights < 1) {
-      alert("Please select valid check-in and check-out dates.");
-      setStep(2);
-      return;
-    }
-    if (!selectedRoomType) {
-      alert("Please select an available room type.");
-      setStep(2);
-      return;
-    }
-    if (
-      !Number.isInteger(form.roomQuantity) ||
-      form.roomQuantity < 1 ||
-      form.roomQuantity > selectedRoomType.available
-    ) {
-      alert("Please select a valid number of rooms.");
-      setStep(2);
-      return;
-    }
-    if (
-      form.pax < 1 ||
-      form.pax > selectedRoomType.capacity * form.roomQuantity
-    ) {
-      alert("The selected rooms cannot accommodate this many guests.");
-      setStep(2);
-      return;
-    }
-    if (!Number.isFinite(payment) || payment < 0 || payment > total) {
-      alert("Please enter a valid down payment not greater than the total.");
-      setStep(3);
-      return;
-    }
-
-    const commission = Number(form.commissionAmount || 0);
-    if (!Number.isFinite(commission) || commission < 0) {
-      alert("Please enter a valid commission amount.");
-      setStep(3);
-      return;
-    }
-
-    setSubmitting(true);
-
-    const reference = `CBR-${new Date().getFullYear()}-${Math.floor(
-      100000 + Math.random() * 900000,
-    )}`;
-
-    const fullName = `${form.firstName.trim()} ${form.lastName.trim()}`;
-
-    const bookingData = {
-      bookingRef: reference,
-
-      // Keep both fields so existing pages can read either name.
-      customerName: fullName,
-      guestName: fullName,
-      firstName: form.firstName.trim(),
-      lastName: form.lastName.trim(),
-
-      email: form.email.trim(),
-      phone: form.phone.trim(),
-
-      roomTypeId: selectedRoomType.id,
-      roomType: selectedRoomType.name,
-      roomName: selectedRoomType.name,
-      roomsBooked: form.roomQuantity,
-      numberOfRooms: form.roomQuantity,
-
-      guests: form.pax,
-      nights,
-      checkIn: form.checkIn,
-      checkOut: form.checkOut,
-
-      addOns: selectedAddOns.map((a) => ({
-        id: a.id,
-        name: a.name,
-        category: a.category,
-        price: a.price,
-      })),
-      addOnTotal,
-
-      paymentMethod: form.paymentMethod,
-      roomTotal,
-      totalAmount: total,
-      amountPaid: payment,
-      balance,
-      paymentStatus:
-        payment >= total ? "Paid" : payment > 0 ? "Partial" : "Unpaid",
-
-      commissionerName: form.commissionerName.trim(),
-      commissionAmount: commission,
-
-      bookingType: "Walk-in",
-      status: "Confirmed",
-      specialRequests: form.specialRequests.trim(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-
     try {
-      const [latestBookings, latestReservations] = await Promise.all([
-        getDocs(collection(customerDb, "Bookings")),
-        getDocs(collection(db, "reservations")),
-      ]);
-
-      const latest: Reservation[] = [
-        ...latestBookings.docs.map((d) => d.data() as Reservation),
-        ...latestReservations.docs.map((d) => d.data() as Reservation),
-      ];
-
-      const matchingRooms = rooms.filter(
-        (r) =>
-          r.type.trim().toLowerCase() ===
-          selectedRoomType.name.trim().toLowerCase(),
-      );
-
-      const overlappingTypeReservations = latest.filter((r) => {
-        if (!activeReservation(r)) return false;
-
-        const ci = String(r.checkIn ?? "").slice(0, 10);
-        const co = String(r.checkOut ?? "").slice(0, 10);
-        if (!ci || !co || !overlaps(form.checkIn, form.checkOut, ci, co)) {
-          return false;
-        }
-
-        const typeName = String(
-          r.roomType ?? r.roomTypeName ?? r.roomName ?? "",
-        )
-          .trim()
-          .toLowerCase();
-
-        return (
-          r.roomTypeId === selectedRoomType.id ||
-          typeName === selectedRoomType.name.trim().toLowerCase()
-        );
-      });
-
-      const reservedCount = overlappingTypeReservations.reduce(
-        (sum, r) =>
-          sum +
-          Math.max(
-            1,
-            Number(r.roomsBooked ?? r.numberOfRooms ?? r.quantity ?? 1),
-          ),
-        0,
-      );
-
-      const latestAvailable = Math.max(0, matchingRooms.length - reservedCount);
-
-      if (form.roomQuantity > latestAvailable) {
-        alert(
-          `Only ${latestAvailable} room(s) remain available for this type and dates. Please select again.`,
-        );
-        setReservations(latest);
-        setStep(2);
-        return;
-      }
-
-      const batch = writeBatch(customerDb);
-      const bookingDocRef = doc(collection(customerDb, "Bookings"));
-      batch.set(bookingDocRef, bookingData);
-
-      if (payment > 0) {
-        const paymentDocRef = doc(collection(customerDb, "Payments"));
-
-        batch.set(paymentDocRef, {
-          bookingId: bookingDocRef.id,
-          bookingRef: reference,
-
-          guest: fullName,
-          customerName: fullName,
-
-          room: selectedRoomType.name,
-          roomName: selectedRoomType.name,
-
-          amount: payment,
-          method: form.paymentMethod.toLowerCase(),
-
-          type: payment >= total ? "full" : "partial",
-
-          status: "completed",
-          verificationStatus: "verified",
-
-          receiptNo: `RCP-${Date.now().toString().slice(-6)}`,
-          referenceNumber: "",
-
-          bookingType: "Walk-in",
-          createdAt: serverTimestamp(),
-        });
-      }
-
-      await batch.commit();
-
-      await createActivityLog({
-        action: "Walk-in Booking Created",
-        details: `Walk-in booking created for ${fullName} - ${selectedRoomType.name} (${form.roomQuantity} room(s))`,
-      });
-
-      setBookingReference(reference);
+      stayDates(form.checkIn, form.checkOut);
+      if (form.checkIn < localDate())
+        throw new Error("Check-in cannot be in the past.");
+      if (!selectedRoomType) throw new Error("Select an available room type.");
+      moneyCents(form.downPayment || 0);
+      moneyCents(form.commissionAmount || 0);
+      const fingerprint = JSON.stringify({ form, total });
+      if (pendingSave.current?.fingerprint !== fingerprint)
+        pendingSave.current = {
+          fingerprint,
+          id: doc(collection(db, "reservations")).id,
+        };
+      const request = pendingSave.current;
+      setSubmitting(true);
+      const result = await saveWalkIn({ ...form }, total, request.id);
+      setBookingReference(result.reference);
+      setAssignedNumbers(result.roomNumbers);
       setSuccess(true);
+      pendingSave.current = null;
+      // Logging failure is handled independently of the completed save.
+      void createActivityLog({
+        action: "Walk-in Booking Created",
+        details:
+          "Walk-in " +
+          result.reference +
+          " for " +
+          form.firstName +
+          " " +
+          form.lastName +
+          ". Rooms: " +
+          result.roomNumbers.join(", "),
+      });
     } catch (error) {
+      if (
+        !(error as { code?: string })?.code ||
+        ["permission-denied", "invalid-argument"].includes(
+          (error as { code?: string }).code || "",
+        )
+      )
+        pendingSave.current = null;
       console.error("Error creating walk-in booking:", error);
-      alert(
-        "Failed to create walk-in booking. Please check your connection and try again.",
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : "Could not save the booking. Please try again.",
       );
     } finally {
       setSubmitting(false);
@@ -598,23 +340,26 @@ export default function WalkIn() {
             Walk-in Registered!
           </h2>
           <p style={{ color: "#4a7a7a" }}>
-            Booking confirmed for {form.firstName} {form.lastName}
+            {form.checkIn === localDate() ? "Checked in" : "Booking confirmed"}{" "}
+            for {form.firstName} {form.lastName}
           </p>
           <p className="font-mono text-sm" style={{ color: "#0d7377" }}>
             Booking ID: {bookingReference}
           </p>
-          <button
+          <p className="mt-2 text-sm">Room(s): {assignedNumbers.join(", ")}</p>
+          <AsyncButton
             type="button"
             onClick={() => {
               setSuccess(false);
               setStep(1);
               setForm(initialForm());
+              setSaveError("");
             }}
             className="px-6 py-2.5 rounded-lg text-sm text-white"
             style={{ background: "#0d7377" }}
           >
             Register Another Guest
-          </button>
+          </AsyncButton>
         </div>
       </div>
     );
@@ -622,6 +367,14 @@ export default function WalkIn() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
+      {(inventoryError || priceError || pricing.error || saveError) && (
+        <p
+          role="alert"
+          className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800"
+        >
+          {saveError || inventoryError || priceError || pricing.error}
+        </p>
+      )}
       <div className="flex items-center gap-4">
         {[
           { n: 1, label: "Guest Info" },
@@ -712,6 +465,7 @@ export default function WalkIn() {
                     )}
                   </label>
                   <input
+                    disabled={submitting}
                     type={field.type}
                     value={form[field.key]}
                     onChange={(e) => update(field.key, e.target.value)}
@@ -735,6 +489,7 @@ export default function WalkIn() {
                 Special Requests
               </label>
               <textarea
+                disabled={submitting}
                 value={form.specialRequests}
                 onChange={(e) => update("specialRequests", e.target.value)}
                 rows={3}
@@ -768,6 +523,7 @@ export default function WalkIn() {
                   Check-in Date
                 </label>
                 <input
+                  disabled={submitting}
                   type="date"
                   value={form.checkIn}
                   min={today()}
@@ -788,6 +544,7 @@ export default function WalkIn() {
                   Check-out Date
                 </label>
                 <input
+                  disabled={submitting}
                   type="date"
                   value={form.checkOut}
                   min={form.checkIn || today()}
@@ -808,6 +565,7 @@ export default function WalkIn() {
                   Number of Guests
                 </label>
                 <input
+                  disabled={submitting}
                   type="number"
                   min={1}
                   value={form.pax}
@@ -852,13 +610,16 @@ export default function WalkIn() {
                 </div>
               ) : (
                 roomOptions.map((room) => (
-                  <button
+                  <AsyncButton
                     key={room.id}
                     type="button"
-                    disabled={room.available < 1}
+                    disabled={submitting || room.available < 1}
                     onClick={() => {
                       update("selectedRoomType", room.id);
-                      update("roomQuantity", 1);
+                      update(
+                        "roomQuantity",
+                        Math.max(1, Math.ceil(form.pax / room.capacity)),
+                      );
                     }}
                     className="w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all disabled:opacity-50"
                     style={{
@@ -907,7 +668,7 @@ export default function WalkIn() {
                         style={{ color: "#0d7377" }}
                       />
                     )}
-                  </button>
+                  </AsyncButton>
                 ))
               )}
             </div>
@@ -921,6 +682,7 @@ export default function WalkIn() {
                   Number of Rooms
                 </label>
                 <input
+                  disabled={submitting}
                   type="number"
                   min={1}
                   max={selectedRoomType.available}
@@ -970,6 +732,7 @@ export default function WalkIn() {
                       }}
                     >
                       <input
+                        disabled={submitting}
                         type="checkbox"
                         checked={checked}
                         onChange={(e) =>
@@ -1023,6 +786,11 @@ export default function WalkIn() {
                 ["Guests", String(form.pax)],
                 ["Rate per Night", money(selectedRoomType?.rate ?? 0)],
                 ["Room Charges", money(roomTotal)],
+                ["Subtotal", money(subtotal)],
+                [
+                  "Reservation Fee (" + reservationFeePercent + "%)",
+                  money(reservationFee),
+                ],
               ].map(([label, value]) => (
                 <div key={label} className="flex justify-between text-sm mb-2">
                   <span style={{ color: "#4a7a7a" }}>{label}</span>
@@ -1064,6 +832,7 @@ export default function WalkIn() {
                   Commissioner Name
                 </label>
                 <input
+                  disabled={submitting}
                   type="text"
                   value={form.commissionerName}
                   onChange={(e) => update("commissionerName", e.target.value)}
@@ -1084,8 +853,10 @@ export default function WalkIn() {
                   Commission Amount (₱)
                 </label>
                 <input
+                  disabled={submitting}
                   type="number"
                   min={0}
+                  step="0.01"
                   value={form.commissionAmount}
                   onChange={(e) => update("commissionAmount", e.target.value)}
                   placeholder="0"
@@ -1108,9 +879,10 @@ export default function WalkIn() {
               </label>
               <div className="flex gap-3">
                 {["cash", "card", "gcash"].map((method) => (
-                  <button
+                  <AsyncButton
                     key={method}
                     type="button"
+                    disabled={submitting}
                     onClick={() => update("paymentMethod", method)}
                     className="flex-1 py-2.5 rounded-lg border text-sm capitalize transition-all"
                     style={{
@@ -1129,7 +901,7 @@ export default function WalkIn() {
                     {method === "gcash"
                       ? "GCash"
                       : method.charAt(0).toUpperCase() + method.slice(1)}
-                  </button>
+                  </AsyncButton>
                 ))}
               </div>
             </div>
@@ -1142,9 +914,11 @@ export default function WalkIn() {
                 Down Payment (₱)
               </label>
               <input
+                disabled={submitting}
                 type="number"
                 min={0}
                 max={total}
+                step="0.01"
                 value={form.downPayment}
                 onChange={(e) => update("downPayment", e.target.value)}
                 placeholder={`Full: ${money(total)}`}
@@ -1184,7 +958,7 @@ export default function WalkIn() {
 
       <div className="flex justify-between">
         {step > 1 ? (
-          <button
+          <AsyncButton
             type="button"
             disabled={submitting}
             onClick={() => setStep((p) => p - 1)}
@@ -1192,16 +966,17 @@ export default function WalkIn() {
             style={{ borderColor: "rgba(13,115,119,0.2)", color: "#4a7a7a" }}
           >
             Back
-          </button>
+          </AsyncButton>
         ) : (
           <div />
         )}
 
         {step < 3 ? (
-          <button
+          <AsyncButton
             type="button"
             disabled={
               submitting ||
+              Boolean(inventoryError || priceError || pricing.error) ||
               (step === 2 &&
                 (!selectedRoomType || nights < 1 || form.roomQuantity < 1))
             }
@@ -1224,7 +999,7 @@ export default function WalkIn() {
                 }
               }
               if (step === 2) {
-                if (nights < 1) {
+                if (nights < 1 || form.checkIn < localDate()) {
                   alert("Please select valid check-in and check-out dates.");
                   return;
                 }
@@ -1239,17 +1014,25 @@ export default function WalkIn() {
             style={{ background: "#0d7377" }}
           >
             Continue
-          </button>
+          </AsyncButton>
         ) : (
-          <button
+          <AsyncButton
             type="button"
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={
+              submitting ||
+              loadingRooms ||
+              Boolean(inventoryError || priceError || pricing.error)
+            }
             className="px-6 py-2.5 rounded-lg text-sm text-white disabled:opacity-50"
             style={{ background: "#0d7377" }}
           >
-            {submitting ? "Processing..." : "Confirm & Check In"}
-          </button>
+            {submitting
+              ? "Processing..."
+              : form.checkIn === localDate()
+                ? "Confirm & Check In"
+                : "Confirm Booking"}
+          </AsyncButton>
         )}
       </div>
     </div>

@@ -1,3 +1,6 @@
+import { getBookingRef } from "../app/bookingStore";
+import { getBookingSnapshot } from "../app/bookingStore";
+import { AsyncButton } from "../app/components/ui/async-action";
 import { Search, Plus, Edit2, Phone, Mail, Star, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -53,9 +56,9 @@ function GuestModal({
           <h3 style={{ fontFamily: "Georgia, serif", color: "#0a2e2e" }}>
             {form.id ? "Edit Guest" : "New Guest"}
           </h3>
-          <button onClick={onClose} style={{ color: "#4a7a7a" }}>
+          <AsyncButton onClick={onClose} style={{ color: "#4a7a7a" }}>
             <X className="w-5 h-5" />
-          </button>
+          </AsyncButton>
         </div>
         <div className="p-6 grid grid-cols-2 gap-4">
           {[
@@ -105,14 +108,14 @@ function GuestModal({
           className="flex justify-end gap-3 px-6 py-4 border-t"
           style={{ borderColor: "rgba(13,115,119,0.1)" }}
         >
-          <button
+          <AsyncButton
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-sm border"
             style={{ borderColor: "rgba(13,115,119,0.2)", color: "#4a7a7a" }}
           >
             Cancel
-          </button>
-          <button
+          </AsyncButton>
+          <AsyncButton
             onClick={() =>
               onSave({
                 ...form,
@@ -127,7 +130,7 @@ function GuestModal({
             style={{ background: "#0d7377" }}
           >
             Save Guest
-          </button>
+          </AsyncButton>
         </div>
       </div>
     </div>
@@ -154,7 +157,7 @@ export default function Guests() {
 
   const loadGuests = async () => {
     try {
-      const snapshot = await getDocs(collection(customerDb, "Bookings"));
+      const snapshot = await getBookingSnapshot();
       const guestMap = new Map<string, Guest>();
 
       snapshot.forEach((bookingDoc) => {
@@ -231,7 +234,7 @@ export default function Guests() {
   const saveGuest = async (g: Guest) => {
     try {
       if (g.id) {
-        await updateDoc(doc(customerDb, "Bookings", g.id), {
+        await updateDoc(await getBookingRef(g.id), {
           customerName: g.name,
           customerEmail: g.email,
           customerPhone: g.phone,
@@ -292,17 +295,17 @@ export default function Guests() {
               }}
             />
           </div>
-          <button
+          <AsyncButton
             onClick={() => setModal({})}
             className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm text-white"
             style={{ background: "#0d7377" }}
           >
             <Plus className="w-4 h-4" /> Add Guest
-          </button>
+          </AsyncButton>
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-[rgba(13,115,119,0.08)]">
           {filtered.map((g) => (
-            <button
+            <AsyncButton
               key={g.id}
               onClick={() => setSelected(g)}
               className="w-full text-left p-4 transition-all"
@@ -353,7 +356,7 @@ export default function Guests() {
                   />
                 )}
               </div>
-            </button>
+            </AsyncButton>
           ))}
         </div>
       </div>
@@ -422,7 +425,7 @@ export default function Guests() {
                     ))}
                   </div>
                 </div>
-                <button
+                <AsyncButton
                   onClick={() => setModal(selected)}
                   className="p-2 rounded-lg"
                   style={{
@@ -431,7 +434,7 @@ export default function Guests() {
                   }}
                 >
                   <Edit2 className="w-4 h-4" />
-                </button>
+                </AsyncButton>
               </div>
             </div>
 

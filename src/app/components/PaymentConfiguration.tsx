@@ -1,3 +1,4 @@
+import { AsyncButton, AsyncForm } from "./ui/async-action";
 import { useEffect, useState } from "react";
 import {
   CreditCard,
@@ -226,7 +227,7 @@ export default function PaymentConfiguration() {
         </div>
       )}
 
-      <form onSubmit={handleSave} className="space-y-6">
+      <AsyncForm onSubmit={handleSave} className="space-y-6">
         <section className="rounded-xl border border-gray-200 bg-white p-5 sm:p-6">
           <div className="mb-5 flex items-center gap-3">
             <div className="flex size-11 items-center justify-center rounded-lg bg-cyan-100">
@@ -391,16 +392,16 @@ export default function PaymentConfiguration() {
         </section>
 
         <div className="flex flex-col-reverse justify-end gap-3 sm:flex-row">
-          <button
+          <AsyncButton
             type="button"
             onClick={loadSettings}
             disabled={saving}
             className="rounded-lg border border-gray-300 px-5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             Reload Settings
-          </button>
+          </AsyncButton>
 
-          <button
+          <AsyncButton
             type="submit"
             disabled={saving}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-cyan-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -416,9 +417,9 @@ export default function PaymentConfiguration() {
                 Save Configuration
               </>
             )}
-          </button>
+          </AsyncButton>
         </div>
-      </form>
+      </AsyncForm>
     </div>
   );
 }

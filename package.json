@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:bookings": "node --test tests/bookings.test.cjs tests/walkIn.emulator.test.cjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

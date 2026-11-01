@@ -1,3 +1,7 @@
+import { getBookingRef } from "../app/bookingStore";
+import { getBookingSnapshot } from "../app/bookingStore";
+import { bookingRoomLabel } from "../app/bookingAvailability";
+import { AsyncButton } from "../app/components/ui/async-action";
 import { Search, Edit2, X, Check, Eye } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -46,6 +50,8 @@ interface Booking {
   checkedOutByUid?: string;
   cancelledBy?: string;
   cancelledByUid?: string;
+  assignedRoomIds?: string[];
+  assignedRoomNumbers?: string[];
 }
 
 const STATUS: Record<
@@ -88,14 +94,14 @@ function BookingModal({
               ? `Edit Booking ${booking.bookingId || ""}`
               : "New Booking"}
           </h3>
-          <button
+          <AsyncButton
             type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg"
             style={{ color: "#4a7a7a" }}
           >
             <X className="w-5 h-5" />
-          </button>
+          </AsyncButton>
         </div>
 
         <div className="p-6 space-y-4">
@@ -169,22 +175,22 @@ function BookingModal({
           className="flex justify-end gap-3 px-6 py-4 border-t"
           style={{ borderColor: "rgba(13,115,119,0.1)" }}
         >
-          <button
+          <AsyncButton
             type="button"
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-sm border"
             style={{ borderColor: "rgba(13,115,119,0.2)", color: "#4a7a7a" }}
           >
             Cancel
-          </button>
-          <button
+          </AsyncButton>
+          <AsyncButton
             type="button"
             onClick={() => onSave(form as Booking)}
             className="px-5 py-2 rounded-lg text-sm text-white"
             style={{ background: "#0d7377" }}
           >
             Save Booking
-          </button>
+          </AsyncButton>
         </div>
       </div>
     </div>
@@ -291,7 +297,7 @@ export default function Reservations() {
 
   const migrateBookingIds = async () => {
     try {
-      const snapshot = await getDocs(collection(customerDb, "Bookings"));
+      const snapshot = await getBookingSnapshot();
       let highestNumber = 0;
 
       snapshot.docs.forEach((bookingDoc) => {
@@ -313,7 +319,7 @@ export default function Reservations() {
           highestNumber++;
           const newBookingId = `BK-${highestNumber}`;
 
-          await updateDoc(doc(customerDb, "Bookings", bookingDoc.id), {
+          await updateDoc(await getBookingRef(bookingDoc.id), {
             bookingId: newBookingId,
           });
 
@@ -329,7 +335,7 @@ export default function Reservations() {
 
   const loadBookings = async () => {
     try {
-      const snapshot = await getDocs(collection(customerDb, "Bookings"));
+      const snapshot = await getBookingSnapshot();
 
       const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
         const data = bookingDoc.data();
@@ -347,12 +353,14 @@ export default function Reservations() {
 
         return {
           id: bookingDoc.id,
-          bookingId: data.bookingId || "",
+          bookingId: data.bookingId || data.bookingRef || bookingDoc.id,
           userId: data.userId || "",
           guest: data.customerName || data.guestName || "Unknown Guest",
           email: data.customerEmail || data.email || "",
           phone: data.customerPhone || data.phone || "",
-          room: data.roomName || data.roomNumber || "",
+          room: bookingRoomLabel(data),
+          assignedRoomIds: Array.isArray(data.assignedRoomIds) ? data.assignedRoomIds : [],
+          assignedRoomNumbers: Array.isArray(data.assignedRoomNumbers) ? data.assignedRoomNumbers : [],
           roomType: data.roomTypeName || data.roomType || "",
           checkIn: data.checkIn || "",
           checkOut: data.checkOut || "",
@@ -403,7 +411,7 @@ export default function Reservations() {
   }, []);
 
   const getNextBookingId = async () => {
-    const snapshot = await getDocs(collection(customerDb, "Bookings"));
+    const snapshot = await getBookingSnapshot();
     let highestNumber = 0;
 
     snapshot.docs.forEach((bookingDoc) => {
@@ -441,7 +449,7 @@ export default function Reservations() {
   const saveBooking = async (booking: Booking) => {
     try {
       if (booking.id) {
-        await updateDoc(doc(customerDb, "Bookings", booking.id), {
+        await updateDoc(await getBookingRef(booking.id), {
           customerName: booking.guest,
           customerEmail: booking.email,
           customerPhone: booking.phone,
@@ -534,7 +542,7 @@ export default function Reservations() {
         return;
       }
 
-      await updateDoc(doc(customerDb, "Bookings", id), {
+      await updateDoc(await getBookingRef(id), {
         status: "confirmed",
         acceptedBy: receptionistName,
         acceptedByUid: receptionistUid,
@@ -596,7 +604,7 @@ export default function Reservations() {
       );
       if (!confirmCheckIn) return;
 
-      await updateDoc(doc(customerDb, "Bookings", id), {
+      await updateDoc(await getBookingRef(id), {
         status: "checked-in",
         checkedInAt: serverTimestamp(),
         checkedInBy: receptionistName,
@@ -684,15 +692,13 @@ export default function Reservations() {
       if (!confirmCheckout) return;
 
       const roomSnapshot = await getDocs(collection(db, "rooms"));
-      const matchingRoom = roomSnapshot.docs.find((roomDoc) => {
+      const matchingRooms = roomSnapshot.docs.filter(roomDoc => {
         const roomData = roomDoc.data();
-        const roomNumber = String(
-          roomData.roomNumber ?? roomData.number ?? roomData.roomNo ?? "",
-        );
-        return roomNumber === String(booking.room);
+        const number = String(roomData.roomNumber ?? roomData.number ?? roomData.roomNo ?? "");
+        return (booking.assignedRoomIds || []).includes(roomDoc.id) || (booking.assignedRoomNumbers || []).includes(number) || number === String(booking.room);
       });
 
-      await updateDoc(doc(customerDb, "Bookings", id), {
+      await updateDoc(await getBookingRef(id), {
         status: "checked-out",
         checkedOutAt: serverTimestamp(),
         checkedOutBy: receptionistName,
@@ -700,16 +706,11 @@ export default function Reservations() {
         updatedAt: serverTimestamp(),
       });
 
-      if (matchingRoom) {
-        await updateDoc(doc(db, "rooms", matchingRoom.id), {
-          status: "Cleaning",
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        console.warn(
-          `Room ${booking.room} was not found in the rooms collection.`,
-        );
-      }
+      // Release every physical room in a multi-room Walk-in booking.
+      const roomUpdates = await Promise.allSettled(matchingRooms.map(roomDoc => updateDoc(doc(db, "rooms", roomDoc.id), {
+        status: "Cleaning", updatedAt: serverTimestamp(),
+      })));
+      if (roomUpdates.some(result => result.status === "rejected")) console.error("Checkout saved, but a room cleaning status could not be updated.");
 
       const notificationSent = await notifyCustomer({
         customerId: booking.userId,
@@ -767,7 +768,7 @@ export default function Reservations() {
         return;
       }
 
-      await updateDoc(doc(customerDb, "Bookings", id), {
+      await updateDoc(await getBookingRef(id), {
         status: "cancelled",
         cancelledBy: receptionistName,
         cancelledByUid: receptionistUid,
@@ -845,7 +846,7 @@ export default function Reservations() {
               "cancelled",
             ] as const
           ).map((s) => (
-            <button
+            <AsyncButton
               key={s}
               type="button"
               onClick={() => setStatusFilter(s)}
@@ -858,7 +859,7 @@ export default function Reservations() {
               }}
             >
               {s === "all" ? "All" : STATUS[s]?.label}
-            </button>
+            </AsyncButton>
           ))}
         </div>
       </div>
@@ -1014,7 +1015,7 @@ export default function Reservations() {
                       <td className="px-4 py-3">
                         <div className="flex gap-1">
                           {b.status === "pending" && (
-                            <button
+                            <AsyncButton
                               type="button"
                               onClick={() => acceptBooking(b.id)}
                               className="p-1.5 rounded-lg"
@@ -1022,11 +1023,11 @@ export default function Reservations() {
                               title="Accept Booking"
                             >
                               <Check className="w-4 h-4" />
-                            </button>
+                            </AsyncButton>
                           )}
 
                           {b.status === "confirmed" && (
-                            <button
+                            <AsyncButton
                               type="button"
                               onClick={() => checkInGuest(b.id)}
                               className="p-1.5 rounded-lg"
@@ -1034,11 +1035,11 @@ export default function Reservations() {
                               title="Check In"
                             >
                               <Check className="w-4 h-4" />
-                            </button>
+                            </AsyncButton>
                           )}
 
                           {b.status === "checked-in" && (
-                            <button
+                            <AsyncButton
                               type="button"
                               onClick={() => checkOut(b.id)}
                               className="p-1.5 rounded-lg"
@@ -1046,10 +1047,10 @@ export default function Reservations() {
                               title="Check Out"
                             >
                               <Check className="w-4 h-4" />
-                            </button>
+                            </AsyncButton>
                           )}
 
-                          <button
+                          <AsyncButton
                             type="button"
                             onClick={() => setDetail(b)}
                             className="p-1.5 rounded-lg"
@@ -1057,9 +1058,9 @@ export default function Reservations() {
                             title="View"
                           >
                             <Eye className="w-4 h-4" />
-                          </button>
+                          </AsyncButton>
 
-                          <button
+                          <AsyncButton
                             type="button"
                             onClick={() => setModal(b)}
                             className="p-1.5 rounded-lg"
@@ -1067,11 +1068,11 @@ export default function Reservations() {
                             title="Edit"
                           >
                             <Edit2 className="w-4 h-4" />
-                          </button>
+                          </AsyncButton>
 
                           {b.status !== "cancelled" &&
                             b.status !== "checked-out" && (
-                              <button
+                              <AsyncButton
                                 type="button"
                                 onClick={() => cancel(b.id)}
                                 className="p-1.5 rounded-lg"
@@ -1079,7 +1080,7 @@ export default function Reservations() {
                                 title="Cancel Booking"
                               >
                                 <X className="w-4 h-4" />
-                              </button>
+                              </AsyncButton>
                             )}
                         </div>
                       </td>
@@ -1116,14 +1117,14 @@ export default function Reservations() {
                   {STATUS[detail.status].label}
                 </span>
               </div>
-              <button
+              <AsyncButton
                 type="button"
                 onClick={() => setDetail(null)}
                 className="p-1.5 rounded-lg"
                 style={{ color: "#4a7a7a" }}
               >
                 <X className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
 
             <div className="p-6 grid grid-cols-2 gap-4">
@@ -1184,7 +1185,7 @@ export default function Reservations() {
 
             <div className="px-6 pb-6 space-y-3">
               {detail.status === "confirmed" && (
-                <button
+                <AsyncButton
                   type="button"
                   onClick={() => checkInGuest(detail.id)}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
@@ -1192,12 +1193,12 @@ export default function Reservations() {
                 >
                   <Check className="w-4 h-4" />
                   Check In Guest
-                </button>
+                </AsyncButton>
               )}
 
               {(detail.status === "confirmed" ||
                 detail.status === "checked-in") && (
-                <button
+                <AsyncButton
                   type="button"
                   onClick={() => checkOut(detail.id)}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
@@ -1205,7 +1206,7 @@ export default function Reservations() {
                 >
                   <Check className="w-4 h-4" />
                   Check Out Guest
-                </button>
+                </AsyncButton>
               )}
             </div>
           </div>

@@ -1,3 +1,4 @@
+import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Plus, Edit, Trash2, X } from "lucide-react";
@@ -683,17 +684,17 @@ export default function RoomManagement() {
                 {activeTab === "types" ? "Add New Room Type" : "Add New Room"}
               </h2>
 
-              <button
+              <AsyncButton
                 onClick={closeForm}
                 className="text-gray-400 hover:text-gray-600"
                 type="button"
               >
                 <X className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
 
             {activeTab === "types" ? (
-              <form onSubmit={handleAddRoomType} className="space-y-4">
+              <AsyncForm onSubmit={handleAddRoomType} className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Room Type Name
@@ -790,9 +791,9 @@ export default function RoomManagement() {
                     {uploadingImage ? "Uploading Image..." : "Add Room Type"}
                   </Button>
                 </div>
-              </form>
+              </AsyncForm>
             ) : (
-              <form onSubmit={handleAddRoom} className="space-y-4">
+              <AsyncForm onSubmit={handleAddRoom} className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700 block mb-1">
@@ -877,7 +878,7 @@ export default function RoomManagement() {
                     Add Room
                   </Button>
                 </div>
-              </form>
+              </AsyncForm>
             )}
           </Card>
         </div>
@@ -891,16 +892,16 @@ export default function RoomManagement() {
                 Edit Room Type
               </h2>
 
-              <button
+              <AsyncButton
                 type="button"
                 onClick={() => setEditingRoomType(null)}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <X className="w-5 h-5" />
-              </button>
+              </AsyncButton>
             </div>
 
-            <form onSubmit={handleSaveRoomType} className="space-y-4">
+            <AsyncForm onSubmit={handleSaveRoomType} className="space-y-4">
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
                   Name
@@ -1012,7 +1013,7 @@ export default function RoomManagement() {
                   {uploadingImage ? "Saving Changes..." : "Save Changes"}
                 </Button>
               </div>
-            </form>
+            </AsyncForm>
           </Card>
         </div>
       )}
@@ -1025,16 +1026,16 @@ export default function RoomManagement() {
                 <h2 className="text-lg font-semibold text-gray-900">
                   Edit Room {editingRoom.roomId}
                 </h2>
-                <button
+                <AsyncButton
                   type="button"
                   onClick={() => setEditingRoom(null)}
                   className="text-gray-400 hover:text-gray-600"
                 >
                   <X className="w-5 h-5" />
-                </button>
+                </AsyncButton>
               </div>
 
-              <form onSubmit={handleSaveRoom} className="space-y-4">
+              <AsyncForm onSubmit={handleSaveRoom} className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Room Type
@@ -1128,14 +1129,14 @@ export default function RoomManagement() {
                     Save Changes
                   </Button>
                 </div>
-              </form>
+              </AsyncForm>
             </Card>
           </div>
         </div>
       )}
 
       <div className="mb-6 flex overflow-x-auto border-b border-gray-200">
-        <button
+        <AsyncButton
           onClick={() => setActiveTab("types")}
           className={`whitespace-nowrap px-4 py-3 font-medium transition-colors ${
             activeTab === "types"
@@ -1144,9 +1145,9 @@ export default function RoomManagement() {
           }`}
         >
           Room Types
-        </button>
+        </AsyncButton>
 
-        <button
+        <AsyncButton
           onClick={() => setActiveTab("rooms")}
           className={`whitespace-nowrap px-4 py-3 font-medium transition-colors ${
             activeTab === "rooms"
@@ -1155,7 +1156,7 @@ export default function RoomManagement() {
           }`}
         >
           All Rooms
-        </button>
+        </AsyncButton>
       </div>
 
       {activeTab === "types" && (

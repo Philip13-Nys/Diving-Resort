@@ -1,3 +1,4 @@
+import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import {
@@ -464,7 +465,7 @@ export default function MaintenanceManagement() {
                 </p>
               </div>
 
-              <button
+              <AsyncButton
                 type="button"
                 onClick={closeForm}
                 disabled={submitting}
@@ -472,13 +473,13 @@ export default function MaintenanceManagement() {
                 className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
               >
                 <X className="h-5 w-5" />
-              </button>
+              </AsyncButton>
             </div>
 
-            <form
+            <AsyncForm
               onSubmit={(event) => {
                 event.preventDefault();
-                void handleAddMaintenanceRequest();
+                return handleAddMaintenanceRequest();
               }}
               className="space-y-4"
             >
@@ -672,7 +673,7 @@ export default function MaintenanceManagement() {
                   {submitting ? "Submitting..." : "Submit Request"}
                 </Button>
               </div>
-            </form>
+            </AsyncForm>
           </Card>
         </div>
       )}
@@ -778,8 +779,7 @@ export default function MaintenanceManagement() {
             variant="outline"
             size="sm"
             onClick={() => {
-              void loadMaintenanceRequests();
-              void loadRooms();
+              return Promise.all([loadMaintenanceRequests(), loadRooms()]);
             }}
             disabled={loading || roomsLoading}
           >

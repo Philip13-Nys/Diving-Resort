@@ -1,3 +1,7 @@
+import { getBookingSnapshot } from "../bookingStore";
+import { useBookingInventory } from "../useBookingInventory";
+import { typeAvailability, blockedRoom, normalizeBookingValue } from "../bookingAvailability";
+import { AsyncButton } from "./ui/async-action";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db, customerDb } from "../firebase";
@@ -436,6 +440,7 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export default function ManagerDashboard() {
+  const availability = useBookingInventory();
   const [roomTypes, setRoomTypes] = useState<RecordData[]>([]);
   const [rooms, setRooms] = useState<RecordData[]>([]);
   const [services, setServices] = useState<RecordData[]>([]);
@@ -468,7 +473,7 @@ export default function ManagerDashboard() {
         getDocs(collection(db, "packages")),
         getDocs(collection(db, "Staff")),
         getDocs(collection(db, "maintenanceRequests")),
-        getDocs(collection(customerDb, "Bookings")),
+        getBookingSnapshot(),
       ]);
 
       const convert = (
@@ -527,85 +532,15 @@ export default function ManagerDashboard() {
     [bookings],
   );
 
-  const roomAvailability = useMemo(() => {
-    return roomTypes.map((type) => {
-      const typeId = normalized(type.id);
-      const typeName = normalized(type.name ?? type.roomTypeName ?? type.type);
-
-      const matchingRooms = rooms.filter((room) => {
-        const roomTypeId = normalized(
-          room.roomTypeId ??
-            room.typeId ??
-            (typeof room.roomType === "object" ? room.roomType?.id : ""),
-        );
-
-        const roomTypeName = normalized(getRoomTypeName(room, roomTypes));
-
-        return (
-          (typeId !== "" && roomTypeId === typeId) ||
-          (typeName !== "" && roomTypeName === typeName)
-        );
-      });
-
-      const inventory = matchingRooms.length
-        ? matchingRooms.length
-        : Math.max(
-            0,
-            Number(
-              type.count ??
-                type.quantity ??
-                type.totalRooms ??
-                type.numberOfRooms ??
-                type.availableRooms ??
-                0,
-            ) || 0,
-          );
-
-      const maintainedRooms = matchingRooms.filter((room) =>
-        getRecordStatuses(room).some(isMaintenance),
-      ).length;
-
-      const reservedBookings = activeBookings.filter((booking) => {
-        if (!overlaps(booking, checkIn, checkOut)) return false;
-        if (!isRoomBooking(booking)) return false;
-
-        const bookingTypeId = normalized(booking.roomTypeId ?? booking.typeId);
-
-        const bookingTypeName = normalized(
-          booking.roomTypeName ?? booking.roomType ?? booking.roomName,
-        );
-
-        return (
-          (typeId !== "" && bookingTypeId === typeId) ||
-          (typeName !== "" && bookingTypeName === typeName)
-        );
-      });
-
-      const reserved = reservedBookings.reduce(
-        (sum, booking) =>
-          sum +
-          Math.max(
-            1,
-            Number(
-              booking.roomQuantity ??
-                booking.numberOfRooms ??
-                booking.quantity ??
-                1,
-            ) || 1,
-          ),
-        0,
-      );
-
-      return {
-        id: type.id,
-        name: recordName(type),
-        inventory,
-        maintained: maintainedRooms,
-        reserved,
-        available: Math.max(0, inventory - maintainedRooms - reserved),
-      };
-    });
-  }, [roomTypes, rooms, activeBookings, checkIn, checkOut]);
+  const roomAvailability = useMemo(() => availability.roomTypes.map(type => {
+    const inventoryRooms = availability.rooms.filter(room => room.roomTypeId === type.id || normalizeBookingValue(room.type) === normalizeBookingValue(type.name));
+    const inventory = inventoryRooms.length;
+    const maintained = inventoryRooms.filter(blockedRoom).length;
+    let available = 0;
+    try { available = typeAvailability(availability.rooms, availability.reservations, type, checkIn, checkOut).available; } catch { /* Invalid dates leave no bookable availability. */ }
+    return { id: type.id, name: String(type.name), inventory, maintained,
+      reserved: Math.max(0, inventory - maintained - available), available };
+  }), [availability.rooms, availability.roomTypes, availability.reservations, checkIn, checkOut]);
 
   const roomCounts = useMemo(() => {
     const maintainedRoomIds = new Set(
@@ -793,7 +728,7 @@ export default function ManagerDashboard() {
           </p>
         </div>
 
-        <button
+        <AsyncButton
           type="button"
           onClick={() => void loadDashboardData(true)}
           disabled={refreshing}
@@ -801,10 +736,10 @@ export default function ManagerDashboard() {
         >
           <RefreshCw className={`size-4 ${refreshing ? "animate-spin" : ""}`} />
           Refresh data
-        </button>
+        </AsyncButton>
       </div>
 
-      {error && (
+      {(error || availability.error) && (
         <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <AlertTriangle className="mt-0.5 size-5 shrink-0" />
           <p>{error}</p>

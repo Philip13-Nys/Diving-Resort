@@ -1,3 +1,4 @@
+import { AsyncButton } from "./ui/async-action";
 import {
   LayoutDashboard,
   Users,
@@ -173,7 +174,7 @@ export default function AdminLayout() {
     <div className="flex h-screen h-dvh w-full overflow-hidden bg-gray-50">
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
-        <button
+        <AsyncButton
           type="button"
           aria-label="Close navigation menu"
           className="fixed inset-0 z-40 cursor-default bg-black/50 backdrop-blur-[1px] lg:hidden"
@@ -209,14 +210,14 @@ export default function AdminLayout() {
             <p className="mt-1 text-sm text-cyan-100">Admin Panel</p>
           </div>
 
-          <button
+          <AsyncButton
             type="button"
             aria-label="Close sidebar"
             onClick={closeSidebar}
             className="rounded-lg p-2 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white lg:hidden"
           >
             <X className="size-5" />
-          </button>
+          </AsyncButton>
         </div>
 
         {/* Navigation menu */}
@@ -262,7 +263,7 @@ export default function AdminLayout() {
               <p className="truncate text-xs text-cyan-100">{userEmail}</p>
             </div>
 
-            <button
+            <AsyncButton
               type="button"
               onClick={handleLogout}
               aria-label="Log out"
@@ -270,7 +271,7 @@ export default function AdminLayout() {
               className="shrink-0 rounded-lg p-2 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
               <LogOut className="size-5 text-cyan-100 hover:text-red-200" />
-            </button>
+            </AsyncButton>
           </div>
         </div>
       </aside>
@@ -279,7 +280,7 @@ export default function AdminLayout() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Top header */}
         <header className="z-30 flex shrink-0 items-center gap-2 border-b border-gray-200 bg-white px-3 py-3 sm:gap-3 sm:px-5 sm:py-4 lg:px-6">
-          <button
+          <AsyncButton
             type="button"
             aria-label={sidebarOpen ? "Close menu" : "Open menu"}
             aria-controls="admin-sidebar"
@@ -292,7 +293,7 @@ export default function AdminLayout() {
             ) : (
               <Menu className="size-5" />
             )}
-          </button>
+          </AsyncButton>
 
           <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800 sm:text-base md:text-lg xl:text-xl">
             Resort Management System
