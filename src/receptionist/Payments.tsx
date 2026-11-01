@@ -1,15 +1,18 @@
-import { getBookingSnapshot, getPaymentSnapshot } from "../app/bookingStore";
+import { customerNotifier } from "../app/activitylogss";
+import { useRecordRevision } from "../app/useBookingInventory";
+import { reviewPayment } from "../app/bookingOperations";
+import { paymentUpdate, cancelled } from "../app/bookingAvailability";
+import {
+  getLiveBookingSnapshot as getBookingSnapshot,
+  getLivePaymentSnapshot as getPaymentSnapshot,
+} from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   collection,
-  getDocs,
-  addDoc,
-  updateDoc,
   doc,
   runTransaction,
-  setDoc,
   serverTimestamp,
 } from "firebase/firestore";
 
@@ -72,43 +75,7 @@ const METHOD_COLOR: Record<string, { color: string; bg: string }> = {
  * create notifications for customers, or this write should be
  * performed by a trusted backend.
  */
-async function notifyCustomer({
-  customerId,
-  eventId,
-  title,
-  message,
-  targetPath,
-}: {
-  customerId: string;
-  eventId: string;
-  title: string;
-  message: string;
-  targetPath: string;
-}) {
-  if (!customerId) {
-    console.warn("Notification skipped: booking has no customer userId.");
-    return;
-  }
-
-  const safeEventId = eventId.replace(/\./g, "%2E");
-  const notificationId = `${customerId}_${safeEventId}`;
-
-  await setDoc(
-    doc(customerDb, "Notifications", notificationId),
-    {
-      userId: customerId,
-      role: "customer",
-      eventId,
-      type: "payment",
-      title,
-      message,
-      targetPath,
-      read: false,
-      createdAt: serverTimestamp(),
-    },
-    { merge: true },
-  );
-}
+const notifyCustomer = customerNotifier("payment", true);
 
 interface PaymentModalProps {
   booking: PendingBalance;
@@ -281,6 +248,10 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
 }
 
 export default function Payments() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,customer:Payments,admin:Payments",
+  );
+  const pendingReceipt = useRef<{ key: string; id: string } | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [pendingBalances, setPendingBalances] = useState<PendingBalance[]>([]);
   const [loading, setLoading] = useState(true);
@@ -290,7 +261,7 @@ export default function Payments() {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [recordRevision]);
 
   const loadData = async () => {
     try {
@@ -328,20 +299,27 @@ export default function Payments() {
 
         return {
           id: docSnap.id,
-          bookingStore: (d._bookingStore === "staff" ? "staff" : "customer") as "staff" | "customer",
+          bookingStore: (d._bookingStore === "staff" ? "staff" : "customer") as
+            | "staff"
+            | "customer",
           bookingId: d.bookingId || "",
           guest: d.guest || d.customerName || "",
           room: d.room || d.roomName || "",
           amount: Number(d.amount || 0),
-          method: rawMethod.includes("gcash") ? "gcash" : rawMethod.includes("card") ? "card" : "cash",
+          method: rawMethod.includes("gcash")
+            ? "gcash"
+            : rawMethod.includes("card")
+              ? "card"
+              : "cash",
           type: d.type || "partial",
           date,
           time,
           status:
-            rawStatus === "rejected" || rawVerification === "rejected" ? "rejected" :
-            rawStatus === "pending" || rawStatus === "pending_verification"
-              ? "pending"
-              : "completed",
+            rawStatus === "rejected" || rawVerification === "rejected"
+              ? "rejected"
+              : rawStatus === "pending" || rawStatus === "pending_verification"
+                ? "pending"
+                : "completed",
           receiptNo: d.receiptNo || "",
           referenceNumber: d.referenceNumber || "",
           verificationStatus:
@@ -358,6 +336,7 @@ export default function Payments() {
       const bookingSnap = await getBookingSnapshot();
 
       const balances: PendingBalance[] = bookingSnap.docs
+        .filter((doc) => !cancelled(doc.data()))
         .map((docSnap) => {
           const d = docSnap.data();
           const total = Number(d.totalPrice ?? d.totalAmount ?? d.total ?? 0);
@@ -367,7 +346,9 @@ export default function Payments() {
 
           return {
             bookingId: docSnap.id,
-            bookingStore: (d._bookingStore === "staff" ? "staff" : "customer") as "staff" | "customer",
+            bookingStore: (d._bookingStore === "staff"
+              ? "staff"
+              : "customer") as "staff" | "customer",
             userId: String(d.userId ?? ""),
             guest: d.customerName || "",
             room: d.roomName || "",
@@ -399,83 +380,89 @@ export default function Payments() {
 
     try {
       const store = payModal.bookingStore === "staff" ? db : customerDb;
-      const bookingRef = doc(store, payModal.bookingStore === "staff" ? "reservations" : "Bookings", payModal.bookingId);
-      const paymentRef = doc(collection(store, "Payments"));
+      const bookingRef = doc(
+        store,
+        payModal.bookingStore === "staff" ? "reservations" : "Bookings",
+        payModal.bookingId,
+      );
+      const key = JSON.stringify([
+        payModal.bookingStore,
+        payModal.bookingId,
+        method,
+        amount,
+      ]);
+      if (pendingReceipt.current?.key !== key)
+        pendingReceipt.current = {
+          key,
+          id: doc(collection(store, "Payments")).id,
+        };
+      const paymentRef = doc(store, "Payments", pendingReceipt.current.id);
       const now = new Date();
 
-      const paymentResult = await runTransaction(
-        store,
-        async (transaction) => {
-          const bookingSnap = await transaction.get(bookingRef);
+      const paymentResult = await runTransaction(store, async (transaction) => {
+        const receipt = await transaction.get(paymentRef);
+        const bookingSnap = await transaction.get(bookingRef);
 
-          if (!bookingSnap.exists()) {
-            throw new Error("Booking not found.");
-          }
+        if (!bookingSnap.exists()) {
+          throw new Error("Booking not found.");
+        }
 
-          const booking = bookingSnap.data();
+        const booking = bookingSnap.data();
 
-          const total = Number(
-            booking.totalPrice ?? booking.totalAmount ?? booking.total ?? 0,
-          );
-
-          const paid = Number(booking.amountPaid ?? 0);
-          const currentBalance = Math.max(0, total - paid);
-
-          if (currentBalance <= 0) {
-            throw new Error("This booking is already fully paid.");
-          }
-
-          if (amount > currentBalance) {
-            throw new Error("Payment exceeds the current remaining balance.");
-          }
-
-          const newAmountPaid = paid + amount;
-          const remainingBalance = Math.max(0, total - newAmountPaid);
-
-          const newPay: Omit<Payment, "id"> = {
-            bookingId: payModal.bookingId,
-            guest: booking.customerName || payModal.guest,
-            room: booking.roomName || payModal.room,
-            amount,
-            method: method as Payment["method"],
-            type: remainingBalance === 0 ? "balance" : "partial",
-            date: now.toLocaleDateString(),
-            time: now.toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            status: "completed",
-            receiptNo: `RCP-${Date.now().toString().slice(-6)}`,
-            referenceNumber: "",
-            verificationStatus: "verified",
-          };
-
-          transaction.set(paymentRef, {
-            ...newPay,
-            userId: booking.userId || "",
-            createdAt: serverTimestamp(),
-          });
-
-          transaction.update(bookingRef, {
-            amountPaid: newAmountPaid,
-            remainingBalance,
-            balance: remainingBalance,
-            paymentStatus:
-              remainingBalance === 0
-                ? "paid"
-                : newAmountPaid > 0
-                  ? "partial"
-                  : "unpaid",
-          });
-
+        if (receipt.exists())
           return {
-            userId: String(booking.userId ?? ""),
-            guest: String(booking.customerName || payModal.guest),
-            room: String(booking.roomName || payModal.room),
-            remainingBalance,
+            userId: String(booking.userId || ""),
+            room: String(booking.roomName || ""),
+            remainingBalance: Number(booking.remainingBalance || 0),
           };
-        },
-      );
+        const update = paymentUpdate(booking, amount);
+        const newAmountPaid = update.amountPaid;
+        const remainingBalance = update.remainingBalance;
+
+        const newPay: Omit<Payment, "id"> = {
+          bookingId: payModal.bookingId,
+          guest: booking.customerName || payModal.guest,
+          room: booking.roomName || payModal.room,
+          amount,
+          method: method as Payment["method"],
+          type: remainingBalance === 0 ? "balance" : "partial",
+          date: now.toLocaleDateString(),
+          time: now.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          status: "completed",
+          receiptNo: `RCP-${paymentRef.id}`,
+          referenceNumber: "",
+          verificationStatus: "verified",
+        };
+
+        transaction.set(paymentRef, {
+          ...newPay,
+          userId: booking.userId || "",
+          createdAt: serverTimestamp(),
+        });
+
+        transaction.update(bookingRef, {
+          ...update,
+          amountPaid: newAmountPaid,
+          remainingBalance,
+          balance: remainingBalance,
+          paymentStatus:
+            remainingBalance === 0
+              ? "paid"
+              : newAmountPaid > 0
+                ? "partial"
+                : "unpaid",
+        });
+
+        return {
+          userId: String(booking.userId ?? ""),
+          guest: String(booking.customerName || payModal.guest),
+          room: String(booking.roomName || payModal.room),
+          remainingBalance,
+        };
+      });
 
       // Payment transaction has succeeded. Notification failure must not
       // make the receptionist think the payment itself failed.
@@ -500,6 +487,7 @@ export default function Payments() {
         );
       }
 
+      pendingReceipt.current = null;
       setPayModal(null);
       setSuccessMsg(
         `Payment of ₱${amount.toLocaleString()} via ${method} processed successfully!`,
@@ -521,86 +509,11 @@ export default function Payments() {
   // Verify the existing customer-submitted GCash record.
   const verifyGcashPayment = async (payment: Payment) => {
     try {
-      const store = payment.bookingStore === "staff" ? db : customerDb;
-      const paymentRef = doc(store, "Payments", payment.id);
-      const bookingRef = doc(store, payment.bookingStore === "staff" ? "reservations" : "Bookings", payment.bookingId);
-
-      const verifiedBooking = await runTransaction(
-        customerDb,
-        async (transaction) => {
-          const paymentSnap = await transaction.get(paymentRef);
-
-          if (!paymentSnap.exists()) {
-            throw new Error("Payment record not found.");
-          }
-
-          const bookingSnap = await transaction.get(bookingRef);
-
-          if (!bookingSnap.exists()) {
-            throw new Error("Booking not found.");
-          }
-
-          const existingPayment = paymentSnap.data();
-
-          if (
-            existingPayment.verificationStatus === "verified" ||
-            existingPayment.status === "completed"
-          ) {
-            throw new Error("This payment has already been verified.");
-          }
-
-          if (existingPayment.verificationStatus === "rejected") {
-            throw new Error("This payment was already rejected.");
-          }
-
-          const booking = bookingSnap.data();
-          const amount = Number(existingPayment.amount ?? 0);
-          const total = Number(
-            booking.totalPrice ?? booking.totalAmount ?? booking.total ?? 0,
-          );
-          const paid = Number(booking.amountPaid ?? 0);
-          const balance = Math.max(0, total - paid);
-
-          if (!Number.isFinite(amount) || amount <= 0) {
-            throw new Error("Invalid payment amount.");
-          }
-
-          if (amount > balance) {
-            throw new Error(
-              "Payment amount exceeds the booking's remaining balance.",
-            );
-          }
-
-          const newAmountPaid = paid + amount;
-          const remainingBalance = Math.max(0, total - newAmountPaid);
-
-          transaction.update(paymentRef, {
-            status: "completed",
-            verificationStatus: "verified",
-            type: remainingBalance === 0 ? "balance" : "partial",
-            verifiedAt: serverTimestamp(),
-          });
-
-          transaction.update(bookingRef, {
-            amountPaid: newAmountPaid,
-            remainingBalance,
-            balance: remainingBalance,
-            paymentStatus:
-              remainingBalance === 0
-                ? "paid"
-                : newAmountPaid > 0
-                  ? "partial"
-                  : "unpaid",
-          });
-
-          return {
-            userId: String(booking.userId ?? existingPayment.userId ?? ""),
-            guest: String(booking.customerName ?? payment.guest),
-            room: String(booking.roomName ?? payment.room),
-            amount,
-            remainingBalance,
-          };
-        },
+      const verifiedBooking = await reviewPayment(
+        payment.bookingStore,
+        payment.id,
+        payment.bookingId,
+        true,
       );
 
       try {
@@ -637,24 +550,12 @@ export default function Payments() {
   // Reject the existing customer-submitted payment.
   const rejectGcashPayment = async (payment: Payment) => {
     try {
-      const store = payment.bookingStore === "staff" ? db : customerDb;
-      const paymentRef = doc(store, "Payments", payment.id);
-
-      const bookingSnap = await getBookingSnapshot().then((snapshot) =>
-        snapshot.docs.find((item) => item.id === payment.bookingId),
+      const booking = await reviewPayment(
+        payment.bookingStore,
+        payment.id,
+        payment.bookingId,
+        false,
       );
-
-      if (!bookingSnap) {
-        throw new Error("Booking not found.");
-      }
-
-      const booking = bookingSnap.data();
-
-      await updateDoc(paymentRef, {
-        verificationStatus: "rejected",
-        status: "rejected",
-        rejectedAt: serverTimestamp(),
-      });
 
       try {
         await notifyCustomer({
@@ -663,7 +564,7 @@ export default function Payments() {
           title: "GCash Payment Rejected",
           message:
             `Your GCash payment submission of ₱${payment.amount.toLocaleString()} ` +
-            `for ${booking.roomName || payment.room || "your booking"} was rejected. ` +
+            `for ${booking.room || payment.room || "your booking"} was rejected. ` +
             "Please review your payment details and submit again.",
           targetPath: "/booking-history",
         });
@@ -713,7 +614,11 @@ export default function Payments() {
     .filter((p) => p.method === "gcash" && p.status === "completed")
     .reduce((a, b) => a + b.amount, 0);
 
-  const cardTotal = payments.filter(payment => payment.method === "card" && payment.status === "completed").reduce((sum,payment) => sum + payment.amount, 0);
+  const cardTotal = payments
+    .filter(
+      (payment) => payment.method === "card" && payment.status === "completed",
+    )
+    .reduce((sum, payment) => sum + payment.amount, 0);
 
   const pendingTotal = pendingBalances.reduce((a, b) => a + b.balance, 0);
 
@@ -1122,7 +1027,11 @@ export default function Payments() {
                               }}
                             >
                               <Icon className="w-3 h-3" />
-                              {p.method === "gcash" ? "GCash" : p.method === "card" ? "Card" : "Cash"}
+                              {p.method === "gcash"
+                                ? "GCash"
+                                : p.method === "card"
+                                  ? "Card"
+                                  : "Cash"}
                             </span>
                           </td>
 

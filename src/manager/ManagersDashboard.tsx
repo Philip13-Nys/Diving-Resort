@@ -1,4 +1,12 @@
-import { getBookingSnapshot } from "../app/bookingStore";
+import {
+  normalizeInventory,
+  roomBookingsOnDate,
+  roomStatusOnDate,
+  localDate,
+  roomQuantity,
+} from "../app/bookingAvailability";
+import { useRecordRevision } from "../app/useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import {
@@ -84,13 +92,6 @@ type OccupancyData = {
 };
 
 const quickActions = [
-  {
-    label: "View Full Activity Log",
-    description: "Audit system events and user actions",
-    icon: Activity,
-    color: "bg-indigo-100 text-indigo-600",
-    href: "/manager/activity-logs",
-  },
   {
     label: "Add New Room Type",
     description: "Create a new category of rooms",
@@ -266,12 +267,7 @@ const isRoomBooking = (booking: Booking): boolean => {
 };
 
 const getRoomQuantity = (booking: Booking): number => {
-  const value =
-    booking.roomQuantity ?? booking.numberOfRooms ?? booking.quantity ?? 1;
-
-  const quantity = Number(value);
-
-  return Number.isFinite(quantity) && quantity > 0 ? Math.floor(quantity) : 1;
+  return roomQuantity(booking);
 };
 
 const getBookingDateRange = (
@@ -295,7 +291,17 @@ const getOccupiedRoomCount = (bookings: Booking[], date: Date): number => {
   targetDate.setHours(0, 0, 0, 0);
 
   return bookings.reduce((total, booking) => {
-    if (isCancelled(booking) || !isRoomBooking(booking)) {
+    if (
+      isCancelled(booking) ||
+      !isRoomBooking(booking) ||
+      ![
+        "checked-in",
+        "checked-in-occupied",
+        "checked-out",
+        "completed",
+        "occupied",
+      ].includes(normalizeStatus(booking.status))
+    ) {
       return total;
     }
 
@@ -328,6 +334,9 @@ const formatCurrency = (amount: number): string =>
   })}`;
 
 export default function Dashboard() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,admin:rooms",
+  );
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
@@ -363,7 +372,13 @@ export default function Dashboard() {
         id: document.id,
       })) as Booking[];
 
-      const totalRooms = roomSnapshot.size;
+      const inventory = normalizeInventory(
+        roomSnapshot.docs.map((document) => ({
+          ...document.data(),
+          id: document.id,
+        })),
+      );
+      const totalRooms = inventory.length;
 
       const activeBookings = bookings.filter(
         (booking) => !isCancelled(booking),
@@ -471,10 +486,17 @@ export default function Dashboard() {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const occupiedToday = Math.min(
-          totalRooms,
-          getOccupiedRoomCount(activeRoomBookings, today),
+        const day = localDate(today);
+        const assignments = roomBookingsOnDate(
+          inventory,
+          activeRoomBookings,
+          day,
         );
+        const occupiedToday = inventory.filter(
+          (room) =>
+            roomStatusOnDate(room, assignments.get(room.id), day) ===
+            "occupied",
+        ).length;
 
         setOccupancyRate(Math.round((occupiedToday / totalRooms) * 100));
 
@@ -487,7 +509,9 @@ export default function Dashboard() {
 
           const occupied = Math.min(
             totalRooms,
-            getOccupiedRoomCount(activeRoomBookings, date),
+            i === 0
+              ? occupiedToday
+              : getOccupiedRoomCount(activeRoomBookings, date),
           );
 
           weeklyData.push({
@@ -517,7 +541,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     void loadDashboard();
-  }, [loadDashboard]);
+  }, [loadDashboard, recordRevision]);
 
   return (
     <div className="min-w-0 space-y-6 p-4 sm:space-y-8 sm:p-6 lg:p-8">
@@ -853,7 +877,7 @@ export default function Dashboard() {
 
           <AsyncButton
             type="button"
-            onClick={() => navigate("/manager/reservations")}
+            onClick={() => navigate("/manager/receptionist-dashboard")}
             className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 sm:self-auto"
           >
             <CalendarDays className="size-4" />

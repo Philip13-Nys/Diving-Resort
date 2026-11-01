@@ -1,3 +1,6 @@
+import { customerNotifier } from "../app/activitylogss";
+import { useSearchParams } from "react-router-dom";
+import { useRecordRevision } from "../app/useBookingInventory";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useState } from "react";
 import {
@@ -21,7 +24,6 @@ import {
   orderBy,
   onSnapshot,
   Timestamp,
-  setDoc,
 } from "firebase/firestore";
 import { customerDb } from "../app/firebase";
 
@@ -86,6 +88,8 @@ const STATUS_CONFIG: Record<
 };
 
 export default function Inquiries() {
+  const [params] = useSearchParams();
+  const recordRevision = useRecordRevision("customer:Inquiries");
   const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Inquiry | null>(null);
@@ -97,59 +101,7 @@ export default function Inquiries() {
 
   // Writes a notification to the customer's project.
   // customerId must be the customer's Firebase Auth UID.
-  const notifyCustomer = async ({
-    customerId,
-    eventId,
-    title,
-    message,
-  }: {
-    customerId?: string;
-    eventId: string;
-    title: string;
-    message: string;
-  }): Promise<boolean> => {
-    const uid = String(customerId || "").trim();
-
-    if (!uid) {
-      console.warn(
-        `Notification not sent: inquiry has no customer userId. Event: ${eventId}`,
-      );
-      return false;
-    }
-
-    const safeEventId = encodeURIComponent(eventId).replace(/\./g, "%2E");
-    const notificationId = `${uid}_${safeEventId}`;
-
-    try {
-      await setDoc(
-        doc(customerDb, "Notifications", notificationId),
-        {
-          userId: uid,
-          role: "customer",
-          eventId,
-          type: "inquiry",
-          title,
-          message,
-          targetPath: "/inquiries",
-          read: false,
-          createdAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      console.info(
-        `Inquiry notification created for customer UID ${uid}:`,
-        eventId,
-      );
-      return true;
-    } catch (error) {
-      console.error(
-        `Could not create inquiry notification for customer UID ${uid}:`,
-        error,
-      );
-      return false;
-    }
-  };
+  const notifyCustomer = customerNotifier("inquiry");
 
   useEffect(() => {
     const loadInquiries = async () => {
@@ -199,6 +151,12 @@ export default function Inquiries() {
         });
 
         setInquiries(loadedInquiries);
+        setSelected(
+          (previous) =>
+            loadedInquiries.find(
+              (item) => item.id === (params.get("selected") || previous?.id),
+            ) || null,
+        );
       } catch (error) {
         console.error("Error loading inquiries:", error);
       } finally {
@@ -207,7 +165,7 @@ export default function Inquiries() {
     };
 
     loadInquiries();
-  }, []);
+  }, [recordRevision]);
 
   useEffect(() => {
     if (!selected?.id) {

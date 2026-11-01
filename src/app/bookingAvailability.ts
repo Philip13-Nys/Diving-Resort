@@ -97,8 +97,13 @@ export function normalizeInventory(
       ...r,
       id: String(r.id),
       roomNumber: String(
-        r.roomNumber ?? r.number ?? r.roomNo ?? r.room ?? r.roomId ?? r.id,
-      ),
+        [r.roomNumber, r.number, r.roomNo, r.room, r.roomId, r.id].find(
+          (value) =>
+            value != null &&
+            String(value).trim() !== "" &&
+            !/^0+$/.test(String(value).trim()),
+        ) ?? r.id,
+      ).trim(),
       type: type?.name || typeName,
       roomTypeId: String(type?.id ?? r.roomTypeId ?? r.typeId ?? ""),
       rate: Number(r.rate ?? r.price ?? r.basePrice ?? type?.basePrice ?? 0),
@@ -136,6 +141,13 @@ export function assignedRoomIds(
   ]
     .filter(Boolean)
     .map(String);
+  // Explicit physical assignments take precedence over legacy display labels.
+  // Old records may share a placeholder room number (for example "0").
+  const explicit = [...new Set(ids)].filter((id) =>
+    rooms.some((room) => room.id === id),
+  );
+  if (explicit.length) return explicit;
+  ids.length = 0;
   // Online roomId identifies the TYPE; only treat it as a physical ID when it
   // actually matches a room document or its separate roomId alias.
   if (booking.roomId) {
@@ -155,8 +167,19 @@ export function assignedRoomIds(
   ]
     .filter(Boolean)
     .map(String);
-  for (const room of rooms)
-    if (numbers.includes(room.roomNumber)) ids.push(room.id);
+  if (ids.length) return [...new Set(ids)];
+  for (const number of numbers) {
+    const label = number.trim();
+    if (!label || /^0+$/.test(label)) continue;
+    const matches = rooms.filter(
+      (room) =>
+        String(room.roomNumber).trim() === label ||
+        String(room.roomId || "").trim() === label,
+    );
+    // Ambiguous labels cannot identify a physical room. Type capacity is still
+    // reserved by roomQuantity when no unique physical assignment is known.
+    if (matches.length === 1) ids.push(matches[0].id);
+  }
   return [...new Set(ids)].filter((id) => rooms.some((r) => r.id === id));
 }
 export function matchesRoomType(
@@ -319,6 +342,29 @@ export function roomBookingsOnDate(
   }
   return result;
 }
+// A reservation holds capacity, but only check-in means the guest occupies it.
+export function roomStatusOnDate(
+  room: BookingRecord,
+  booking: BookingRecord | undefined,
+  date: string,
+  today = localDate(),
+) {
+  if (blockedRoom(room)) return "maintenance";
+  if (
+    date === today &&
+    ["occupied", "checked-in"].includes(normalizeBookingValue(room.status))
+  )
+    return "occupied";
+  if (!booking) return "available";
+  return [
+    "checked-in",
+    "checkedin",
+    "checked-in-occupied",
+    "occupied",
+  ].includes(normalizeBookingValue(booking.status))
+    ? "occupied"
+    : "reserved";
+}
 export function bookingRoomLabel(booking: BookingRecord): string {
   const numbers = booking.assignedRoomNumbers || booking.roomNumbers;
   return Array.isArray(numbers) && numbers.length
@@ -342,4 +388,128 @@ export function moneyCents(value: unknown): number {
   )
     throw new Error("Enter a valid amount with at most two decimal places.");
   return cents;
+}
+
+export function bookingTotal(record: BookingRecord) {
+  return (
+    moneyCents(record.totalPrice ?? record.totalAmount ?? record.total ?? 0) /
+    100
+  );
+}
+export function bookingPaid(record: BookingRecord) {
+  return moneyCents(record.amountPaid ?? record.paid ?? 0) / 100;
+}
+export function cancelled(record: BookingRecord) {
+  return ["cancelled", "canceled", "rejected"].includes(
+    normalizeBookingValue(record.status),
+  );
+}
+export function paymentUpdate(booking: BookingRecord, amount: unknown) {
+  if (cancelled(booking))
+    throw new Error("Payments cannot be added to a cancelled booking.");
+  const total = moneyCents(bookingTotal(booking));
+  const paid = moneyCents(bookingPaid(booking));
+  const received = moneyCents(amount);
+  if (received <= 0) throw new Error("Enter a payment greater than zero.");
+  if (received > total - paid)
+    throw new Error("Payment exceeds the current remaining balance.");
+  const balance = total - paid - received;
+  return {
+    amountPaid: (paid + received) / 100,
+    paid: (paid + received) / 100,
+    balance: balance / 100,
+    remainingBalance: balance / 100,
+    paymentStatus: balance === 0 ? "paid" : "partial",
+  };
+}
+export function pendingPayment(record: BookingRecord) {
+  const status = normalizeBookingValue(record.status);
+  const verification = normalizeBookingValue(record.verificationStatus);
+  return (
+    ["pending", "pending-verification"].includes(status) &&
+    !["verified", "rejected"].includes(verification)
+  );
+}
+export function completedPayment(record: BookingRecord) {
+  return (
+    ["completed", "paid", "verified"].includes(
+      normalizeBookingValue(record.status),
+    ) &&
+    !["pending", "rejected"].includes(
+      normalizeBookingValue(record.verificationStatus),
+    )
+  );
+}
+export function salesSummary(records: BookingRecord[], now = new Date()) {
+  const bookings = records.filter((record) => !cancelled(record));
+  const monthly = Array.from({ length: 12 }, (_, i) => {
+    const date = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1);
+    return {
+      key: dateOnly(date).slice(0, 7),
+      month: date.toLocaleDateString("en-PH", {
+        month: "short",
+        year: "2-digit",
+      }),
+      revenue: 0,
+    };
+  });
+  const types = new Map<
+    string,
+    { name: string; value: number; bookings: number }
+  >();
+  const channels = new Map<string, number>();
+  let totalCents = 0,
+    nights = 0,
+    roomNights = 0,
+    roomCents = 0;
+  for (const booking of bookings) {
+    const cents = moneyCents(bookingTotal(booking));
+    totalCents += cents;
+    const month = monthly.find(
+      (item) =>
+        item.key === dateOnly(booking.checkIn ?? booking.createdAt).slice(0, 7),
+    );
+    if (month) month.revenue = (Math.round(month.revenue * 100) + cents) / 100;
+    const name = String(
+      booking.roomTypeName || booking.roomType || booking.roomName || "Other",
+    );
+    const group = types.get(name) ?? { name, value: 0, bookings: 0 };
+    group.value = (Math.round(group.value * 100) + cents) / 100;
+    group.bookings++;
+    types.set(name, group);
+    const channel =
+      normalizeBookingValue(booking.bookingSource ?? booking.bookingType) ===
+      "walk-in"
+        ? "Walk-in"
+        : "Online";
+    channels.set(channel, (channels.get(channel) ?? 0) + 1);
+    try {
+      const length = stayDates(
+        dateOnly(booking.checkIn),
+        dateOnly(booking.checkOut),
+      ).length;
+      const quantity = roomQuantity(booking);
+      nights += length;
+      roomNights += length * quantity;
+      roomCents += moneyCents(
+        booking.roomSubtotal ??
+          booking.roomTotal ??
+          Number(booking.roomRate ?? 0) * length * quantity,
+      );
+    } catch {
+      /* Activity-only or legacy records have no valid room stay. */
+    }
+  }
+  return {
+    totalRevenue: totalCents / 100,
+    totalBookings: bookings.length,
+    avgDailyRate: roomNights ? roomCents / 100 / roomNights : 0,
+    avgStayDuration: bookings.length ? nights / bookings.length : 0,
+    monthlyRevenue: monthly,
+    roomTypeRevenue: [...types.values()],
+    bookingChannels: [...channels].map(([name, count]) => ({
+      name,
+      value: Number(((100 * count) / bookings.length).toFixed(2)),
+    })),
+  };
 }

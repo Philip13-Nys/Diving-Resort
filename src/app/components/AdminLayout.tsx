@@ -1,3 +1,4 @@
+import { logoutUser } from "../auth";
 import { AsyncButton } from "./ui/async-action";
 import {
   LayoutDashboard,
@@ -36,6 +37,7 @@ const navigation = [
     path: "/admin/receptionist",
     icon: Users,
   },
+  { name: "Activity Logs", path: "/admin/audit-logs", icon: BarChart3 },
   {
     name: "Payment Configuration",
     path: "/admin/payment-configuration",
@@ -159,7 +161,7 @@ export default function AdminLayout() {
     if (!confirmLogout) return;
 
     try {
-      await signOut(auth);
+      await logoutUser();
       setSidebarOpen(false);
       navigate("/login", { replace: true });
     } catch (error) {

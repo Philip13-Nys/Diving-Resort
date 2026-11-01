@@ -1,3 +1,7 @@
+import { useRecordRevision } from "../app/useBookingInventory";
+import { getBookingSnapshot } from "../app/bookingStore";
+import { useBookingInventory } from "../app/useBookingInventory";
+import { activeBooking, matchesRoomType, dateOnly, localDate, typeAvailability } from "../app/bookingAvailability";
 import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -39,6 +43,8 @@ type Room = {
 };
 
 export default function RoomManagement() {
+  const recordRevision = useRecordRevision("admin:rooms,admin:roomTypes");
+  const inventory = useBookingInventory();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"types" | "rooms">("types");
   const [showForm, setShowForm] = useState(false);
@@ -104,7 +110,7 @@ export default function RoomManagement() {
 
   const loadReservations = useCallback(async () => {
     try {
-      const snapshot = await getDocs(collection(db, "reservations"));
+      const snapshot = await getBookingSnapshot();
 
       setReservations(
         snapshot.docs.map((reservationDoc) => ({
@@ -121,7 +127,7 @@ export default function RoomManagement() {
     void loadRoomTypes();
     void loadRooms();
     void loadReservations();
-  }, [loadRoomTypes, loadRooms, loadReservations]);
+  }, [loadRoomTypes, loadRooms, loadReservations, recordRevision]);
 
   // Recalculate every room type's count using actual room documents.
   const syncRoomTypeCounts = async () => {
@@ -173,33 +179,20 @@ export default function RoomManagement() {
     roomCount: number,
     selectedDate: string,
   ) => {
-    const selected = new Date(`${selectedDate}T00:00:00`);
-
-    const reservedCount = reservations.filter((reservation) => {
-      if (reservation.roomTypeId !== roomTypeId) return false;
-
-      if (String(reservation.status || "").toLowerCase() === "cancelled") {
-        return false;
-      }
-
-      if (!reservation.checkIn || !reservation.checkOut) return false;
-
-      const checkIn = new Date(`${reservation.checkIn}T00:00:00`);
-      const checkOut = new Date(`${reservation.checkOut}T00:00:00`);
-
-      return (
-        !Number.isNaN(checkIn.getTime()) &&
-        !Number.isNaN(checkOut.getTime()) &&
-        selected >= checkIn &&
-        selected < checkOut
-      );
-    }).length;
-
-    return {
-      reserved: reservedCount,
-      available: Math.max(0, roomCount - reservedCount),
-    };
+    const type = inventory.roomTypes.find(type => type.id === roomTypeId);
+    if (!type) return { reserved: 0, available: 0 };
+    const end = new Date(selectedDate + "T12:00:00"); end.setDate(end.getDate() + 1);
+    try {
+      const result = typeAvailability(inventory.rooms, inventory.reservations, type, selectedDate, localDate(end));
+      return { reserved: Math.max(0, roomCount - result.available), available: result.available };
+    } catch { return { reserved: 0, available: 0 }; }
   };
+
+  async function assertNoActiveBookings(typeName: string) {
+    const snapshot = await getBookingSnapshot();
+    const type = inventory.roomTypes.find(type => type.name === typeName);
+    if (snapshot.docs.some(doc => { const b = doc.data(); return activeBooking(b) && dateOnly(b.checkOut) >= localDate() && type && matchesRoomType(b, type, inventory.rooms); })) throw new Error("This room type has active reservations. Resolve those reservations before removing or changing its inventory.");
+  }
 
   useEffect(() => {
     const tab = searchParams.get("tab");
@@ -506,6 +499,7 @@ export default function RoomManagement() {
         roomId,
         roomNumber,
         type: String(selectedRoomType.data().name),
+        roomTypeId: selectedRoomType.id,
         floor,
         condition,
         status: "available",
@@ -546,6 +540,7 @@ export default function RoomManagement() {
         return;
       }
 
+      await assertNoActiveBookings(roomToDelete.type);
       await deleteDoc(doc(db, "rooms", id));
 
       await syncRoomTypeCounts();
@@ -561,7 +556,7 @@ export default function RoomManagement() {
       alert("Room deleted successfully.");
     } catch (error) {
       console.error("Error deleting room:", error);
-      alert("Failed to delete room.");
+      alert(error instanceof Error ? error.message : "Failed to delete room.");
     }
   };
 
@@ -619,9 +614,11 @@ export default function RoomManagement() {
         return;
       }
 
+      if (newType !== oldType || roomNumber !== editingRoom.roomNumber) await assertNoActiveBookings(oldType);
       await updateDoc(doc(db, "rooms", editingRoom.id), {
         roomNumber,
         type: newType,
+        roomTypeId: typesSnapshot.docs.find(type => normalizeName(type.data().name) === normalizeName(newType))!.id,
         floor,
         condition,
         status,

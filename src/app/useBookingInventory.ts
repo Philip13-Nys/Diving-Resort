@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
-import { db, customerDb } from "./firebase";
+
 import {
   mergeReservations,
   normalizeInventory,
   type BookingRecord,
 } from "./bookingAvailability";
-
+import { watchRecords } from "./bookingStore";
 export function useBookingInventory() {
   const [records, setRecords] = useState<Record<string, BookingRecord[]>>({
     rooms: [],
@@ -18,13 +17,13 @@ export function useBookingInventory() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   useEffect(() => {
     const sources = [
-      ["rooms", collection(db, "rooms")],
-      ["types", collection(db, "roomTypes")],
-      ["bookings", collection(customerDb, "Bookings")],
-      ["legacy", collection(db, "reservations")],
+      ["rooms", "admin:rooms"],
+      ["types", "admin:roomTypes"],
+      ["bookings", "customer:Bookings"],
+      ["legacy", "admin:reservations"],
     ] as const;
     const stops = sources.map(([key, reference]) =>
-      onSnapshot(
+      watchRecords(
         reference,
         (snapshot) => {
           setRecords((current) => ({
@@ -65,4 +64,45 @@ export function useBookingInventory() {
     loading: Object.keys(ready).length < 4,
     error: Object.values(errors).filter(Boolean).join(" "),
   };
+}
+
+// Only the visible page subscribes to its dependencies. No polling timer.
+// First snapshots are handled by the page's existing initial load.
+export function useRecordRevision(sources: string) {
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stops = sources
+      .split(",")
+      .filter(Boolean)
+      .map((source) => {
+        const [project, path] = source.split(":");
+        let initial = true;
+        return watchRecords(
+          source,
+          () => {
+            if (initial) {
+              initial = false;
+              return;
+            }
+            clearTimeout(timer);
+            timer = setTimeout(() => setRevision((value) => value + 1), 100);
+          },
+          (error) => {
+            console.error(`Live updates unavailable for ${path}`, error);
+            window.dispatchEvent(
+              new CustomEvent("record-sync-error", {
+                detail:
+                  "Live updates are unavailable. Reload to retry; displayed records may be outdated.",
+              }),
+            );
+          },
+        );
+      });
+    return () => {
+      clearTimeout(timer);
+      stops.forEach((stop) => stop());
+    };
+  }, [sources]);
+  return revision;
 }

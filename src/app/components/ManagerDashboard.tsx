@@ -1,6 +1,14 @@
-import { getBookingSnapshot } from "../bookingStore";
+import { useRecordRevision } from "../useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
 import { useBookingInventory } from "../useBookingInventory";
-import { typeAvailability, blockedRoom, normalizeBookingValue } from "../bookingAvailability";
+import {
+  typeAvailability,
+  blockedRoom,
+  normalizeBookingValue,
+  roomBookingsOnDate,
+  roomStatusOnDate,
+  localDate,
+} from "../bookingAvailability";
 import { AsyncButton } from "./ui/async-action";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
@@ -440,6 +448,9 @@ const StatusBadge = ({ status }: { status: string }) => {
 };
 
 export default function ManagerDashboard() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,admin:Staff,admin:rooms,admin:roomTypes,admin:services,admin:packages,admin:maintenanceRequests",
+  );
   const availability = useBookingInventory();
   const [roomTypes, setRoomTypes] = useState<RecordData[]>([]);
   const [rooms, setRooms] = useState<RecordData[]>([]);
@@ -525,22 +536,53 @@ export default function ManagerDashboard() {
 
   useEffect(() => {
     void loadDashboardData();
-  }, [loadDashboardData]);
+  }, [loadDashboardData, recordRevision]);
 
   const activeBookings = useMemo(
     () => bookings.filter((booking) => !isCancelled(booking.status)),
     [bookings],
   );
 
-  const roomAvailability = useMemo(() => availability.roomTypes.map(type => {
-    const inventoryRooms = availability.rooms.filter(room => room.roomTypeId === type.id || normalizeBookingValue(room.type) === normalizeBookingValue(type.name));
-    const inventory = inventoryRooms.length;
-    const maintained = inventoryRooms.filter(blockedRoom).length;
-    let available = 0;
-    try { available = typeAvailability(availability.rooms, availability.reservations, type, checkIn, checkOut).available; } catch { /* Invalid dates leave no bookable availability. */ }
-    return { id: type.id, name: String(type.name), inventory, maintained,
-      reserved: Math.max(0, inventory - maintained - available), available };
-  }), [availability.rooms, availability.roomTypes, availability.reservations, checkIn, checkOut]);
+  const roomAvailability = useMemo(
+    () =>
+      availability.roomTypes.map((type) => {
+        const inventoryRooms = availability.rooms.filter(
+          (room) =>
+            room.roomTypeId === type.id ||
+            normalizeBookingValue(room.type) ===
+              normalizeBookingValue(type.name),
+        );
+        const inventory = inventoryRooms.length;
+        const maintained = inventoryRooms.filter(blockedRoom).length;
+        let available = 0;
+        try {
+          available = typeAvailability(
+            availability.rooms,
+            availability.reservations,
+            type,
+            checkIn,
+            checkOut,
+          ).available;
+        } catch {
+          /* Invalid dates leave no bookable availability. */
+        }
+        return {
+          id: type.id,
+          name: String(type.name),
+          inventory,
+          maintained,
+          reserved: Math.max(0, inventory - maintained - available),
+          available,
+        };
+      }),
+    [
+      availability.rooms,
+      availability.roomTypes,
+      availability.reservations,
+      checkIn,
+      checkOut,
+    ],
+  );
 
   const roomCounts = useMemo(() => {
     const maintainedRoomIds = new Set(
@@ -573,8 +615,16 @@ export default function ManagerDashboard() {
       }
     });
 
-    const occupied = bookings.filter(
-      (booking) => isRoomBooking(booking) && isCheckedInBooking(booking),
+    const today = localDate();
+    const assignments = roomBookingsOnDate(
+      availability.rooms,
+      availability.reservations,
+      today,
+    );
+    const occupied = availability.rooms.filter(
+      (room) =>
+        !maintainedRoomIds.has(room.id) &&
+        roomStatusOnDate(room, assignments.get(room.id), today) === "occupied",
     ).length;
 
     const inactive = rooms.filter((room) =>
@@ -591,7 +641,13 @@ export default function ManagerDashboard() {
         rooms.length - maintainedRoomIds.size - occupied - inactive,
       ),
     };
-  }, [rooms, bookings, maintenance]);
+  }, [
+    rooms,
+    bookings,
+    maintenance,
+    availability.rooms,
+    availability.reservations,
+  ]);
 
   const resourceGroups: ResourceGroup[] = [
     {

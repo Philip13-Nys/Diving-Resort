@@ -1,3 +1,4 @@
+import { uploadToCloudinary } from "../../services/cloudinary";
 import { AsyncButton, AsyncForm } from "./ui/async-action";
 import { useEffect, useState } from "react";
 import {
@@ -160,25 +161,7 @@ export default function PaymentConfiguration() {
     setUploadError("");
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("upload_preset", "resort_Image_upload");
-
-      const response = await fetch(
-        "https://api.cloudinary.com/v1_1/vw7ntuy4/image/upload",
-        {
-          method: "POST",
-          body: formData,
-        },
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error?.message || "Upload failed.");
-      }
-
-      updateField("qrImageUrl", data.secure_url);
+      updateField("qrImageUrl", await uploadToCloudinary(file));
     } catch (err) {
       console.error("QR upload error:", err);
       setUploadError(

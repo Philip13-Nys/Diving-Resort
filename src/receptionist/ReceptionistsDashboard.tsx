@@ -1,4 +1,9 @@
-import { getBookingSnapshot } from "../app/bookingStore";
+import {
+  assignedRoomIds,
+  normalizeInventory,
+} from "../app/bookingAvailability";
+import { useRecordRevision } from "../app/useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -217,6 +222,9 @@ const getBookingStatus = (booking: Booking) => {
 };
 
 export default function ReceptionistsDashboard() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,admin:rooms",
+  );
   const navigate = useNavigate();
 
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -227,7 +235,7 @@ export default function ReceptionistsDashboard() {
 
   useEffect(() => {
     loadDashboard();
-  }, []);
+  }, [recordRevision]);
 
   const loadDashboard = async () => {
     try {
@@ -272,20 +280,14 @@ export default function ReceptionistsDashboard() {
       const checkInDay = startOfDay(checkIn);
 
       if (today >= checkInDay && (!checkOut || today < startOfDay(checkOut))) {
-        const roomIdentifier =
-          booking.roomId ||
-          booking.roomName ||
-          booking.roomType ||
-          booking.room;
-
-        if (roomIdentifier) {
-          occupied.add(String(roomIdentifier));
-        }
+        assignedRoomIds(booking, normalizeInventory(rooms)).forEach((id) =>
+          occupied.add(id),
+        );
       }
     });
 
     return occupied;
-  }, [bookings, today]);
+  }, [bookings, rooms, today]);
 
   const occupiedRooms = useMemo(() => {
     if (rooms.length === 0) {

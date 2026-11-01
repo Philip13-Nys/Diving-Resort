@@ -1,3 +1,4 @@
+import { useRecordRevision } from "../app/useBookingInventory";
 import { useState, useEffect, useRef } from "react";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -17,6 +18,7 @@ type ActivityLog = {
 type FilterStatus = "all" | "success" | "warning";
 
 export default function ActivityLogs() {
+  const recordRevision = useRecordRevision("admin:ActivityLogs");
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -86,7 +88,7 @@ export default function ActivityLogs() {
     };
 
     loadActivityLogs();
-  }, []);
+  }, [recordRevision]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

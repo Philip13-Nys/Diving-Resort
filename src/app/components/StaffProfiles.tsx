@@ -1,3 +1,4 @@
+import { useRecordRevision } from "../useBookingInventory";
 import { AsyncButton, AsyncForm } from "./ui/async-action";
 import {
   User,
@@ -58,6 +59,7 @@ const emptyForm = {
 type FormState = typeof emptyForm;
 
 export default function StaffProfiles() {
+  const recordRevision = useRecordRevision("admin:Staff");
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDept, setFilterDept] = useState("All");
@@ -74,7 +76,7 @@ export default function StaffProfiles() {
   }));
   useEffect(() => {
     loadStaff();
-  }, []);
+  }, [recordRevision]);
 
   const loadStaff = async () => {
     try {

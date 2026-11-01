@@ -1,3 +1,4 @@
+import { reportRows, exportReport } from "../app/reportData";
 import { useState, useEffect, useRef } from "react";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -35,20 +36,22 @@ const reportTemplates = [
   {
     id: 5,
     name: "Staff Performance",
-    description: "Employee productivity and service metrics",
+    description: "Recorded staff actions and activity history",
     category: "Human Resources",
     frequency: "Monthly",
   },
   {
     id: 6,
     name: "Maintenance Log",
-    description: "Maintenance activities and costs",
+    description: "Recorded maintenance requests and status",
     category: "Operational",
     frequency: "Weekly",
   },
 ];
 
 type RecentReport = {
+  rows: unknown[][];
+  format: string;
   name: string;
   date: string;
   size: string;
@@ -112,58 +115,27 @@ export default function Reports() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [showModal]);
 
-  function handleGenerate(templateId: number, templateName: string) {
+  async function generate(name: string, kind: string, from = "", to = "", selectedFormat = "CSV") {
+    const rows = await reportRows(kind, from, to);
+    setRecentReports(previous => [{ name, date: new Date().toLocaleString(), size: String(rows.length - 1) + " records", status: "ready", rows, format: selectedFormat }, ...previous]);
+  }
+  async function handleGenerate(templateId: number, templateName: string) {
     if (generatingId !== null) return;
     setGeneratingId(templateId);
-    setTimeout(() => {
-      setRecentReports((prev) => [
-        {
-          name: templateName,
-          date: new Date().toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          }),
-          size: "Generated",
-          status: "ready",
-        },
-        ...prev,
-      ]);
-      setGeneratingId(null);
-    }, 1500);
+    try { await generate(templateName, templateName); }
+    catch (error) { alert(error instanceof Error ? error.message : "Unable to generate report."); }
+    finally { setGeneratingId(null); }
   }
-
-  function handleCustomReport() {
+  async function handleCustomReport() {
     if (!reportName.trim()) return;
-    const newReport: RecentReport = {
-      name: reportName.trim(),
-      date: new Date().toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }),
-      size: "Generated",
-      status: "ready",
-    };
-    setRecentReports((prev) => [newReport, ...prev]);
-
-    setReportName("");
-    setReportType("Occupancy");
-    setStartDate("");
-    setEndDate("");
-    setFormat("PDF");
-    setShowModal(false);
+    try {
+      await generate(reportName.trim(), reportType, startDate, endDate, format);
+      setShowModal(false); setReportName("");
+    } catch (error) { alert(error instanceof Error ? error.message : "Unable to generate report."); }
   }
-
   function handleDownload(report: RecentReport) {
-    const content = `Report: ${report.name}\nGenerated: ${report.date}\nStatus: Ready`;
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${report.name.replace(/\s+/g, "_")}.txt`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try { exportReport(report.name, report.rows, report.format); }
+    catch (error) { alert(error instanceof Error ? error.message : "Unable to export report."); }
   }
 
   return (

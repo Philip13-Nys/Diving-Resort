@@ -16,7 +16,13 @@ import {
   Waves,
   FileText,
 } from "lucide-react";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+  writeBatch,
+} from "firebase/firestore";
 import { db } from "../firebase";
 
 type ResortHighlight = {
@@ -431,13 +437,10 @@ export default function SystemSettings() {
     };
 
     try {
-      await setDoc(SETTINGS_REF, settingsToSave, {
-        merge: true,
-      });
-
-      await setDoc(PUBLIC_SETTINGS_REF, settingsToSave, {
-        merge: true,
-      });
+      const batch = writeBatch(db);
+      batch.set(SETTINGS_REF, settingsToSave, { merge: true });
+      batch.set(PUBLIC_SETTINGS_REF, settingsToSave, { merge: true });
+      await batch.commit();
 
       setSuccess(
         "Resort information, operating hours, and highlights saved successfully.",

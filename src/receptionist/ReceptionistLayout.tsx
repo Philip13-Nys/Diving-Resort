@@ -1,3 +1,5 @@
+import { watchRecords } from "../app/bookingStore";
+import { logoutUser } from "../app/auth";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { useState, useEffect } from "react";
 import {
@@ -20,9 +22,9 @@ import {
   CalendarCheck,
 } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db, customerDb } from "../app/firebase";
-import { doc, getDoc, collection, onSnapshot } from "firebase/firestore";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth, db } from "../app/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 const NAV_ITEMS: {
   id:
@@ -78,7 +80,9 @@ export default function ReceptionistLayout() {
   const [readNotificationIds, setReadNotificationIds] = useState<string[]>(
     () => {
       try {
-        const saved = localStorage.getItem("receptionistReadNotifications");
+        const saved = localStorage.getItem(
+          `receptionistReadNotifications:${auth.currentUser?.uid || "anonymous"}`,
+        );
 
         return saved ? JSON.parse(saved) : [];
       } catch {
@@ -91,9 +95,9 @@ export default function ReceptionistLayout() {
    * REAL-TIME INQUIRIES
    */
   useEffect(() => {
-    const inquiriesRef = collection(customerDb, "Inquiries");
+    const inquiriesRef = "customer:Inquiries";
 
-    const unsubscribe = onSnapshot(
+    const unsubscribe = watchRecords(
       inquiriesRef,
       (snapshot) => {
         const inquiryData = snapshot.docs.map((inquiryDoc) => ({
@@ -112,9 +116,9 @@ export default function ReceptionistLayout() {
   }, []);
 
   useEffect(() => {
-    const bookingsRef = collection(customerDb, "Bookings");
+    const bookingsRef = "customer:Bookings";
 
-    const unsubscribe = onSnapshot(
+    const unsubscribe = watchRecords(
       bookingsRef,
       (snapshot) => {
         const bookingData = snapshot.docs.map((bookingDoc) => ({
@@ -284,12 +288,16 @@ export default function ReceptionistLayout() {
     setNotificationsOpen(false);
 
     if (notification.type === "inquiry") {
-      navigate("/receptionist/inquiries");
+      navigate(
+        `/receptionist/inquiries?selected=${encodeURIComponent(notification.id.replace(/^inquiry-/, ""))}`,
+      );
       return;
     }
 
     if (notification.type === "booking") {
-      navigate("/receptionist/reservations");
+      navigate(
+        `/receptionist/reservations?search=${encodeURIComponent(notification.bookingId || "")}`,
+      );
       return;
     }
   };
@@ -300,7 +308,7 @@ export default function ReceptionistLayout() {
     if (!confirmLogout) return;
 
     try {
-      await signOut(auth);
+      await logoutUser();
       navigate("/login", { replace: true });
     } catch (error) {
       console.error("Logout failed:", error);
@@ -541,6 +549,12 @@ export default function ReceptionistLayout() {
                 type="text"
                 placeholder="Search guests, bookings…"
                 value={searchQuery}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && searchQuery.trim())
+                    navigate(
+                      `/receptionist/reservations?search=${encodeURIComponent(searchQuery.trim())}`,
+                    );
+                }}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full rounded-lg border py-2 pl-10 pr-4 text-sm outline-none"
                 style={{

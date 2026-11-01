@@ -1,137 +1,102 @@
-import { useState } from 'react';
-import { FileText, Search, Filter, Download, AlertCircle, CheckCircle, Info, XCircle } from 'lucide-react';
-
-const auditLogs = [
-  {
-    id: 1,
-    timestamp: '2026-06-07 14:32:15',
-    user: 'Sarah Johnson',
-    action: 'Updated room rate',
-    module: 'System Settings',
-    details: 'Changed Deluxe Room rate from $230 to $250',
-    ipAddress: '192.168.1.100',
-    status: 'Success',
-    severity: 'Info',
-  },
-  {
-    id: 2,
-    timestamp: '2026-06-07 14:28:42',
-    user: 'Mike Chen',
-    action: 'Created new user',
-    module: 'User Management',
-    details: 'Added new receptionist account for Emma Williams',
-    ipAddress: '192.168.1.105',
-    status: 'Success',
-    severity: 'Info',
-  },
-  {
-    id: 3,
-    timestamp: '2026-06-07 14:15:33',
-    user: 'Administrator',
-    action: 'Login attempt failed',
-    module: 'Authentication',
-    details: 'Failed login from unknown IP address',
-    ipAddress: '203.45.67.89',
-    status: 'Failed',
-    severity: 'Warning',
-  },
-  {
-    id: 4,
-    timestamp: '2026-06-07 13:45:21',
-    user: 'Emma Williams',
-    action: 'Processed payment',
-    module: 'Transactions',
-    details: 'Payment of $1,200 for booking #BR-2024-456',
-    ipAddress: '192.168.1.102',
-    status: 'Success',
-    severity: 'Info',
-  },
-  {
-    id: 5,
-    timestamp: '2026-06-07 13:22:18',
-    user: 'David Brown',
-    action: 'Deleted staff record',
-    module: 'Staff Management',
-    details: 'Removed terminated employee John Doe',
-    ipAddress: '192.168.1.108',
-    status: 'Success',
-    severity: 'Critical',
-  },
-  {
-    id: 6,
-    timestamp: '2026-06-07 12:58:09',
-    user: 'Lisa Martinez',
-    action: 'Updated payment method',
-    module: 'Payment Config',
-    details: 'Enabled Apple Pay payment option',
-    ipAddress: '192.168.1.110',
-    status: 'Success',
-    severity: 'Info',
-  },
-  {
-    id: 7,
-    timestamp: '2026-06-07 12:34:55',
-    user: 'Sarah Johnson',
-    action: 'Generated report',
-    module: 'Reports',
-    details: 'Downloaded sales report for May 2026',
-    ipAddress: '192.168.1.100',
-    status: 'Success',
-    severity: 'Info',
-  },
-  {
-    id: 8,
-    timestamp: '2026-06-07 11:42:30',
-    user: 'System',
-    action: 'Database backup',
-    module: 'System',
-    details: 'Automated daily backup completed successfully',
-    ipAddress: 'localhost',
-    status: 'Success',
-    severity: 'Info',
-  },
-  {
-    id: 9,
-    timestamp: '2026-06-07 10:15:22',
-    user: 'Mike Chen',
-    action: 'Permission change',
-    module: 'User Management',
-    details: 'Modified permissions for receptionist role',
-    ipAddress: '192.168.1.105',
-    status: 'Success',
-    severity: 'Warning',
-  },
-  {
-    id: 10,
-    timestamp: '2026-06-07 09:30:14',
-    user: 'Unknown',
-    action: 'Unauthorized access attempt',
-    module: 'Security',
-    details: 'Attempted to access admin panel without credentials',
-    ipAddress: '198.51.100.45',
-    status: 'Blocked',
-    severity: 'Critical',
-  },
-];
-
-const activityStats = [
-  { label: 'Total Activities', value: '1,247', color: 'from-blue-500 to-cyan-600' },
-  { label: 'Critical Events', value: '23', color: 'from-red-500 to-pink-600' },
-  { label: 'Warnings', value: '156', color: 'from-orange-500 to-amber-600' },
-  { label: 'Failed Attempts', value: '12', color: 'from-purple-500 to-violet-600' },
-];
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  limit,
+} from "firebase/firestore";
+import { db } from "../firebase";
+import { toCsv, downloadFile } from "../reportData";
+import { useState, useEffect } from "react";
+import {
+  Search,
+  Filter,
+  Download,
+  AlertCircle,
+  CheckCircle,
+  Info,
+  Clock,
+  User,
+} from "lucide-react";
 
 export default function AuditLogs() {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedSeverity, setSelectedSeverity] = useState('All');
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedSeverity, setSelectedSeverity] = useState("All");
 
+  const [auditLogs, setLogs] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  useEffect(
+    () =>
+      onSnapshot(
+        query(
+          collection(db, "ActivityLogs"),
+          orderBy("timestamp", "desc"),
+          limit(1000),
+        ),
+        (snapshot) => {
+          setLogs(
+            snapshot.docs.map((doc) => {
+              const d = doc.data();
+              return {
+                id: doc.id,
+                ...d,
+                user: d.user || "Unknown",
+                module: d.module || d.role || "System",
+                severity:
+                  d.severity || (d.status === "warning" ? "Warning" : "Info"),
+                status: d.status || "success",
+                timestamp: d.timestamp?.toDate?.().toLocaleString() || "",
+              };
+            }),
+          );
+          setError("");
+          setLoading(false);
+        },
+        () => {
+          setError("Unable to load activity logs. Reload to retry.");
+          setLoading(false);
+        },
+      ),
+    [],
+  );
+  useEffect(() => setPage(1), [searchTerm, selectedSeverity]);
+  const filtered = auditLogs.filter(
+    (log) =>
+      (selectedSeverity === "All" ||
+        selectedSeverity === "All Severities" ||
+        log.severity === selectedSeverity) &&
+      [log.user, log.action, log.module, log.details].some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(searchTerm.toLowerCase()),
+      ),
+  );
+  const pages = Math.max(1, Math.ceil(filtered.length / 10));
+  const currentPage = Math.min(page, pages);
+  const exportLogs = () =>
+    downloadFile(
+      toCsv([
+        ["Timestamp", "User", "Action", "Module", "Details", "Status"],
+        ...filtered.map((log) => [
+          log.timestamp,
+          log.user,
+          log.action,
+          log.module,
+          log.details,
+          log.status,
+        ]),
+      ]),
+      "audit-logs.csv",
+    );
   const getSeverityIcon = (severity: string) => {
     switch (severity) {
-      case 'Critical':
+      case "Critical":
         return <AlertCircle className="size-4 text-red-600" />;
-      case 'Warning':
+      case "Warning":
         return <AlertCircle className="size-4 text-orange-600" />;
-      case 'Info':
+      case "Info":
         return <Info className="size-4 text-blue-600" />;
       default:
         return <CheckCircle className="size-4 text-green-600" />;
@@ -140,62 +105,66 @@ export default function AuditLogs() {
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      Success: 'bg-green-100 text-green-700',
-      Failed: 'bg-red-100 text-red-700',
-      Blocked: 'bg-orange-100 text-orange-700',
+      Success: "bg-green-100 text-green-700",
+      Failed: "bg-red-100 text-red-700",
+      Blocked: "bg-orange-100 text-orange-700",
     };
-    return styles[status] || 'bg-gray-100 text-gray-700';
+    return styles[status] || "bg-gray-100 text-gray-700";
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="min-w-0 space-y-6">
+      {error && (
+        <p role="alert" className="text-red-700">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-4 items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Logs / System Activity Logs</h1>
-          <p className="text-gray-600 mt-1">
-            Track and review all activities performed within the system for security and monitoring
+          <h1 className="text-3xl font-bold text-gray-900">Activity Logs</h1>
+          <p className="text-gray-500 mt-2">
+            Monitor system activities by staff members
           </p>
         </div>
-        <button className="flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700 transition-colors">
+        <button
+          onClick={exportLogs}
+          className="flex items-center gap-2 border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded-md hover:bg-gray-50 transition-colors"
+        >
           <Download className="size-4" />
           Export Logs
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {activityStats.map((stat) => (
-          <div key={stat.label} className={`bg-gradient-to-br ${stat.color} rounded-xl p-6 text-white`}>
-            <p className="text-sm text-white/80 mb-2">{stat.label}</p>
-            <p className="text-3xl font-bold">{stat.value}</p>
-            <p className="text-sm text-white/90 mt-1">Last 30 days</p>
-          </div>
-        ))}
-      </div>
-
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex gap-3">
-            <div className="relative flex-1">
+      <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6 shadow-sm min-w-0">
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          System Activity
+        </h2>
+        <div className="pb-4 border-b border-gray-200">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search logs by user, action, or module..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <select
               value={selectedSeverity}
               onChange={(e) => setSelectedSeverity(e.target.value)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option>All Severities</option>
               <option>Critical</option>
               <option>Warning</option>
               <option>Info</option>
             </select>
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+            <button
+              onClick={() => setPage(1)}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
               <Filter className="size-4" />
               Filter
             </button>
@@ -203,87 +172,131 @@ export default function AuditLogs() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
+          <table className="w-full min-w-[900px]">
+            <thead className="border-b border-gray-200">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   Timestamp
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   User
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   Action
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   Module
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   Details
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   Severity
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
-              {auditLogs.map((log) => (
-                <tr key={log.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">{log.timestamp}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <div className="size-8 rounded-full bg-cyan-100 flex items-center justify-center text-cyan-700 font-semibold text-xs">
-                        {log.user.charAt(0)}
-                      </div>
-                      <span className="text-sm font-medium text-gray-900">{log.user}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{log.action}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded">
-                      {log.module}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 max-w-xs truncate text-sm text-gray-600">{log.details}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-medium rounded ${getStatusBadge(log.status)}`}>
-                      {log.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      {getSeverityIcon(log.severity)}
-                      <span className="text-sm text-gray-600">{log.severity}</span>
-                    </div>
+            <tbody className="divide-y divide-gray-100">
+              {loading ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="py-8 text-center text-sm text-gray-500"
+                  >
+                    Loading activity logs...
                   </td>
                 </tr>
-              ))}
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="py-8 text-center text-sm text-gray-500"
+                  >
+                    No entries match the current filter.
+                  </td>
+                </tr>
+              ) : (
+                filtered
+                  .slice((currentPage - 1) * 10, currentPage * 10)
+                  .map((log) => (
+                    <tr key={log.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-600">
+                        <span className="flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-gray-400" />
+                          {log.timestamp}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <User className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm font-medium text-gray-900">
+                            {log.user}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {log.action}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="px-2 py-1 text-xs font-medium bg-gray-100 text-gray-700 rounded">
+                          {log.module}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 max-w-xs whitespace-normal break-words text-sm text-gray-600">
+                        {log.details}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span
+                          className={`px-2 py-1 text-xs font-medium rounded ${getStatusBadge(String(log.status).charAt(0).toUpperCase() + String(log.status).slice(1).toLowerCase())}`}
+                        >
+                          {log.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          {getSeverityIcon(log.severity)}
+                          <span className="text-sm text-gray-600">
+                            {log.severity}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+              )}
             </tbody>
           </table>
         </div>
 
-        <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-          <p className="text-sm text-gray-600">Showing 10 of 1,247 activities</p>
-          <div className="flex gap-2">
-            <button className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 text-sm">Previous</button>
-            <button className="px-3 py-1 bg-cyan-600 text-white rounded hover:bg-cyan-700 text-sm">1</button>
-            <button className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 text-sm">2</button>
-            <button className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 text-sm">3</button>
-            <button className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 text-sm">Next</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-        <AlertCircle className="size-5 text-amber-600 mt-0.5" />
-        <div>
-          <h4 className="font-semibold text-amber-900">Security Notice</h4>
-          <p className="text-sm text-amber-800 mt-1">
-            Audit logs are retained for 90 days. Critical security events trigger immediate notifications to administrators.
+        <div className="px-4 py-3 border-t border-gray-200 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-gray-600">
+            Showing{" "}
+            {Math.min(
+              10,
+              Math.max(0, filtered.length - (currentPage - 1) * 10),
+            )}{" "}
+            of {filtered.length} activities
           </p>
+          <div className="flex gap-2">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setPage(currentPage - 1)}
+              className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 text-sm"
+            >
+              Previous
+            </button>
+            <span className="px-3 py-1 bg-blue-600 text-white rounded text-sm">
+              {currentPage} / {pages}
+            </span>
+            <button
+              disabled={currentPage === pages}
+              onClick={() => setPage(currentPage + 1)}
+              className="px-3 py-1 border border-gray-300 rounded hover:bg-gray-50 text-sm"
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
     </div>

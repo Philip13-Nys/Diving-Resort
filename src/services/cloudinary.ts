@@ -2,8 +2,8 @@ const CLOUDINARY_CLOUD_NAME = "vw7ntuy4";
 const CLOUDINARY_UPLOAD_PRESET = "resort_Image_upload";
 
 export async function uploadToCloudinary(file: File): Promise<string> {
-  if (!file) {
-    throw new Error("No image selected.");
+  if (!file || !file.type.startsWith("image/")) {
+    throw new Error("Select a valid image file.");
   }
 
   if (file.size > 5 * 1024 * 1024) {

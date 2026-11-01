@@ -1,4 +1,10 @@
-import { getBookingSnapshot } from "../app/bookingStore";
+import {
+  assignedRoomIds,
+  normalizeInventory,
+} from "../app/bookingAvailability";
+import { cancelled } from "../app/bookingAvailability";
+import { useRecordRevision } from "../app/useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -18,7 +24,7 @@ import {
 } from "date-fns";
 
 import { collection, getDocs } from "firebase/firestore";
-import { customerDb } from "../app/firebase";
+import { customerDb, db } from "../app/firebase";
 
 type Room = {
   id: string;
@@ -217,6 +223,9 @@ function getBookingBars(
 }
 
 export default function CalendarView() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,admin:rooms,admin:roomTypes",
+  );
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
@@ -232,20 +241,31 @@ export default function CalendarView() {
 
   useEffect(() => {
     loadCalendarData();
-  }, []);
+  }, [recordRevision]);
 
   const loadCalendarData = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const snapshot = await getBookingSnapshot();
+      const [snapshot, physicalRooms, roomTypes] = await Promise.all([
+        getBookingSnapshot(),
+        getDocs(collection(db, "rooms")),
+        getDocs(collection(db, "roomTypes")),
+      ]);
+      const inventory = normalizeInventory(
+        physicalRooms.docs.map((doc) => ({ ...doc.data(), id: doc.id })),
+        roomTypes.docs.map((doc) => ({ ...doc.data(), id: doc.id })),
+      );
 
       const bookingData: Booking[] = [];
-      const roomMap = new Map<string, string>();
+      const roomMap = new Map<string, string>(
+        inventory.map((room) => [room.roomNumber, room.type]),
+      );
 
       snapshot.docs.forEach((docSnap, index) => {
         const data = docSnap.data();
+        if (cancelled(data)) return;
 
         const checkIn = normalizeDate(data.checkIn);
         const checkOut = normalizeDate(data.checkOut);
@@ -254,12 +274,21 @@ export default function CalendarView() {
           return;
         }
 
-        const room = String(data.room ?? data.roomName ?? "").trim();
-
-        if (!room) return;
-
-        const roomType = String(data.roomType ?? "").trim();
-        roomMap.set(room, roomType);
+        const assigned = assignedRoomIds(data, inventory);
+        const labels = assigned.length
+          ? assigned.map(
+              (id) => inventory.find((room) => room.id === id)!.roomNumber,
+            )
+          : [
+              "Unassigned: " +
+                String(data.roomName || data.roomType || docSnap.id) +
+                " (" +
+                String(data.bookingRef || docSnap.id).slice(-6) +
+                ")",
+            ];
+        const roomType = String(
+          data.roomTypeName || data.roomType || data.roomName || "",
+        );
         const status = String(data.status ?? "pending");
         const addOnDetails = getAddOnDetails(data.addOns);
 
@@ -278,22 +307,25 @@ export default function CalendarView() {
           ...addOnDetails.packages,
         ];
 
-        bookingData.push({
-          id: docSnap.id,
-          room,
-          guest: String(data.guest ?? data.customerName ?? "Unknown Guest"),
-          roomType,
-          checkIn,
-          checkOut,
-          color:
-            typeof data.calendarColor === "string"
-              ? data.calendarColor
-              : BOOKING_COLORS[index % BOOKING_COLORS.length],
-          status,
-          services: [...new Set(services)],
-          packages: [...new Set(packages)],
-          addOns: [...new Set(addOnDetails.other)],
-        });
+        for (const room of labels) {
+          roomMap.set(room, roomType);
+          bookingData.push({
+            id: docSnap.id + ":" + room,
+            room,
+            guest: String(data.guest ?? data.customerName ?? "Unknown Guest"),
+            roomType,
+            checkIn,
+            checkOut,
+            color:
+              typeof data.calendarColor === "string"
+                ? data.calendarColor
+                : BOOKING_COLORS[index % BOOKING_COLORS.length],
+            status,
+            services: [...new Set(services)],
+            packages: [...new Set(packages)],
+            addOns: [...new Set(addOnDetails.other)],
+          });
+        }
       });
 
       const roomData = Array.from(roomMap.entries())

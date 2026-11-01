@@ -1,3 +1,4 @@
+import { logoutUser } from "../app/auth";
 import { AsyncButton } from "../app/components/ui/async-action";
 import {
   LayoutDashboard,
@@ -9,7 +10,6 @@ import {
   UserCircle,
   FileText,
   Settings,
-  Activity,
   Wrench,
   Waves,
   Menu,
@@ -52,7 +52,6 @@ const navigation = [
   { name: "Guest Records", href: "/manager/guests", icon: UserCircle },
   { name: "Reports", href: "/manager/reports", icon: FileText },
   { name: "Staff Profiles", href: "/manager/staff", icon: Settings },
-  { name: "Activity Logs", href: "/manager/activity-logs", icon: Activity },
   { name: "Maintenance", href: "/manager/maintenance", icon: Wrench },
   { name: "Services", href: "/manager/services", icon: Waves },
 ];
@@ -99,7 +98,7 @@ export default function ManagerLayout() {
     if (!confirmLogout) return;
 
     try {
-      await signOut(auth);
+      await logoutUser();
 
       setSidebarOpen(false);
 
@@ -127,7 +126,10 @@ export default function ManagerLayout() {
           <div className="p-6 border-b border-gray-200">
             <h1 className="text-2xl font-bold text-blue-600">Resort Manager</h1>
             <p className="text-sm text-gray-500 mt-1">Beach & Diving Resort</p>
-            <AsyncButton className="lg:hidden" onClick={() => setSidebarOpen(false)}>
+            <AsyncButton
+              className="lg:hidden"
+              onClick={() => setSidebarOpen(false)}
+            >
               <X className="w-5 h-5" />
             </AsyncButton>
           </div>

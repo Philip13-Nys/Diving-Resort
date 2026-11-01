@@ -1,3 +1,6 @@
+import AuditLogs from "./components/AuditLogs";
+import BackupManagement from "./components/BackupManagement";
+import RequireRole from "./RequireRole";
 import { createHashRouter, Navigate } from "react-router-dom";
 
 import AdminLayout from "./components/AdminLayout";
@@ -46,13 +49,15 @@ export const router = createHashRouter([
 
   {
     path: "admin/",
-    Component: AdminLayout,
+    element: <RequireRole area="admin"><AdminLayout /></RequireRole>,
     children: [
       { index: true, Component: Dashboard },
       { path: "manager", Component: ManagerDashboard },
       { path: "receptionist", Component: ReceptionistDashboard },
       { path: "users", Component: UserRoleManagement },
       { path: "staff", Component: StaffProfiles },
+      { path: "audit-logs", Component: AuditLogs },
+      { path: "backups", Component: BackupManagement },
       { path: "commission", Component: CommissionReport },
       { path: "sales", Component: SalesReports },
       {
@@ -68,7 +73,7 @@ export const router = createHashRouter([
 
   {
     path: "manager/",
-    Component: ManagerLayout,
+    element: <RequireRole area="manager"><ManagerLayout /></RequireRole>,
     children: [
       { index: true, Component: ManagersDashboard },
       { path: "receptionist-dashboard", Component: ReceptionistDashboards },
@@ -76,6 +81,7 @@ export const router = createHashRouter([
       { path: "room-availability", Component: RoomAvailability },
       { path: "pricing", Component: PricingManagement },
       { path: "sales-analytics", Component: SalesAnalytics },
+      { path: "reservations", element: <Navigate to="/manager/receptionist-dashboard" replace /> },
       { path: "bookings", element: <Navigate to="/manager/receptionist-dashboard" replace /> },
       { path: "guests", Component: GuestRecords },
       { path: "reports", Component: Reports },
@@ -88,7 +94,7 @@ export const router = createHashRouter([
 
   {
     path: "receptionist/",
-    Component: ReceptionistLayout,
+    element: <RequireRole area="receptionist"><ReceptionistLayout /></RequireRole>,
     children: [
       { index: true, Component: ReceptionistsDashboard },
       { path: "calendar", Component: CalendarView },

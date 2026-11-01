@@ -1,21 +1,16 @@
-import { getBookingRef } from "../app/bookingStore";
-import { getBookingSnapshot } from "../app/bookingStore";
+import { customerNotifier } from "../app/activitylogss";
+import { useRecordRevision } from "../app/useBookingInventory";
+import { changeBooking } from "../app/bookingOperations";
+import { useSearchParams } from "react-router-dom";
+
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { bookingRoomLabel } from "../app/bookingAvailability";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { Search, Edit2, X, Check, Eye } from "lucide-react";
 import { useEffect, useState } from "react";
-import {
-  collection,
-  getDocs,
-  addDoc,
-  updateDoc,
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth, db, customerDb } from "../app/firebase";
+import { auth, db } from "../app/firebase";
 import { createActivityLog } from "../app/activitylogss";
 
 type BookingStatus =
@@ -26,6 +21,7 @@ type BookingStatus =
   | "pending";
 
 interface Booking {
+  bookingStore?: string;
   id: string;
   bookingId: string;
   userId?: string;
@@ -198,12 +194,19 @@ function BookingModal({
 }
 
 export default function Reservations() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations",
+  );
+  const [params] = useSearchParams();
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(params.get("search") || "");
   const [statusFilter, setStatusFilter] = useState<BookingStatus | "all">(
     "all",
   );
   const [modal, setModal] = useState<Partial<Booking> | null>(null);
+  useEffect(() => {
+    setSearch(params.get("search") || "");
+  }, [params]);
   const [detail, setDetail] = useState<Booking | null>(null);
   const [receptionistName, setReceptionistName] = useState("Receptionist");
   const [receptionistUid, setReceptionistUid] = useState("");
@@ -240,98 +243,7 @@ export default function Reservations() {
   }, []);
 
   // Customer notifications must use the customer's Firebase UID as userId.
-  const notifyCustomer = async ({
-    customerId,
-    eventId,
-    title,
-    message,
-    targetPath,
-  }: {
-    customerId?: string;
-    eventId: string;
-    title: string;
-    message: string;
-    targetPath: string;
-  }): Promise<boolean> => {
-    const uid = String(customerId || "").trim();
-
-    if (!uid) {
-      console.warn(
-        `Notification not sent: booking has no customer userId. Event: ${eventId}`,
-      );
-      return false;
-    }
-
-    // Keep the document ID deterministic so the same event does not create
-    // duplicate notifications if the action is retried.
-    const safeEventId = encodeURIComponent(eventId).replace(/\./g, "%2E");
-    const notificationId = `${uid}_${safeEventId}`;
-
-    try {
-      await setDoc(
-        doc(customerDb, "Notifications", notificationId),
-        {
-          userId: uid,
-          role: "customer",
-          eventId,
-          type: "booking",
-          title,
-          message,
-          targetPath,
-          read: false,
-          createdAt: serverTimestamp(),
-        },
-        { merge: true },
-      );
-
-      console.info(`Customer notification created for UID: ${uid}`, eventId);
-      return true;
-    } catch (error) {
-      console.error(
-        `Could not create customer notification for UID ${uid}:`,
-        error,
-      );
-      return false;
-    }
-  };
-
-  const migrateBookingIds = async () => {
-    try {
-      const snapshot = await getBookingSnapshot();
-      let highestNumber = 0;
-
-      snapshot.docs.forEach((bookingDoc) => {
-        const existingBookingId = bookingDoc.data().bookingId;
-
-        if (
-          typeof existingBookingId === "string" &&
-          existingBookingId.startsWith("BK-")
-        ) {
-          const number = Number(existingBookingId.replace("BK-", ""));
-          if (!isNaN(number) && number > highestNumber) {
-            highestNumber = number;
-          }
-        }
-      });
-
-      for (const bookingDoc of snapshot.docs) {
-        if (!bookingDoc.data().bookingId) {
-          highestNumber++;
-          const newBookingId = `BK-${highestNumber}`;
-
-          await updateDoc(await getBookingRef(bookingDoc.id), {
-            bookingId: newBookingId,
-          });
-
-          console.log(`Assigned ${newBookingId} to booking ${bookingDoc.id}`);
-        }
-      }
-
-      console.log("Booking ID migration completed.");
-    } catch (error) {
-      console.error("Error migrating booking IDs:", error);
-    }
-  };
+  const notifyCustomer = customerNotifier("booking");
 
   const loadBookings = async () => {
     try {
@@ -353,14 +265,19 @@ export default function Reservations() {
 
         return {
           id: bookingDoc.id,
+          bookingStore: data._bookingStore,
           bookingId: data.bookingId || data.bookingRef || bookingDoc.id,
           userId: data.userId || "",
           guest: data.customerName || data.guestName || "Unknown Guest",
           email: data.customerEmail || data.email || "",
           phone: data.customerPhone || data.phone || "",
           room: bookingRoomLabel(data),
-          assignedRoomIds: Array.isArray(data.assignedRoomIds) ? data.assignedRoomIds : [],
-          assignedRoomNumbers: Array.isArray(data.assignedRoomNumbers) ? data.assignedRoomNumbers : [],
+          assignedRoomIds: Array.isArray(data.assignedRoomIds)
+            ? data.assignedRoomIds
+            : [],
+          assignedRoomNumbers: Array.isArray(data.assignedRoomNumbers)
+            ? data.assignedRoomNumbers
+            : [],
           roomType: data.roomTypeName || data.roomType || "",
           checkIn: data.checkIn || "",
           checkOut: data.checkOut || "",
@@ -403,33 +320,8 @@ export default function Reservations() {
   };
 
   useEffect(() => {
-    const initializeBookings = async () => {
-      await migrateBookingIds();
-      await loadBookings();
-    };
-    initializeBookings();
-  }, []);
-
-  const getNextBookingId = async () => {
-    const snapshot = await getBookingSnapshot();
-    let highestNumber = 0;
-
-    snapshot.docs.forEach((bookingDoc) => {
-      const data = bookingDoc.data();
-
-      if (
-        typeof data.bookingId === "string" &&
-        data.bookingId.startsWith("BK-")
-      ) {
-        const number = Number(data.bookingId.replace("BK-", ""));
-        if (!isNaN(number) && number > highestNumber) {
-          highestNumber = number;
-        }
-      }
-    });
-
-    return `BK-${highestNumber + 1}`;
-  };
+    void loadBookings();
+  }, [recordRevision]);
 
   const filtered = bookings.filter((b) => {
     const searchText = search.toLowerCase();
@@ -448,74 +340,25 @@ export default function Reservations() {
 
   const saveBooking = async (booking: Booking) => {
     try {
-      if (booking.id) {
-        await updateDoc(await getBookingRef(booking.id), {
-          customerName: booking.guest,
-          customerEmail: booking.email,
-          customerPhone: booking.phone,
-          roomName: booking.room,
-          roomType: booking.roomType,
-          checkIn: booking.checkIn,
-          checkOut: booking.checkOut,
-          nights: booking.nights,
-          guests: booking.pax,
-          totalPrice: booking.amount,
-          amountPaid: booking.paid,
-          status: booking.status,
-          notes: booking.notes,
-          updatedAt: serverTimestamp(),
-        });
-
-        await createActivityLog({
-          action: "Updated Booking",
-          details: `Updated booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
-          status: "success",
-        });
-      } else {
-        const bookingId = await getNextBookingId();
-
-        const newBooking = {
-          bookingId,
-          customerName: booking.guest,
-          customerEmail: booking.email,
-          customerPhone: booking.phone,
-          roomName: booking.room,
-          roomType: booking.roomType,
-          checkIn: booking.checkIn,
-          checkOut: booking.checkOut,
-          nights: booking.nights,
-          guests: booking.pax,
-          totalPrice: booking.amount,
-          amountPaid: booking.paid,
-          status: "pending",
-          notes: booking.notes,
-          receptionistName,
-          receptionistUid,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        };
-
-        // Only write userId if a customer UID was explicitly supplied.
-        // The current modal does not select a customer, so this is normally
-        // unavailable for receptionist-created bookings.
-        if (booking.userId?.trim()) {
-          Object.assign(newBooking, { userId: booking.userId.trim() });
-        }
-
-        await addDoc(collection(customerDb, "Bookings"), newBooking);
-
-        await createActivityLog({
-          action: "Created Booking",
-          details: `Created booking ${bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
-          status: "success",
-        });
-      }
-
+      if (!booking.id) throw new Error("Create new bookings using Walk-in.");
+      const warning = await changeBooking(
+        booking.id,
+        booking.bookingStore,
+        "edit",
+        { uid: receptionistUid, name: receptionistName },
+        booking,
+      );
+      if (warning) alert(warning);
+      await createActivityLog({
+        action: "Updated Booking",
+        details: "Updated booking " + booking.bookingId,
+        status: "success",
+      });
       await loadBookings();
       setModal(null);
     } catch (error) {
       console.error("Error saving booking:", error);
-      alert("Failed to save booking.");
+      alert(error instanceof Error ? error.message : "Failed to save booking.");
     }
   };
 
@@ -542,12 +385,13 @@ export default function Reservations() {
         return;
       }
 
-      await updateDoc(await getBookingRef(id), {
-        status: "confirmed",
-        acceptedBy: receptionistName,
-        acceptedByUid: receptionistUid,
-        updatedAt: serverTimestamp(),
-      });
+      const warning = await changeBooking(
+        id,
+        booking.bookingStore,
+        "confirmed",
+        { uid: receptionistUid, name: receptionistName },
+      );
+      if (warning) alert(warning);
 
       const notificationSent = await notifyCustomer({
         customerId: booking.userId,
@@ -572,7 +416,9 @@ export default function Reservations() {
       await loadBookings();
     } catch (error) {
       console.error("Error accepting booking:", error);
-      alert("Failed to accept booking.");
+      alert(
+        error instanceof Error ? error.message : "Failed to accept booking.",
+      );
     }
   };
 
@@ -604,33 +450,13 @@ export default function Reservations() {
       );
       if (!confirmCheckIn) return;
 
-      await updateDoc(await getBookingRef(id), {
-        status: "checked-in",
-        checkedInAt: serverTimestamp(),
-        checkedInBy: receptionistName,
-        checkedInByUid: receptionistUid,
-        updatedAt: serverTimestamp(),
-      });
-
-      const roomSnapshot = await getDocs(collection(db, "rooms"));
-      const matchingRoom = roomSnapshot.docs.find((roomDoc) => {
-        const roomData = roomDoc.data();
-        const roomNumber = String(
-          roomData.roomNumber ?? roomData.number ?? roomData.roomNo ?? "",
-        );
-        return roomNumber === String(booking.room);
-      });
-
-      if (matchingRoom) {
-        await updateDoc(doc(db, "rooms", matchingRoom.id), {
-          status: "Occupied",
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        console.warn(
-          `Room ${booking.room} was not found in the rooms collection.`,
-        );
-      }
+      const warning = await changeBooking(
+        id,
+        booking.bookingStore,
+        "checked-in",
+        { uid: receptionistUid, name: receptionistName },
+      );
+      if (warning) alert(warning);
 
       const notificationSent = await notifyCustomer({
         customerId: booking.userId,
@@ -659,7 +485,11 @@ export default function Reservations() {
       );
     } catch (error) {
       console.error("Error checking in guest:", error);
-      alert("Failed to check in guest. Please try again.");
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to check in guest. Please try again.",
+      );
     }
   };
 
@@ -691,26 +521,13 @@ export default function Reservations() {
       );
       if (!confirmCheckout) return;
 
-      const roomSnapshot = await getDocs(collection(db, "rooms"));
-      const matchingRooms = roomSnapshot.docs.filter(roomDoc => {
-        const roomData = roomDoc.data();
-        const number = String(roomData.roomNumber ?? roomData.number ?? roomData.roomNo ?? "");
-        return (booking.assignedRoomIds || []).includes(roomDoc.id) || (booking.assignedRoomNumbers || []).includes(number) || number === String(booking.room);
-      });
-
-      await updateDoc(await getBookingRef(id), {
-        status: "checked-out",
-        checkedOutAt: serverTimestamp(),
-        checkedOutBy: receptionistName,
-        checkedOutByUid: receptionistUid,
-        updatedAt: serverTimestamp(),
-      });
-
-      // Release every physical room in a multi-room Walk-in booking.
-      const roomUpdates = await Promise.allSettled(matchingRooms.map(roomDoc => updateDoc(doc(db, "rooms", roomDoc.id), {
-        status: "Cleaning", updatedAt: serverTimestamp(),
-      })));
-      if (roomUpdates.some(result => result.status === "rejected")) console.error("Checkout saved, but a room cleaning status could not be updated.");
+      const warning = await changeBooking(
+        id,
+        booking.bookingStore,
+        "checked-out",
+        { uid: receptionistUid, name: receptionistName },
+      );
+      if (warning) alert(warning);
 
       const notificationSent = await notifyCustomer({
         customerId: booking.userId,
@@ -741,7 +558,11 @@ export default function Reservations() {
       );
     } catch (error) {
       console.error("Error checking out guest:", error);
-      alert("Failed to check out guest. Please try again.");
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to check out guest. Please try again.",
+      );
     }
   };
 
@@ -768,12 +589,13 @@ export default function Reservations() {
         return;
       }
 
-      await updateDoc(await getBookingRef(id), {
-        status: "cancelled",
-        cancelledBy: receptionistName,
-        cancelledByUid: receptionistUid,
-        updatedAt: serverTimestamp(),
-      });
+      const warning = await changeBooking(
+        id,
+        booking.bookingStore,
+        "cancelled",
+        { uid: receptionistUid, name: receptionistName },
+      );
+      if (warning) alert(warning);
 
       const notificationSent = await notifyCustomer({
         customerId: booking.userId,
@@ -801,7 +623,9 @@ export default function Reservations() {
       );
     } catch (error) {
       console.error("Error cancelling booking:", error);
-      alert("Failed to cancel booking.");
+      alert(
+        error instanceof Error ? error.message : "Failed to cancel booking.",
+      );
     }
   };
 

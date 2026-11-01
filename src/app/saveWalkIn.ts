@@ -1,3 +1,4 @@
+import { requireAccess } from "./auth";
 import {
   collection,
   doc,
@@ -185,6 +186,7 @@ export async function saveWalkIn(
   expectedTotal: number,
   bookingId: string,
 ) {
+  await requireAccess("receptionist");
   const user = auth.currentUser;
   if (!user)
     throw new Error("Please log in again before registering a walk-in.");

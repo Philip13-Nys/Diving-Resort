@@ -1,3 +1,6 @@
+import { useRecordRevision } from "../app/useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
+import { salesSummary } from "../app/bookingAvailability";
 import { Card } from "../app/components/ui/card";
 import {
   BarChart,
@@ -20,7 +23,6 @@ import { db } from "../app/firebase";
 interface MonthlyRevenue {
   month: string;
   revenue: number;
-  target: number;
 }
 
 interface RoomTypeRevenue {
@@ -37,6 +39,9 @@ interface BookingChannel {
 const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6"];
 
 export default function SalesAnalytics() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations",
+  );
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
   const [roomTypeRevenue, setRoomTypeRevenue] = useState<RoomTypeRevenue[]>([]);
   const [bookingChannels, setBookingChannels] = useState<BookingChannel[]>([]);
@@ -53,17 +58,17 @@ export default function SalesAnalytics() {
       try {
         setLoading(true);
 
-        const snapshot = await getDocs(collection(db, "reservations"));
-
-        console.log(
-          "Reservations:",
-          snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          })),
+        const snapshot = await getBookingSnapshot();
+        const summary = salesSummary(
+          snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })),
         );
-
-        // Analytics will be calculated here
+        setMonthlyRevenue(summary.monthlyRevenue);
+        setRoomTypeRevenue(summary.roomTypeRevenue);
+        setBookingChannels(summary.bookingChannels);
+        setTotalRevenue(summary.totalRevenue);
+        setTotalBookings(summary.totalBookings);
+        setAvgDailyRate(summary.avgDailyRate);
+        setAvgStayDuration(summary.avgStayDuration);
       } catch (error) {
         console.error("Error loading sales analytics:", error);
       } finally {
@@ -72,7 +77,7 @@ export default function SalesAnalytics() {
     };
 
     fetchSalesData();
-  }, []);
+  }, [recordRevision]);
 
   if (loading) {
     return (
@@ -170,7 +175,7 @@ export default function SalesAnalytics() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <Card className="p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Monthly Revenue vs Target
+            Monthly Booking Revenue
           </h2>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={monthlyRevenue}>
@@ -180,7 +185,6 @@ export default function SalesAnalytics() {
               <Tooltip />
               <Legend />
               <Bar dataKey="revenue" fill="#3b82f6" name="Actual Revenue" />
-              <Bar dataKey="target" fill="#e5e7eb" name="Target" />
             </BarChart>
           </ResponsiveContainer>
         </Card>

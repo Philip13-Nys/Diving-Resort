@@ -1,4 +1,5 @@
-import { getBookingSnapshot } from "../bookingStore";
+import { useRecordRevision } from "../useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
 import {
   TrendingUp,
   Calendar,
@@ -61,6 +62,9 @@ type StaffMember = {
 };
 
 export default function Dashboard() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,admin:Staff",
+  );
   const formatPeso = (value: number) =>
     `₱${Number(value || 0).toLocaleString("en-PH", {
       minimumFractionDigits: 2,
@@ -172,7 +176,7 @@ export default function Dashboard() {
     };
 
     loadDashboardData();
-  }, []);
+  }, [recordRevision]);
 
   const today = useMemo(() => {
     const date = new Date();

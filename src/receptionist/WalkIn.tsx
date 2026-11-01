@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom";
 import { useBookingInventory } from "../app/useBookingInventory";
 import {
   typeAvailability,
@@ -65,6 +66,7 @@ const money = (value: number) =>
   `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
 
 export default function WalkIn() {
+  const [searchParams] = useSearchParams();
   const [step, setStep] = useState(1);
   const {
     rooms,
@@ -84,7 +86,10 @@ export default function WalkIn() {
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
   const [bookingReference, setBookingReference] = useState("");
-  const [form, setForm] = useState<FormData>(initialForm);
+  const [form, setForm] = useState<FormData>(() => ({
+    ...initialForm(),
+    selectedRoomType: searchParams.get("roomType") || "",
+  }));
 
   const update = <K extends keyof FormData>(key: K, value: FormData[K]) => {
     pendingSave.current = null;

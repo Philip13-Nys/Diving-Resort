@@ -1,5 +1,4 @@
 import { signInWithEmailAndPassword, signOut } from "firebase/auth";
-
 import {
   doc,
   getDoc,
@@ -11,9 +10,7 @@ import {
   getDocs,
   limit,
 } from "firebase/firestore";
-
 import { auth, db } from "./firebase";
-
 export type LoggedInUser = {
   uid: string;
   name: string;
@@ -32,9 +29,6 @@ export async function loginUser(
   if (!cleanUsername || !password) {
     throw new Error("Please enter your username and password.");
   }
-
-  console.log("Firebase project:", auth.app.options.projectId);
-  console.log("Username:", cleanUsername);
 
   const usersQuery = query(
     collection(db, "Users"),
@@ -83,12 +77,17 @@ export async function loginUser(
 
   const data = userDoc.data();
 
+  if (!accountAllowed(data) || !roleHome(data.role)) {
+    await signOut(auth);
+    throw new Error(
+      "This account has no enabled system role. Contact your administrator.",
+    );
+  }
+
   await updateDoc(userRef, {
     status: "Active",
     lastActive: serverTimestamp(),
   });
-
-  console.log("User status updated to Active:", uid);
 
   return {
     uid,
@@ -111,12 +110,62 @@ export async function logoutUser(): Promise<void> {
         status: "Inactive",
         lastActive: serverTimestamp(),
       });
-
-      console.log("User status updated to Inactive:", currentUser.uid);
     } catch (error) {
       console.error("Failed to update logout status:", error);
     }
   }
 
   await signOut(auth);
+}
+
+export function roleHome(role: unknown): string | null {
+  switch (
+    String(role ?? "")
+      .trim()
+      .toLowerCase()
+  ) {
+    case "administrator":
+    case "admin":
+      return "/admin";
+    case "manager":
+      return "/manager";
+    case "receptionist":
+      return "/receptionist";
+    default:
+      return null;
+  }
+}
+export function accountAllowed(profile: Record<string, any>) {
+  // status is existing login presence (Active/Inactive), not account access.
+  return (
+    profile.disabled !== true &&
+    !["disabled", "suspended", "deleted"].includes(
+      String(profile.accountStatus ?? profile.status ?? "").toLowerCase(),
+    )
+  );
+}
+export function canEnter(role: unknown, area: string) {
+  const home = roleHome(role);
+  return (
+    home === "/admin" ||
+    home === `/${area}` ||
+    (home === "/manager" && area === "receptionist")
+  );
+}
+
+// Client defense in depth. Deployed Firestore rules must enforce server access.
+export async function requireAccess(area = "receptionist") {
+  const user = auth.currentUser;
+  if (!user) throw new Error("Please sign in again.");
+  const profile = await getDoc(doc(db, "Users", user.uid));
+  if (
+    !profile.exists() ||
+    !accountAllowed(profile.data()) ||
+    !canEnter(profile.data().role, area)
+  )
+    throw new Error("Your account does not have permission for this action.");
+  return {
+    uid: user.uid,
+    name: String(profile.data().name || user.displayName || "Staff"),
+  };
 }

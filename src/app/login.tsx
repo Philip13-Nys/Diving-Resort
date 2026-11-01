@@ -140,10 +140,6 @@ export default function Login() {
           navigate("/receptionist", { replace: true });
           break;
 
-        case "staff":
-          navigate("/staff", { replace: true });
-          break;
-
         default:
           setError(
             "Your account does not have a valid role. Please contact the administrator.",

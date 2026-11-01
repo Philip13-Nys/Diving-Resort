@@ -1,3 +1,4 @@
+import { useRecordRevision } from "../app/useBookingInventory";
 import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -76,6 +77,7 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
 };
 
 export default function ServicesManagement() {
+  const recordRevision = useRecordRevision("admin:services,admin:packages");
   const [activeTab, setActiveTab] = useState<"services" | "packages">(
     "services",
   );
@@ -150,7 +152,7 @@ export default function ServicesManagement() {
   useEffect(() => {
     loadServices();
     loadPackages();
-  }, []);
+  }, [recordRevision]);
 
   const resetImageSelection = () => {
     if (imagePreview.startsWith("blob:")) {
@@ -172,8 +174,8 @@ export default function ServicesManagement() {
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      alert("Please select an image smaller than 10 MB.");
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Please select an image smaller than 5 MB.");
       e.target.value = "";
       return;
     }
@@ -372,6 +374,17 @@ export default function ServicesManagement() {
       const packageName = (data.get("name") as string).trim();
       const packagePrice = Number(data.get("packagePrice"));
       const discount = Number(data.get("discount"));
+      if (
+        !packageName ||
+        !Number.isFinite(packagePrice) ||
+        packagePrice < 0 ||
+        !Number.isFinite(discount) ||
+        discount < 0 ||
+        discount > 100
+      )
+        throw new Error(
+          "Enter a package name, nonnegative price, and discount from 0 to 100.",
+        );
 
       await updateDoc(doc(db, "packages", editingPackage.id), {
         name: packageName,
@@ -410,6 +423,17 @@ export default function ServicesManagement() {
       const packageName = (data.get("name") as string).trim();
       const packagePrice = Number(data.get("packagePrice"));
       const discount = Number(data.get("discount"));
+      if (
+        !packageName ||
+        !Number.isFinite(packagePrice) ||
+        packagePrice < 0 ||
+        !Number.isFinite(discount) ||
+        discount < 0 ||
+        discount > 100
+      )
+        throw new Error(
+          "Enter a package name, nonnegative price, and discount from 0 to 100.",
+        );
 
       await addDoc(collection(db, "packages"), {
         name: packageName,

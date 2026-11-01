@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { useBookingInventory } from "../app/useBookingInventory";
 import {
   activeBooking,
@@ -7,6 +8,7 @@ import {
   localDate,
   normalizeBookingValue,
   roomBookingsOnDate,
+  roomStatusOnDate,
 } from "../app/bookingAvailability";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
@@ -117,6 +119,7 @@ function formatDate(value: string) {
 }
 
 export default function RoomAvailability() {
+  const navigate = useNavigate();
   const {
     rooms: inventory,
     reservations,
@@ -150,18 +153,8 @@ export default function RoomAvailability() {
             dateOnly(b.checkOut) === today &&
             assignedRoomIds(b, inventory).includes(room.id),
         );
-        let status: RoomStatus = "available";
-        if (blockedRoom(room)) status = "maintenance";
-        else if (departing) status = "checkout-today";
-        else if (booking)
-          status = ["checked-in", "checkedin", "occupied"].includes(
-            normalizeBookingValue(booking.status),
-          )
-            ? "occupied"
-            : "reserved";
-        else if (["occupied", "checked-in"].includes(room.status))
-          status = "occupied";
-        else if (future) status = "reserved";
+        let status: RoomStatus = roomStatusOnDate(room, booking, today);
+        if (!blockedRoom(room) && departing) status = "checkout-today";
         const guestBooking = departing || booking || future;
         return {
           id: room.roomNumber,
@@ -648,7 +641,11 @@ export default function RoomAvailability() {
                   style={{
                     background: "#0d7377",
                   }}
-                  onClick={() => console.log("Book room:", selected.id)}
+                  onClick={() =>
+                    navigate(
+                      `/receptionist/walkin?roomType=${encodeURIComponent(inventory.find((room) => room.id === selected.firestoreId)?.roomTypeId || "")}`,
+                    )
+                  }
                 >
                   Book This Room
                 </AsyncButton>

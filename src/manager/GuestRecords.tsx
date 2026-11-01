@@ -1,4 +1,6 @@
-import { getBookingSnapshot } from "../app/bookingStore";
+import { getGuests } from "../app/bookingStore";
+import { useRecordRevision } from "../app/useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -30,6 +32,9 @@ type GuestWithHistory = Guest & {
 };
 
 export default function GuestRecords() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,admin:Guests",
+  );
   const [search, setSearch] = useState("");
   const [viewingGuest, setViewingGuest] = useState<GuestWithHistory | null>(
     null,
@@ -43,126 +48,13 @@ export default function GuestRecords() {
       try {
         setLoading(true);
 
-        const snapshot = await getBookingSnapshot();
-
-        const guestMap = new Map<string, GuestWithHistory>();
-
-        snapshot.docs.forEach((bookingDoc) => {
-          const data = bookingDoc.data();
-
-          const name =
-            data.guestName ||
-            data.customerName ||
-            data.guest ||
-            data.name ||
-            "Unknown Guest";
-          const email =
-            data.email || data.guestEmail || data.customerEmail || "";
-          const phone =
-            data.phone ||
-            data.phoneNumber ||
-            data.contactNumber ||
-            data.guestPhone ||
-            "";
-          const room =
-            data.room || data.roomName || data.roomType || "Unknown Room";
-          const checkIn =
-            data.checkIn || data.checkInDate || data.startDate || "";
-          const checkOut =
-            data.checkOut || data.checkOutDate || data.endDate || "";
-          const total = Number(
-            data.total || data.totalAmount || data.amount || data.price || 0,
-          );
-
-          let nights = Number(
-            data.nights || data.numberOfNights || data.stayDuration || 0,
-          );
-
-          if (!nights && checkIn && checkOut) {
-            const start = new Date(checkIn);
-            const end = new Date(checkOut);
-
-            if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-              const difference = end.getTime() - start.getTime();
-
-              nights = Math.max(
-                1,
-                Math.round(difference / (1000 * 60 * 60 * 24)),
-              );
-            }
-          }
-
-          if (!nights) {
-            nights = 1;
-          }
-
-          const guestKey =
-            email.toLowerCase().trim() || name.toLowerCase().trim();
-
-          const bookingDate =
-            checkIn || data.bookingDate || data.createdAt || "";
-
-          const bookingRecord: BookingRecord = {
-            date: formatDate(bookingDate),
-            room,
-            nights,
-            amount: total,
-          };
-
-          if (guestMap.has(guestKey)) {
-            const existingGuest = guestMap.get(guestKey)!;
-
-            existingGuest.totalStays += 1;
-            existingGuest.totalSpent += total;
-
-            existingGuest.history.push(bookingRecord);
-
-            if (
-              getDateValue(bookingDate) > getDateValue(existingGuest.lastVisit)
-            ) {
-              existingGuest.lastVisit = formatDate(bookingDate);
-            }
-
-            if (existingGuest.phone === "" && phone) {
-              existingGuest.phone = phone;
-            }
-          } else {
-            guestMap.set(guestKey, {
-              id: `G-${String(guestMap.size + 1).padStart(3, "0")}`,
-              name,
-              email,
-              phone,
-              totalStays: 1,
-              totalSpent: total,
-              lastVisit: formatDate(bookingDate),
-              status: "new",
-              history: [bookingRecord],
-            });
-          }
-        });
-
-        const guestList = Array.from(guestMap.values()).map((guest) => {
-          let status: Guest["status"];
-
-          if (guest.totalStays >= 5) {
-            status = "vip";
-          } else if (guest.totalStays >= 2) {
-            status = "regular";
-          } else {
-            status = "new";
-          }
-
-          return {
+        const guests = await getGuests();
+        setGuests(
+          guests.map((guest) => ({
             ...guest,
-            status,
-          };
-        });
-
-        guestList.sort(
-          (a, b) => getDateValue(b.lastVisit) - getDateValue(a.lastVisit),
+            id: guest.id || guest.identityKey,
+          })),
         );
-
-        setGuests(guestList);
       } catch (error) {
         console.error("Error loading guest records:", error);
       } finally {
@@ -171,7 +63,7 @@ export default function GuestRecords() {
     };
 
     fetchGuests();
-  }, []);
+  }, [recordRevision]);
 
   function getDateValue(value: string): number {
     if (!value) return 0;

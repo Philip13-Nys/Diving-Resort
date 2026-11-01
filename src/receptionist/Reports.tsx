@@ -1,4 +1,7 @@
-import { getBookingSnapshot, getPaymentSnapshot } from "../app/bookingStore";
+import { toCsv, downloadFile } from "../app/reportData";
+import { completedPayment } from "../app/bookingAvailability";
+import { useRecordRevision } from "../app/useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot, getLivePaymentSnapshot as getPaymentSnapshot } from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -103,6 +106,7 @@ const getMonthStart = (date: Date) =>
 const getYearStart = (date: Date) => new Date(date.getFullYear(), 0, 1);
 
 export default function Reports() {
+  const recordRevision = useRecordRevision("customer:Bookings,admin:reservations,customer:Payments,admin:Payments");
   const [period, setPeriod] = useState<ReportPeriod>("monthly");
 
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -113,7 +117,7 @@ export default function Reports() {
 
   useEffect(() => {
     loadReportData();
-  }, []);
+  }, [recordRevision]);
 
   const loadReportData = async () => {
     try {
@@ -165,9 +169,9 @@ export default function Reports() {
           amount: Number(data.amount ?? 0),
           method: data.method ?? "cash",
           type: data.type ?? "full",
-          date: data.date ?? "",
+          date: data.createdAt?.toDate?.().toISOString() ?? data.date ?? "",
           time: data.time ?? "",
-          status: data.status ?? "completed",
+          status: completedPayment(data) ? "completed" : "pending",
         };
       });
 
@@ -282,6 +286,13 @@ export default function Reports() {
     >();
 
     payments.forEach((payment) => {
+      if (payment.status !== "completed") return;
+      const date = parseDate(payment.date);
+      if (!date) return;
+      if (period === "daily" && !isSameDay(date, today)) return;
+      if (period === "weekly" && (date < getWeekStart(today) || date >= new Date(getWeekStart(today).getTime() + 7 * 86400000))) return;
+      if (period === "monthly" && (date.getFullYear() !== today.getFullYear() || date.getMonth() !== today.getMonth())) return;
+      if (period === "yearly" && date.getFullYear() !== today.getFullYear()) return;
       const method = payment.method?.toLowerCase() || "unknown";
 
       const current = map.get(method) || {
@@ -305,7 +316,7 @@ export default function Reports() {
         count: data.count,
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [payments]);
+  }, [payments, period, today]);
 
   const topGuests = useMemo(() => {
     const map = new Map<
@@ -373,72 +384,10 @@ export default function Reports() {
   }, [validBookings]);
 
   const exportReport = () => {
-    const lines = [
-      "Resort Management System Report",
-      `Generated: ${new Date().toLocaleString()}`,
-      `Period: ${period}`,
-      "",
-
-      "Summary",
-      `Total Revenue,${formatPeso(totalRevenue)}`,
-      `Total Bookings,${totalBookings}`,
-      `Average Revenue per Booking,${formatPeso(averageRevenue)}`,
-
-      "",
-
-      "Monthly Revenue",
-      "Month,Revenue,Bookings",
-
-      ...monthlyRevenue.map(
-        (item) => `${item.month},${formatPeso(item.revenue)},${item.bookings}`,
-      ),
-
-      "",
-
-      "Room Types",
-      "Room Type,Bookings,Percentage",
-
-      ...roomTypeData.map(
-        (item) => `"${item.name}",${item.value},${item.percentage}%`,
-      ),
-
-      "",
-
-      "Payment Methods",
-      "Method,Amount,Transactions",
-
-      ...paymentMethodData.map(
-        (item) => `"${item.method}",${formatPeso(item.amount)},${item.count}`,
-      ),
-
-      "",
-
-      "Top Guests",
-      "Guest,Visits,Total Spent",
-
-      ...topGuests.map(
-        (guest) => `"${guest.name}",${guest.visits},${formatPeso(guest.spent)}`,
-      ),
-    ];
-
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = `resort-report-${period}.csv`;
-
-    document.body.appendChild(link);
-
-    link.click();
-
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
+    const rows = [["Resort Report", period], ["Booking value", totalRevenue], ["Bookings", totalBookings],
+      [], ["Payment method", "Collections", "Transactions"], ...paymentMethodData.map(item => [item.method, item.amount, item.count]),
+      [], ["Guest", "Room", "Arrival", "Departure", "Booking value", "Paid", "Status"], ...periodBookings.map(item => [item.guest, item.room, item.checkIn, item.checkOut, item.total, item.amountPaid, item.status])];
+    downloadFile(toCsv(rows), 'resort-report-' + period + '.csv');
 
     setSuccess("Report exported successfully.");
 
@@ -523,7 +472,7 @@ export default function Reports() {
               color: "#4a7a7a",
             }}
           >
-            Total Revenue
+            Booking Value
           </p>
         </div>
 

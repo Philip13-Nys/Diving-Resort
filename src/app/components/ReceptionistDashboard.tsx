@@ -1,4 +1,5 @@
-import { getBookingSnapshot } from "../bookingStore";
+import { useRecordRevision } from "../useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
 import { AsyncButton } from "./ui/async-action";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -234,6 +235,7 @@ function EmptyState({
 }
 
 export default function ManagerDashboard() {
+  const recordRevision = useRecordRevision("customer:Bookings,admin:reservations");
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -315,7 +317,7 @@ export default function ManagerDashboard() {
 
   useEffect(() => {
     void loadBookings();
-  }, [loadBookings]);
+  }, [loadBookings, recordRevision]);
 
   const today = getLocalDateString();
 

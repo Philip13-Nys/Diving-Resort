@@ -1,4 +1,5 @@
-import { getBookingSnapshot } from "../app/bookingStore";
+import { useRecordRevision } from "../app/useBookingInventory";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { Card } from "../app/components/ui/card";
 
 import {
@@ -44,6 +45,9 @@ interface Booking {
 }
 
 export default function ReceptionistDashboards() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations",
+  );
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,7 +109,7 @@ export default function ReceptionistDashboards() {
     };
 
     fetchBookings();
-  }, []);
+  }, [recordRevision]);
 
   const totalReservations = bookings.length;
 
@@ -235,7 +239,6 @@ export default function ReceptionistDashboards() {
             </div>
           </div>
         </div>
-
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">

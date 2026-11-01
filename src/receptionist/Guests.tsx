@@ -1,5 +1,7 @@
+import { getGuests, saveGuestProfile } from "../app/bookingStore";
+import { useRecordRevision } from "../app/useBookingInventory";
 import { getBookingRef } from "../app/bookingStore";
-import { getBookingSnapshot } from "../app/bookingStore";
+import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { Search, Plus, Edit2, Phone, Mail, Star, X } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -14,6 +16,7 @@ import {
 import { customerDb } from "../app/firebase";
 interface Guest {
   id: string;
+  identityKey?: string;
   name: string;
   email: string;
   phone: string;
@@ -119,7 +122,7 @@ function GuestModal({
             onClick={() =>
               onSave({
                 ...form,
-                id: form.id || `G-${Date.now()}`,
+                id: form.id || "",
                 visits: form.visits ?? 0,
                 totalSpent: form.totalSpent ?? 0,
                 tags: form.tags ?? [],
@@ -138,6 +141,9 @@ function GuestModal({
 }
 
 export default function Guests() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,admin:Guests",
+  );
   const [guests, setGuests] = useState<Guest[]>([]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Guest | null>(null);
@@ -153,78 +159,19 @@ export default function Guests() {
   });
   useEffect(() => {
     loadGuests();
-  }, []);
+  }, [recordRevision]);
 
   const loadGuests = async () => {
     try {
-      const snapshot = await getBookingSnapshot();
-      const guestMap = new Map<string, Guest>();
-
-      snapshot.forEach((bookingDoc) => {
-        const data = bookingDoc.data();
-
-        // Support both Walk-in and online booking field names.
-        const firstName = String(data.firstName ?? "").trim();
-        const lastName = String(data.lastName ?? "").trim();
-
-        const name =
-          String(
-            data.customerName ??
-              data.guestName ??
-              data.name ??
-              `${firstName} ${lastName}`.trim() ??
-              "Unknown Guest",
-          ).trim() || "Unknown Guest";
-
-        const email = String(data.customerEmail ?? data.email ?? "").trim();
-
-        const phone = String(data.customerPhone ?? data.phone ?? "").trim();
-
-        // Use email when available. Otherwise identify the guest by
-        // name + phone so guests without email aren't merged together.
-        const key = email
-          ? `email:${email.toLowerCase()}`
-          : `guest:${name.toLowerCase()}|${phone}`;
-
-        const spent = Number(
-          data.totalPrice ?? data.totalAmount ?? data.total ?? 0,
-        );
-
-        const lastVisit = String(data.checkOut ?? data.checkIn ?? "").slice(
-          0,
-          10,
-        );
-
-        if (!guestMap.has(key)) {
-          guestMap.set(key, {
-            id: bookingDoc.id,
-            name,
-            email,
-            phone,
-            nationality: String(data.nationality ?? ""),
-            visits: 1,
-            lastVisit,
-            totalSpent: spent,
-            tags: [],
-            notes: String(data.notes ?? ""),
-          });
-        } else {
-          const guest = guestMap.get(key)!;
-
-          guest.visits += 1;
-          guest.totalSpent += spent;
-
-          // Keep the latest available contact details.
-          if (!guest.email && email) guest.email = email;
-          if (!guest.phone && phone) guest.phone = phone;
-
-          if (lastVisit && lastVisit > guest.lastVisit) {
-            guest.lastVisit = lastVisit;
-          }
-        }
-      });
-
-      setGuests(Array.from(guestMap.values()));
+      const records = await getGuests();
+      setGuests(records);
+      setSelected((previous) =>
+        previous
+          ? records.find(
+              (guest) => guest.identityKey === previous.identityKey,
+            ) || null
+          : null,
+      );
     } catch (err) {
       console.error("Error loading guests:", err);
       alert("Failed to load guest records. Please try again.");
@@ -233,28 +180,12 @@ export default function Guests() {
 
   const saveGuest = async (g: Guest) => {
     try {
-      if (g.id) {
-        await updateDoc(await getBookingRef(g.id), {
-          customerName: g.name,
-          customerEmail: g.email,
-          customerPhone: g.phone,
-          nationality: g.nationality,
-          notes: g.notes,
-        });
-      } else {
-        await addDoc(collection(customerDb, "Bookings"), {
-          customerName: g.name,
-          customerEmail: g.email,
-          customerPhone: g.phone,
-          nationality: g.nationality,
-          notes: g.notes,
-        });
-      }
-
-      loadGuests();
+      await saveGuestProfile(g);
+      await loadGuests();
       setModal(null);
     } catch (err) {
       console.error(err);
+      alert(err instanceof Error ? err.message : "Unable to save guest.");
     }
   };
 
@@ -306,7 +237,7 @@ export default function Guests() {
         <div className="flex-1 overflow-y-auto divide-y divide-[rgba(13,115,119,0.08)]">
           {filtered.map((g) => (
             <AsyncButton
-              key={g.id}
+              key={g.identityKey || g.id}
               onClick={() => setSelected(g)}
               className="w-full text-left p-4 transition-all"
               style={{

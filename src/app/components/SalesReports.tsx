@@ -1,4 +1,10 @@
-import { getBookingSnapshot } from "../bookingStore";
+import { toCsv } from "../reportData";
+import { completedPayment, cancelled } from "../bookingAvailability";
+import { useRecordRevision } from "../useBookingInventory";
+import {
+  getLiveBookingSnapshot as getBookingSnapshot,
+  getLivePaymentSnapshot as getPaymentSnapshot,
+} from "../bookingStore";
 import { AsyncButton, AsyncForm } from "./ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -69,6 +75,10 @@ const formatPeso = (value: number) =>
   })}`;
 
 export default function SalesReports() {
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations,customer:Payments,admin:Payments",
+  );
+  const [receipts, setReceipts] = useState<any[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -90,13 +100,17 @@ export default function SalesReports() {
 
   useEffect(() => {
     loadBookings();
-  }, []);
+  }, [recordRevision]);
 
   const loadBookings = async () => {
     try {
       setLoading(true);
 
-      const snapshot = await getBookingSnapshot();
+      const [snapshot, paymentSnapshot] = await Promise.all([
+        getBookingSnapshot(),
+        getPaymentSnapshot(),
+      ]);
+      setReceipts(paymentSnapshot.docs.map((doc) => doc.data()));
 
       const data: Booking[] = snapshot.docs.map((bookingDoc) => {
         const value = bookingDoc.data();
@@ -144,7 +158,7 @@ export default function SalesReports() {
   };
 
   const validBookings = useMemo(() => {
-    return bookings.filter((booking) => booking.status !== "cancelled");
+    return bookings.filter((booking) => !cancelled(booking));
   }, [bookings]);
 
   const reportBookings = useMemo(() => {
@@ -173,15 +187,23 @@ export default function SalesReports() {
     });
   }, [validBookings, reportPeriod, reportMonth, reportYear]);
 
-  const totalRevenue = useMemo(() => {
-    return reportBookings.reduce((sum, booking) => sum + booking.total, 0);
-  }, [reportBookings]);
-
-  const totalExpenses = 0;
-
-  const netProfit = totalRevenue - totalExpenses;
-
-  const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+  const reportPayments = receipts.filter((receipt) => {
+    if (!completedPayment(receipt)) return false;
+    const date = receipt.createdAt?.toDate?.() || new Date(receipt.date || "");
+    if (!Number.isFinite(date.getTime()) || date.getFullYear() !== reportYear)
+      return false;
+    return (
+      reportPeriod === "annual" ||
+      (reportPeriod === "quarterly"
+        ? Math.floor(date.getMonth() / 3) === Math.floor(reportMonth / 3)
+        : date.getMonth() === reportMonth)
+    );
+  });
+  const totalRevenue =
+    reportPayments.reduce(
+      (sum, receipt) => sum + Math.round(Number(receipt.amount || 0) * 100),
+      0,
+    ) / 100;
 
   const paidBookings = reportBookings.filter(
     (booking) => booking.paymentStatus === "paid",
@@ -240,49 +262,29 @@ export default function SalesReports() {
       {
         id: 1,
         name: "Accommodations",
-        value: totalRevenue,
+        value: reportBookings.reduce((sum, booking) => sum + booking.total, 0),
         percentage: 100,
       },
     ];
   }, [reportBookings, totalRevenue]);
 
-  const paymentMethods = useMemo(() => {
-    const map = new Map<
-      string,
-      {
-        method: string;
-        amount: number;
-        transactions: number;
-      }
-    >();
-
-    reportBookings.forEach((booking) => {
-      const method = booking.paymentMethod || "Not specified";
-
-      const existing = map.get(method);
-
-      if (existing) {
-        existing.amount += booking.total;
-        existing.transactions += 1;
-      } else {
-        map.set(method, {
-          method,
-          amount: booking.total,
-          transactions: 1,
-        });
-      }
-    });
-
-    const total = reportBookings.reduce(
-      (sum, booking) => sum + booking.total,
-      0,
-    );
-
-    return Array.from(map.values()).map((item) => ({
-      ...item,
-      percentage: total > 0 ? (item.amount / total) * 100 : 0,
-    }));
-  }, [reportBookings]);
+  const paymentMethods = Object.values(
+    reportPayments.reduce((map: Record<string, any>, receipt) => {
+      const method = String(
+        receipt.method || receipt.paymentMethod || "Unspecified",
+      ).toLowerCase();
+      const row = (map[method] ||= { method, amount: 0, transactions: 0 });
+      row.amount =
+        (Math.round(row.amount * 100) +
+          Math.round(Number(receipt.amount || 0) * 100)) /
+        100;
+      row.transactions++;
+      return map;
+    }, {}),
+  ).map((row: any) => ({
+    ...row,
+    percentage: totalRevenue ? (row.amount / totalRevenue) * 100 : 0,
+  }));
 
   const reportLabel =
     reportPeriod === "monthly"
@@ -301,54 +303,44 @@ export default function SalesReports() {
 
     setGenerating(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await loadBookings();
 
     setGenerating(false);
     setReportReady(true);
   };
 
-  const createCsv = () => {
-    const lines = [
-      `Financial Report — ${reportLabel}`,
-      `Generated: ${new Date().toLocaleString()}`,
-      "",
-      "Financial Summary",
-      `Total Revenue,${formatPeso(totalRevenue)}`,
-      `Total Expenses,${formatPeso(totalExpenses)}`,
-      `Net Profit,${formatPeso(netProfit)}`,
-      `Profit Margin,${profitMargin.toFixed(2)}%`,
-      `Total Bookings,${reportBookings.length}`,
-      `Paid Bookings,${paidBookings}`,
-      `Pending Payments,${pendingPayments}`,
-      "",
-      "Monthly Revenue",
-      "Month,Revenue",
-      ...revenueData.map((item) => `${item.month},${formatPeso(item.revenue)}`),
-      "",
-      "Revenue by Category",
-      "Category,Revenue,Percentage",
-      ...revenueByCategory.map(
-        (item) =>
-          `"${item.name}",${formatPeso(item.value)},${item.percentage.toFixed(2)}%`,
-      ),
-      "",
-      "Payment Methods",
-      "Method,Amount,Percentage,Transactions",
-      ...paymentMethods.map(
-        (item) =>
-          `"${item.method}",${formatPeso(item.amount)},${item.percentage.toFixed(2)}%,${item.transactions}`,
-      ),
-      "",
-      "Bookings",
-      "Guest,Room,Check In,Check Out,Guests,Total,Status,Payment Status",
-      ...reportBookings.map(
-        (booking) =>
-          `"${booking.guest}","${booking.room}","${booking.checkIn}","${booking.checkOut}",${booking.guests},"${formatPeso(booking.total)}","${booking.status}","${booking.paymentStatus}"`,
-      ),
-    ];
-
-    return lines.join("\n");
-  };
+  const createCsv = () =>
+    toCsv([
+      ["Financial Report", reportLabel],
+      ["Collections", totalRevenue],
+      ["Expenses", "Not recorded"],
+      ["Profit", "Unavailable: expenses are not tracked"],
+      ["Payment method", "Collected", "Transactions"],
+      ...paymentMethods.map((row) => [
+        row.method,
+        row.amount,
+        row.transactions,
+      ]),
+      [],
+      [
+        "Booking",
+        "Guest",
+        "Room",
+        "Arrival",
+        "Departure",
+        "Booking value",
+        "Status",
+      ],
+      ...reportBookings.map((booking) => [
+        booking.id,
+        booking.guest,
+        booking.room,
+        booking.checkIn,
+        booking.checkOut,
+        booking.total,
+        booking.status,
+      ]),
+    ]);
 
   const downloadCsv = (filename: string) => {
     const blob = new Blob([createCsv()], {
@@ -429,7 +421,7 @@ export default function SalesReports() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <div className="flex items-center gap-3 mb-2">
-            <p className="text-sm text-gray-600">Total Revenue</p>
+            <p className="text-sm text-gray-600">Collections</p>
           </div>
 
           <p className="text-3xl font-bold text-gray-900">
@@ -440,9 +432,7 @@ export default function SalesReports() {
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <p className="text-sm text-gray-600 mb-2">Total Expenses</p>
 
-          <p className="text-3xl font-bold text-gray-600">
-            {formatPeso(totalExpenses)}
-          </p>
+          <p className="text-3xl font-bold text-gray-600">{"Not recorded"}</p>
 
           <p className="text-xs text-gray-500 mt-1">
             No expense records in database
@@ -452,7 +442,7 @@ export default function SalesReports() {
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <p className="text-sm text-gray-600 mb-2">Net Profit</p>
 
-          <p className="text-3xl font-bold ">{formatPeso(netProfit)}</p>
+          <p className="text-3xl font-bold ">{"Unavailable"}</p>
 
           <p className="text-xs text-gray-500 mt-1">
             Revenue minus recorded expenses
@@ -462,9 +452,7 @@ export default function SalesReports() {
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <p className="text-sm text-gray-600 mb-2">Profit Margin</p>
 
-          <p className="text-3xl font-bold text-gray-900">
-            {profitMargin.toFixed(1)}%
-          </p>
+          <p className="text-3xl font-bold text-gray-900">{"Unavailable"}</p>
 
           <p className="text-xs text-gray-500 mt-1">
             Based on available records
@@ -511,7 +499,7 @@ export default function SalesReports() {
 
         <div className="bg-white rounded-xl p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Revenue by Category
+            Booking Value by Category
           </h3>
 
           {revenueByCategory.length > 0 ? (
@@ -935,7 +923,7 @@ export default function SalesReports() {
                       <span className="text-gray-600">Total Expenses</span>
 
                       <span className="font-medium text-gray-600">
-                        {formatPeso(totalExpenses)}
+                        {"Not recorded"}
                       </span>
                     </div>
 
@@ -943,7 +931,7 @@ export default function SalesReports() {
                       <span className="font-medium">Net Profit</span>
 
                       <span className="font-bold text-gray-600">
-                        {formatPeso(netProfit)}
+                        {"Unavailable"}
                       </span>
                     </div>
 

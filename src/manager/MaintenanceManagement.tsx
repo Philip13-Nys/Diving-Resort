@@ -1,3 +1,5 @@
+import { useRecordRevision } from "../app/useBookingInventory";
+import { saveMaintenance } from "../app/maintenanceOperations";
 import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -107,6 +109,9 @@ const getString = (...values: unknown[]): string => {
 };
 
 export default function MaintenanceManagement() {
+  const recordRevision = useRecordRevision(
+    "admin:maintenanceRequests,admin:rooms,admin:roomTypes",
+  );
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [filter, setFilter] = useState<RequestFilter>("all");
@@ -230,7 +235,7 @@ export default function MaintenanceManagement() {
   useEffect(() => {
     void loadMaintenanceRequests();
     void loadRooms();
-  }, [loadMaintenanceRequests, loadRooms]);
+  }, [loadMaintenanceRequests, loadRooms, recordRevision]);
 
   useEffect(() => {
     if (searchParams.get("action") === "new") {
@@ -265,7 +270,7 @@ export default function MaintenanceManagement() {
     setUpdatingId(id);
 
     try {
-      await updateDoc(doc(db, "maintenanceRequests", id), {
+      await saveMaintenance(id, {
         status,
         updatedAt: serverTimestamp(),
       });
@@ -312,7 +317,7 @@ export default function MaintenanceManagement() {
     setDeletingId(id);
 
     try {
-      await deleteDoc(doc(db, "maintenanceRequests", id));
+      await saveMaintenance(id, undefined, true);
 
       setMaintenanceRequests((current) =>
         current.filter((item) => item.id !== id),
@@ -364,7 +369,7 @@ export default function MaintenanceManagement() {
       const nextRequestNumber =
         requestNumbers.length > 0 ? Math.max(...requestNumbers) + 1 : 1;
 
-      await addDoc(collection(db, "maintenanceRequests"), {
+      await saveMaintenance(doc(collection(db, "maintenanceRequests")).id, {
         requestNumber: nextRequestNumber,
 
         roomId: selectedRoom.id,

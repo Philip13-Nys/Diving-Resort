@@ -1,10 +1,7 @@
+import { watchRecords } from "../bookingStore";
 import { mergeBookingDocuments } from "../bookingStore";
 import { useEffect, useMemo, useState } from "react";
-import {
-  collection,
-  onSnapshot,
-  type QueryDocumentSnapshot,
-} from "firebase/firestore";
+import { type QueryDocumentSnapshot } from "firebase/firestore";
 import { CalendarDays, Download, Loader2, RefreshCw, X } from "lucide-react";
 import {
   BarChart,
@@ -15,7 +12,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { db, customerDb } from "../firebase";
+
 import { AsyncButton } from "./ui/async-action";
 import {
   commissionRows,
@@ -74,11 +71,11 @@ export default function CommissionReport() {
       setLoading(ready.size < 2 && failures.size === 0);
     };
     const sources = [
-      ["customer", collection(customerDb, "Bookings")],
-      ["staff", collection(db, "reservations")],
+      ["customer", "customer:Bookings"],
+      ["staff", "admin:reservations"],
     ] as const;
     const stops = sources.map(([key, reference]) =>
-      onSnapshot(
+      watchRecords(
         reference,
         (snapshot) => {
           parts[key] = snapshot.docs;

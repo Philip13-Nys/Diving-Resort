@@ -1,3 +1,4 @@
+import { useRecordRevision } from "../useBookingInventory";
 import { AsyncButton, AsyncForm } from "./ui/async-action";
 import { Edit, Trash2, Plus, Search, X, Check } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -10,7 +11,11 @@ import {
   getDoc,
   setDoc,
 } from "firebase/firestore";
-import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  updateProfile,
+  deleteUser,
+} from "firebase/auth";
 import { auth, db, secondaryAuth } from "../firebase";
 
 type User = {
@@ -27,13 +32,14 @@ const emptyForm = {
   name: "",
   username: "",
   password: "",
-  role: "Staff",
+  role: "Receptionist",
   status: "Inactive",
 };
 
 type FormState = typeof emptyForm;
 
 export default function UserRoleManagement() {
+  const recordRevision = useRecordRevision("admin:Users,admin:Staff");
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -47,7 +53,7 @@ export default function UserRoleManagement() {
 
   useEffect(() => {
     void loadUsers();
-  }, []);
+  }, [recordRevision]);
 
   useEffect(() => {
     const loadUserProfile = async () => {
@@ -182,6 +188,21 @@ export default function UserRoleManagement() {
     setSaving(true);
 
     try {
+      const accounts = await getDocs(collection(db, "Users"));
+      if (
+        accounts.docs.some(
+          (doc) =>
+            doc.id !== editUser?.id &&
+            String(doc.data().username || "").toLowerCase() ===
+              username.toLowerCase(),
+        )
+      )
+        throw new Error("This username is already in use.");
+      if (
+        editUser?.id === auth.currentUser?.uid &&
+        (form.role !== editUser.role || form.status === "Disabled")
+      )
+        throw new Error("You cannot remove your own administrator access.");
       if (editUser) {
         await updateDoc(doc(db, "Users", editUser.id), {
           name,
@@ -216,21 +237,26 @@ export default function UserRoleManagement() {
 
         const newUser = userCredential.user;
 
-        await updateProfile(newUser, {
-          displayName: name,
-        });
+        try {
+          await updateProfile(newUser, {
+            displayName: name,
+          });
 
-        await setDoc(doc(db, "Users", newUser.uid), {
-          name,
-          username,
-          email: internalEmail,
-          role: form.role,
-          status: form.status,
-          lastActive: null,
-          uid: newUser.uid,
-        });
-
-        await secondaryAuth.signOut();
+          await setDoc(doc(db, "Users", newUser.uid), {
+            name,
+            username,
+            email: internalEmail,
+            role: form.role,
+            status: form.status,
+            lastActive: null,
+            uid: newUser.uid,
+          });
+        } catch (error) {
+          await deleteUser(newUser).catch(() => {});
+          throw error;
+        } finally {
+          await secondaryAuth.signOut();
+        }
 
         setSuccess("User account created successfully.");
       }
@@ -269,6 +295,8 @@ export default function UserRoleManagement() {
 
   async function handleDelete(id: string) {
     try {
+      if (id === auth.currentUser?.uid)
+        throw new Error("You cannot delete your own account.");
       await deleteDoc(doc(db, "Users", id));
 
       setUsers((currentUsers) => currentUsers.filter((user) => user.id !== id));
@@ -279,7 +307,11 @@ export default function UserRoleManagement() {
       window.setTimeout(() => setSuccess(""), 3000);
     } catch (error) {
       console.error("Failed to delete user:", error);
-      alert("Failed to delete user record.");
+      alert(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete user record.",
+      );
     }
   }
 
@@ -578,7 +610,9 @@ export default function UserRoleManagement() {
                     <option>Administrator</option>
                     <option>Manager</option>
                     <option>Receptionist</option>
-                    <option>Staff</option>
+                    <option value="Staff">
+                      Staff (personnel only, no login access)
+                    </option>
                   </select>
                 </div>
 
@@ -598,6 +632,7 @@ export default function UserRoleManagement() {
                   >
                     <option>Active</option>
                     <option>Inactive</option>
+                    <option>Disabled</option>
                   </select>
                 </div>
               </div>

@@ -3,6 +3,7 @@ import {
   blockedRoom,
   normalizeBookingValue,
   roomBookingsOnDate,
+  roomStatusOnDate,
   type BookingRecord,
 } from "../app/bookingAvailability";
 import { Card } from "../app/components/ui/card";
@@ -107,18 +108,8 @@ export default function RoomAvailability() {
     [inventory, reservations, weekDates, formatLocalDate(today)],
   );
   const getRoomStatusForDate = (room: (typeof rooms)[number], date: Date) => {
-    if (blockedRoom(room)) return "maintenance";
-    const booking = dayMaps.get(formatLocalDate(date))?.get(room.id);
-    if (!booking)
-      return room.status === "occupied" &&
-        formatLocalDate(date) === formatLocalDate(today)
-        ? "occupied"
-        : "available";
-    return ["checked-in", "checkedin", "occupied"].includes(
-      normalizeBookingValue(booking.status),
-    )
-      ? "occupied"
-      : "reserved";
+    const day = formatLocalDate(date);
+    return roomStatusOnDate(room, dayMaps.get(day)?.get(room.id), day, formatLocalDate(today));
   };
   const availableCount = rooms.filter(
     (room) => getRoomStatusForDate(room, today) === "available",

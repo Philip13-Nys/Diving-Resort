@@ -1,3 +1,4 @@
+import { useRecordRevision } from "../app/useBookingInventory";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -36,6 +37,7 @@ const shifts = [
 ];
 
 export default function StaffProfiles() {
+  const recordRevision = useRecordRevision("admin:Staff");
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<StaffMember | null>(null);
@@ -50,9 +52,9 @@ export default function StaffProfiles() {
     if (!form) return;
 
     try {
-      await updateDoc(doc(db, "Users", form.id), {
+      await updateDoc(doc(db, "Staff", form.id), {
         name: form.name,
-        role: form.role,
+        position: form.role,
         email: form.email,
         phone: form.phone,
         department: form.department,
@@ -75,7 +77,7 @@ export default function StaffProfiles() {
     const loadStaff = async () => {
       try {
         console.log("Loading users from Firestore...");
-        const snapshot = await getDocs(collection(db, "Users"));
+        const snapshot = await getDocs(collection(db, "Staff"));
 
         console.log("Users found:", snapshot.size);
 
@@ -87,12 +89,15 @@ export default function StaffProfiles() {
             name:
               data.name ||
               `${data.firstName || ""} ${data.lastName || ""}`.trim(),
-            role: data.role || "Staff Member",
+            role: data.position || data.role || "Staff Member",
             email: data.email || "",
             phone: data.phone || "",
             department: data.department || "",
-            hireDate: data.hireDate || "",
-            status: data.status === "inactive" ? "inactive" : "active",
+            hireDate: data.joinDate || data.hireDate || "",
+            status:
+              String(data.status).toLowerCase() === "inactive"
+                ? "inactive"
+                : "active",
             shift: data.shift || "",
           };
         });
@@ -108,7 +113,7 @@ export default function StaffProfiles() {
     };
 
     loadStaff();
-  }, []);
+  }, [recordRevision]);
 
   return (
     <div className="p-8">

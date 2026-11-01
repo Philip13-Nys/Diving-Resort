@@ -1,3 +1,4 @@
+import { useRecordRevision } from "../app/useBookingInventory";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Edit, TrendingUp, Calendar, X, Save, AlertCircle } from "lucide-react";
@@ -34,6 +35,9 @@ type PricingRule = {
 };
 
 export default function PricingManagement() {
+  const recordRevision = useRecordRevision(
+    "admin:roomTypes,admin:settings,admin:pricingRules",
+  );
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [roomError, setRoomError] = useState("");
@@ -97,7 +101,7 @@ export default function PricingManagement() {
     };
 
     loadRoomTypes();
-  }, []);
+  }, [recordRevision]);
 
   useEffect(() => {
     const loadReservationFee = async () => {
@@ -119,7 +123,7 @@ export default function PricingManagement() {
     };
 
     loadReservationFee();
-  }, []);
+  }, [recordRevision]);
 
   const saveReservationFee = async () => {
     const percent = Number(reservationFee);
@@ -201,7 +205,7 @@ export default function PricingManagement() {
     };
 
     loadPricingRules();
-  }, []);
+  }, [recordRevision]);
 
   const startEditingRoom = (room: RoomType) => {
     setEditingRate(room.id);
