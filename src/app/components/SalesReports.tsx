@@ -54,7 +54,7 @@ type Booking = {
   paymentMethod: string;
 };
 
-const COLORS = ["#0891b2", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899"];
+const COLORS = ["#1d4ed8", "#0284c7", "#3b82f6", "#60a5fa", "#93c5fd"];
 
 const months = [
   "January",
@@ -473,7 +473,7 @@ export default function SalesReports() {
               onClick={() => setReportPeriod(period)}
               className={`rounded-lg border px-4 py-2 text-sm capitalize transition-colors ${
                 reportPeriod === period
-                  ? "border-cyan-700 bg-cyan-700 text-white"
+                  ? "border-blue-700 bg-blue-700 text-white"
                   : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
               }`}
             >
@@ -502,10 +502,10 @@ export default function SalesReports() {
           {reportYears.map((year) => <option key={year} value={year}>{year}</option>)}
         </select>
         <div className="ml-auto flex flex-wrap gap-2">
-          <AsyncButton onClick={openReportModal} className="rounded-lg bg-cyan-700 px-4 py-2 text-sm text-white hover:bg-cyan-800">
+          <AsyncButton onClick={openReportModal} className="rounded-lg bg-blue-700 px-4 py-2 text-sm text-white hover:bg-blue-800">
             Generate Financial Report
           </AsyncButton>
-          <AsyncButton onClick={handleExportData} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-cyan-700 hover:bg-gray-50">
+          <AsyncButton onClick={handleExportData} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-blue-700 hover:bg-gray-50">
             <Download className="size-4" /> Export Data
           </AsyncButton>
         </div>
@@ -514,9 +514,9 @@ export default function SalesReports() {
       {/* Financial Stats */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {[
-          { label: "Collected Revenue", value: formatPeso(totalRevenue), color: "#0d7377" },
-          { label: "Total Bookings", value: String(reportBookings.length), color: "#14b8a6" },
-          { label: "Avg. Revenue / Booking", value: formatPeso(averageRevenue), color: "#f97316" },
+          { label: "Collected Revenue", value: formatPeso(totalRevenue), color: "#1d4ed8" },
+          { label: "Total Bookings", value: String(reportBookings.length), color: "#0284c7" },
+          { label: "Avg. Revenue / Booking", value: formatPeso(averageRevenue), color: "#2563eb" },
         ].map((stat) => (
           <div key={stat.label} className="rounded-xl border border-gray-200 bg-white p-5">
             <p className="mb-1 text-3xl" style={{ color: stat.color, fontFamily: "Georgia, serif" }}>{stat.value}</p>
@@ -534,7 +534,7 @@ export default function SalesReports() {
 
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={revenueData} barGap={4}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(13,115,119,0.08)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(37,99,235,0.10)" />
 
               <XAxis dataKey="month" />
 
@@ -549,8 +549,8 @@ export default function SalesReports() {
               <Tooltip
                 formatter={(value: number, name: string) => [name === "Revenue" ? formatPeso(Number(value)) : Number(value), name === "Revenue" ? "Collected revenue" : "Bookings"]}
               />
-              <Bar yAxisId="revenue" dataKey="revenue" name="Revenue" fill="#0d7377" />
-              <Bar yAxisId="bookings" dataKey="bookings" name="Bookings" fill="#14b8a6" />
+              <Bar yAxisId="revenue" dataKey="revenue" name="Revenue" fill="#1d4ed8" />
+              <Bar yAxisId="bookings" dataKey="bookings" name="Bookings" fill="#38bdf8" />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -616,7 +616,7 @@ export default function SalesReports() {
               ) : (
                 <ResponsiveContainer width="100%" height={Math.max(230, rows.length * 48)}>
                   <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(13,115,119,0.08)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(37,99,235,0.10)" />
                     <XAxis type="number" tickFormatter={(value) => formatPeso(Number(value))} />
                     <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12 }} />
                     <Tooltip content={({ active, payload }) => active && payload?.length ? (
@@ -626,7 +626,7 @@ export default function SalesReports() {
                         <p>Bookings: {payload[0].payload.bookings}</p>
                       </div>
                     ) : null} />
-                    <Bar dataKey="collected" name="Collected revenue" fill="#0d7377" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="collected" name="Collected revenue" fill={type === "Service" ? "#1d4ed8" : "#0284c7"} radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               )}
@@ -692,7 +692,7 @@ export default function SalesReports() {
                     <div className="flex items-center gap-2">
                       <div className="w-24 bg-gray-200 rounded-full h-2">
                         <div
-                          className="bg-cyan-500 h-2 rounded-full"
+                          className="bg-blue-500 h-2 rounded-full"
                           style={{
                             width: `${method.percentage}%`,
                           }}
@@ -730,7 +730,7 @@ export default function SalesReports() {
       {showReportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden">
-            <div className="bg-gradient-to-r from-cyan-600 to-blue-700 px-6 py-4 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-sky-600 to-blue-700 px-6 py-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold text-white">
                 Generate Financial Report
               </h2>
@@ -765,7 +765,7 @@ export default function SalesReports() {
                             onClick={() => setReportPeriod(type)}
                             className={`flex-1 py-2 text-sm rounded-lg border capitalize ${
                               reportPeriod === type
-                                ? "bg-cyan-600 text-white border-cyan-600"
+                                ? "bg-blue-700 text-white border-blue-700"
                                 : "border-gray-300 text-gray-700 hover:bg-gray-50"
                             }`}
                           >
@@ -898,7 +898,7 @@ export default function SalesReports() {
                     <AsyncButton
                       type="submit"
                       disabled={generating}
-                      className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg disabled:opacity-60"
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-700 text-white rounded-lg disabled:opacity-60"
                     >
                       {generating ? (
                         <>
@@ -972,7 +972,7 @@ export default function SalesReports() {
 
                     <AsyncButton
                       onClick={handleDownloadReport}
-                      className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg"
+                      className="flex items-center gap-2 px-4 py-2 bg-blue-700 text-white rounded-lg"
                     >
                       <Download className="size-4" />
                       Download CSV

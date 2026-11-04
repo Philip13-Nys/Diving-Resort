@@ -323,8 +323,14 @@ export default function Reservations() {
           ),
           paid: Number(data.amountPaid ?? data.paid ?? 0),
           notes: data.notes || data.specialRequests || "",
-          acceptedBy: data.acceptedBy || "",
-          acceptedByUid: data.acceptedByUid || "",
+          acceptedBy: data.acceptedBy ||
+            ([data.bookingType, data.bookingSource].some((value: unknown) =>
+              String(value || "").trim().toLowerCase() === "walk-in")
+              ? data.createdBy || "" : ""),
+          acceptedByUid: data.acceptedByUid ||
+            ([data.bookingType, data.bookingSource].some((value: unknown) =>
+              String(value || "").trim().toLowerCase() === "walk-in")
+              ? data.createdByUid || "" : ""),
           checkedInBy: data.checkedInBy || "",
           checkedInByUid: data.checkedInByUid || "",
           checkedOutBy: data.checkedOutBy || "",

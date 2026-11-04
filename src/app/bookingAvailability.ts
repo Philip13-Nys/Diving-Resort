@@ -494,13 +494,20 @@ export function salesSummary(records: BookingRecord[], now = new Date()) {
         item.key === dateOnly(booking.checkIn ?? booking.createdAt).slice(0, 7),
     );
     if (month) month.revenue = (Math.round(month.revenue * 100) + cents) / 100;
-    const name = String(
-      booking.roomTypeName || booking.roomType || booking.roomName || "Other",
-    );
-    const group = types.get(name) ?? { name, value: 0, bookings: 0 };
-    group.value = (Math.round(group.value * 100) + cents) / 100;
-    group.bookings++;
-    types.set(name, group);
+    const kind = normalizeBookingValue(booking.bookingType ?? booking.itemType);
+    const activityOnly = ["service", "activity", "package"].includes(kind) ||
+      (!booking.roomTypeName && !booking.roomType && !booking.roomName && !booking.room &&
+        (booking.serviceName || booking.packageName || booking.activityName));
+    if (!activityOnly) {
+      const name = String(
+        booking.roomTypeName || booking.roomType || booking.roomName || "Other",
+      );
+      const roomValue = booking.roomSubtotal ?? booking.roomTotal ?? bookingTotal(booking);
+      const group = types.get(name) ?? { name, value: 0, bookings: 0 };
+      group.value = (Math.round(group.value * 100) + moneyCents(roomValue)) / 100;
+      group.bookings++;
+      types.set(name, group);
+    }
     const channel =
       normalizeBookingValue(booking.bookingSource ?? booking.bookingType) ===
       "walk-in"

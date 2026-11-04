@@ -48,7 +48,6 @@ interface Booking {
 
   receptionist?: string;
   createdBy?: string;
-  createdAt?: any;
 }
 
 function bookingSubject(booking: Booking) {
@@ -112,14 +111,19 @@ export default function ReceptionistDashboards() {
             ),
             paid: Number(data.paid ?? data.amountPaid ?? 0),
             notes: data.notes,
-            acceptedBy: String(data.acceptedBy ?? ""),
-            acceptedByUid: String(data.acceptedByUid ?? ""),
+            acceptedBy: String(data.acceptedBy ||
+              ([data.bookingType, data.bookingSource].some((value) =>
+                String(value || "").trim().toLowerCase() === "walk-in")
+                ? data.createdBy || "" : "")),
+            acceptedByUid: String(data.acceptedByUid ||
+              ([data.bookingType, data.bookingSource].some((value) =>
+                String(value || "").trim().toLowerCase() === "walk-in")
+                ? data.createdByUid || "" : "")),
             cancelledBy: String(data.cancelledBy ?? ""),
             cancelledByUid: String(data.cancelledByUid ?? ""),
             cancelledAt: data.cancelledAt,
             receptionist: data.receptionist,
             createdBy: data.createdBy,
-            createdAt: data.createdAt,
           };
         });
 
@@ -176,22 +180,11 @@ export default function ReceptionistDashboards() {
     0,
   );
 
-  const recentBookings = [...bookings]
-    .sort((a, b) => {
-      const getTime = (booking: Booking) => {
-        if (!booking.createdAt) {
-          return 0;
-        }
-        if (booking.createdAt?.toDate) {
-          return booking.createdAt.toDate().getTime();
-        }
-        const parsed = new Date(booking.createdAt).getTime();
-        return Number.isNaN(parsed) ? 0 : parsed;
-      };
-
-      return getTime(b) - getTime(a);
-    })
-    .slice(0, 10);
+  const sortedBookings = [...bookings].sort((a, b) =>
+    displayRecordId(a.id).localeCompare(displayRecordId(b.id), undefined, {
+      numeric: true,
+    }),
+  );
 
   const getAcceptedBy = (booking: Booking) => {
     return (
@@ -354,7 +347,7 @@ export default function ReceptionistDashboards() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[1000px]">
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
@@ -398,14 +391,14 @@ export default function ReceptionistDashboards() {
                     Loading receptionist bookings...
                   </td>
                 </tr>
-              ) : recentBookings.length === 0 ? (
+              ) : sortedBookings.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-10 text-center text-gray-500">
                     No booking data found.
                   </td>
                 </tr>
               ) : (
-                recentBookings.map((booking, index) => {
+                sortedBookings.map((booking) => {
                   const acceptedBy = getAcceptedBy(booking);
 
                   const cancelledBy = getCancelledBy(booking);

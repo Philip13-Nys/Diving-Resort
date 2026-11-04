@@ -172,6 +172,8 @@ export function buildWalkInBooking(
     notes: input.specialRequests.trim(),
     createdByUid: staff.uid || "",
     createdBy: staff.name || "Receptionist",
+    acceptedByUid: staff.uid || "",
+    acceptedBy: staff.name || "Receptionist",
     ...(checkedIn
       ? {
           checkedInByUid: staff.uid || "",

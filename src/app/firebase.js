@@ -25,7 +25,7 @@ const secondaryApp =
 export const secondaryAuth = getAuth(secondaryApp);
 
 const customerFirebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KES,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEYS,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAINS,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_IDS,
   storageBucket: "customeraccount-ce2ae.firebasestorage.app",

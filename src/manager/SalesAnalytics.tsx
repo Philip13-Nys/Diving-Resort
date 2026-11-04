@@ -1,6 +1,7 @@
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { salesSummary } from "../app/bookingAvailability";
+import { servicePackageRevenue } from "../app/reportData";
 import { Card } from "../app/components/ui/card";
 import {
   BarChart,
@@ -45,6 +46,7 @@ export default function SalesAnalytics() {
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
   const [roomTypeRevenue, setRoomTypeRevenue] = useState<RoomTypeRevenue[]>([]);
   const [bookingChannels, setBookingChannels] = useState<BookingChannel[]>([]);
+  const [itemRevenue, setItemRevenue] = useState<ReturnType<typeof servicePackageRevenue>>([]);
 
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [totalBookings, setTotalBookings] = useState(0);
@@ -59,12 +61,12 @@ export default function SalesAnalytics() {
         setLoading(true);
 
         const snapshot = await getBookingSnapshot();
-        const summary = salesSummary(
-          snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id })),
-        );
+        const bookings = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+        const summary = salesSummary(bookings);
         setMonthlyRevenue(summary.monthlyRevenue);
         setRoomTypeRevenue(summary.roomTypeRevenue);
         setBookingChannels(summary.bookingChannels);
+        setItemRevenue(servicePackageRevenue(bookings));
         setTotalRevenue(summary.totalRevenue);
         setTotalBookings(summary.totalBookings);
         setAvgDailyRate(summary.avgDailyRate);
@@ -297,6 +299,43 @@ export default function SalesAnalytics() {
           </table>
         </div>
       </Card>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+        {(["Service", "Package"] as const).map((kind) => {
+          const rows = itemRevenue.filter((item) => item.type === kind);
+          return (
+            <Card key={kind} className="p-6 min-w-0">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Revenue by {kind}
+              </h2>
+              <p className="text-sm text-gray-500 mt-1 mb-4">
+                Collected revenue excluding reservation fees
+              </p>
+              {rows.length === 0 ? (
+                <p className="py-10 text-center text-sm text-gray-500">
+                  No collected {kind.toLowerCase()} revenue yet.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(260, rows.length * 48)}>
+                  <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" tickFormatter={(value) => `₱${Number(value).toLocaleString("en-PH")}`} />
+                    <YAxis type="category" dataKey="name" width={125} tick={{ fontSize: 12 }} />
+                    <Tooltip content={({ active, payload }) => active && payload?.length ? (
+                      <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm shadow-sm">
+                        <p className="font-medium">{payload[0].payload.name}</p>
+                        <p>Collected: ₱{Number(payload[0].payload.collected).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                        <p>Bookings: {payload[0].payload.bookings}</p>
+                      </div>
+                    ) : null} />
+                    <Bar dataKey="collected" name="Collected Revenue" fill={kind === "Service" ? "#3b82f6" : "#10b981"} radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }

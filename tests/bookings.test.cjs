@@ -57,6 +57,13 @@ const build = (changes = {}, today = start) =>
     today,
   );
 
+test("walk-in records identify the receptionist who accepted them", () => {
+  const booking = build();
+  assert.equal(booking.acceptedBy, "Receptionist");
+  assert.equal(booking.acceptedByUid, "reception");
+  assert.equal(booking.createdBy, booking.acceptedBy);
+});
+
 test("online type IDs reserve capacity without reserving every physical room", () => {
   assert.equal(
     rules.typeAvailability(rooms, [online], type, start, end).available,

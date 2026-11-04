@@ -382,6 +382,16 @@ test("sales combines both channels, excludes cancelled values, and divides room 
     [50, 50],
   );
 });
+test("sales keeps service and package bookings out of room-type revenue", () => {
+  const summary = values.salesSummary([
+    { bookingType: "room", roomType: "Deluxe", totalPrice: 120, roomSubtotal: 100, checkIn: "2026-11-01", checkOut: "2026-11-02" },
+    { bookingType: "service", serviceName: "Night Dive", totalPrice: 50, checkIn: "2026-11-01", checkOut: "2026-11-01" },
+    { bookingType: "package", packageName: "Dive Bundle", totalPrice: 80, checkIn: "2026-11-01", checkOut: "2026-11-01" },
+  ], new Date(2026, 10, 1));
+  assert.equal(summary.totalRevenue, 250);
+  assert.equal(summary.totalBookings, 3);
+  assert.deepEqual(summary.roomTypeRevenue, [{ name: "Deluxe", value: 100, bookings: 1 }]);
+});
 test("route roles fail closed, allow manager reception work, and keep personnel-only accounts out", () => {
   assert.equal(access.canEnter("Receptionist", "admin"), false);
   assert.equal(access.canEnter("Manager", "receptionist"), true);
