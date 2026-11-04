@@ -2,22 +2,6 @@ import { initializeApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-const requiredEnv = [
-  "VITE_FIREBASE_API_KEY",
-  "VITE_FIREBASE_AUTH_DOMAIN",
-  "VITE_FIREBASE_PROJECT_ID",
-  "VITE_FIREBASE_API_KEYS",
-  "VITE_FIREBASE_AUTH_DOMAINS",
-  "VITE_FIREBASE_PROJECT_IDS",
-];
-
-const missingEnv = requiredEnv.filter((key) => !import.meta.env[key]);
-
-if (missingEnv.length > 0) {
-  throw new Error(`Missing Firebase configuration: ${missingEnv.join(", ")}`);
-}
-
-// ADMIN FIREBASE
 const adminFirebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -34,25 +18,23 @@ const adminApp =
 export const db = getFirestore(adminApp);
 export const auth = getAuth(adminApp);
 
-// SECONDARY ADMIN AUTH
 const secondaryApp =
-  getApps().find((app) => app.name === "secondaryApp") ??
+  getApps().find((existingApp) => existingApp.name === "secondaryApp") ??
   initializeApp(adminFirebaseConfig, "secondaryApp");
 
 export const secondaryAuth = getAuth(secondaryApp);
 
-// CUSTOMER FIREBASE
 const customerFirebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEYS,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAINS,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_IDS,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEYs,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAINs,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_IDs,
   storageBucket: "customeraccount-ce2ae.firebasestorage.app",
   messagingSenderId: "9548262291",
   appId: "1:9548262291:web:d2ace301dcba4638671666",
 };
 
 const customerApp =
-  getApps().find((app) => app.name === "customerApp") ??
+  getApps().find((app) => app.name === "customerApp") ||
   initializeApp(customerFirebaseConfig, "customerApp");
 
 export const customerDb = getFirestore(customerApp);
