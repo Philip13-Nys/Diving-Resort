@@ -38,6 +38,7 @@ const navigation = [
     icon: ClipboardCheck,
   },
   { name: "Room Management", href: "/manager/rooms", icon: Hotel },
+  { name: "Services", href: "/manager/services", icon: Waves },
   {
     name: "Room Availability",
     href: "/manager/room-availability",
@@ -53,7 +54,6 @@ const navigation = [
   { name: "Reports", href: "/manager/reports", icon: FileText },
   { name: "Staff Profiles", href: "/manager/staff", icon: Settings },
   { name: "Maintenance", href: "/manager/maintenance", icon: Wrench },
-  { name: "Services", href: "/manager/services", icon: Waves },
 ];
 
 export default function ManagerLayout() {

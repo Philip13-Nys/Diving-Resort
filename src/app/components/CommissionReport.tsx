@@ -1,3 +1,4 @@
+import { ensureRecordReferences } from "../bookingStore";
 import { watchRecords } from "../bookingStore";
 import { mergeBookingDocuments } from "../bookingStore";
 import { useEffect, useMemo, useState } from "react";
@@ -60,9 +61,11 @@ export default function CommissionReport() {
     };
     const ready = new Set<string>();
     const failures = new Map<string, string>();
-    const emit = () => {
+    const emit = async () => {
+      const merged = mergeBookingDocuments(parts.customer, parts.staff);
+      if (ready.size === 2) await ensureRecordReferences("BK", merged.map(document => document.id));
       setBookings(
-        mergeBookingDocuments(parts.customer, parts.staff).map((document) => ({
+        merged.map((document) => ({
           ...document.data(),
           id: document.id,
         })),
@@ -81,7 +84,7 @@ export default function CommissionReport() {
           parts[key] = snapshot.docs;
           ready.add(key);
           failures.delete(key);
-          emit();
+          void emit().catch(error => { setError(String(error)); setLoading(false); });
         },
         (failure) => {
           console.error("Unable to load commissions", failure);
@@ -91,7 +94,7 @@ export default function CommissionReport() {
               (key === "staff" ? "Walk-in" : "online") +
               " commission records. Check your connection and permissions.",
           );
-          emit();
+          void emit().catch(error => { setError(String(error)); setLoading(false); });
         },
       ),
     );
@@ -386,7 +389,7 @@ export default function CommissionReport() {
             </thead>
             <tbody className="divide-y">
               {!error &&
-                rows.map((row) => (
+                rows.map((row, index) => (
                   <tr key={row.id}>
                     <td className="px-4 py-3 font-mono text-xs">
                       {row.reference}

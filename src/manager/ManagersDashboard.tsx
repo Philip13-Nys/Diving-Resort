@@ -29,10 +29,10 @@ import {
   Plus,
   FileText,
   Wrench,
+  Waves,
   Edit,
   RefreshCw,
   Loader2,
-  CalendarDays,
 } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useCallback, useEffect, useState } from "react";
@@ -107,6 +107,13 @@ const quickActions = [
     href: "/manager/rooms?tab=rooms&action=add",
   },
   {
+    label: "Add New Service",
+    description: "Create a resort service",
+    icon: Waves,
+    color: "bg-teal-100 text-teal-600",
+    href: "/manager/services?action=add",
+  },
+  {
     label: "Reports",
     description: "Generate and download reports",
     icon: FileText,
@@ -178,18 +185,6 @@ const getBookingDate = (booking: Booking): Date | null => {
     convertToDate(booking.date) ??
     convertToDate(booking.checkIn)
   );
-};
-
-const formatDate = (value: unknown): string => {
-  const date = convertToDate(value);
-
-  if (!date) return "N/A";
-
-  return date.toLocaleDateString("en-PH", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 };
 
 const parseAmount = (value: unknown): number | null => {
@@ -350,7 +345,6 @@ export default function Dashboard() {
 
   const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
   const [occupancyData, setOccupancyData] = useState<OccupancyData[]>([]);
-  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
 
   const loadDashboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -470,16 +464,6 @@ export default function Dashboard() {
           };
         }),
       );
-
-      // Most recent reservations first.
-      const sortedBookings = [...bookings].sort((a, b) => {
-        const dateA = getBookingDate(a);
-        const dateB = getBookingDate(b);
-
-        return (dateB?.getTime() ?? 0) - (dateA?.getTime() ?? 0);
-      });
-
-      setRecentBookings(sortedBookings.slice(0, 10));
 
       // Current occupancy and the last seven days.
       if (totalRooms > 0) {
@@ -863,153 +847,6 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Recent reservations */}
-      <Card className="min-w-0 overflow-hidden p-4 sm:p-6">
-        <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900">
-              Recent Reservations
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              The latest 10 booking records
-            </p>
-          </div>
-
-          <AsyncButton
-            type="button"
-            onClick={() => navigate("/manager/receptionist-dashboard")}
-            className="inline-flex items-center justify-center gap-2 self-start rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 sm:self-auto"
-          >
-            <CalendarDays className="size-4" />
-            View Reservations
-          </AsyncButton>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-500">
-            <Loader2 className="size-4 animate-spin" />
-            Loading reservations...
-          </div>
-        ) : recentBookings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <CalendarDays className="mb-3 size-9 text-gray-300" />
-            <p className="font-medium text-gray-700">No reservations yet</p>
-            <p className="mt-1 text-sm text-gray-500">
-              New booking records will appear here.
-            </p>
-          </div>
-        ) : (
-          <div className="-mx-4 overflow-x-auto sm:mx-0">
-            <table className="w-full min-w-[760px] border-collapse text-left">
-              <thead>
-                <tr className="border-y border-gray-200 bg-gray-50">
-                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Guest Name
-                  </th>
-                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Room / Activity
-                  </th>
-                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Check-in / Date
-                  </th>
-                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Check-out
-                  </th>
-                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Total
-                  </th>
-                  <th className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-gray-100">
-                {recentBookings.map((booking) => {
-                  const status = booking.status || "Pending";
-                  const normalized = normalizeStatus(status);
-
-                  const statusColor = isCancelled(booking)
-                    ? "bg-red-100 text-red-700"
-                    : [
-                          "confirmed",
-                          "completed",
-                          "complete",
-                          "checked-in",
-                          "checked-in-occupied",
-                        ].includes(normalized)
-                      ? "bg-green-100 text-green-700"
-                      : [
-                            "pending",
-                            "reserved",
-                            "in-progress",
-                            "ongoing",
-                          ].includes(normalized)
-                        ? "bg-amber-100 text-amber-700"
-                        : "bg-gray-100 text-gray-700";
-
-                  const itemName =
-                    booking.room ||
-                    booking.roomName ||
-                    booking.roomTypeName ||
-                    booking.roomType ||
-                    (booking.bookingType || booking.itemType
-                      ? String(booking.bookingType || booking.itemType)
-                      : "N/A");
-
-                  return (
-                    <tr
-                      key={booking.id}
-                      className="transition-colors hover:bg-gray-50"
-                    >
-                      <td className="px-4 py-4 text-sm font-medium text-gray-900">
-                        {booking.customerName ||
-                          booking.guestName ||
-                          booking.guest ||
-                          "Guest"}
-                        {booking.bookingRef && (
-                          <p className="mt-1 text-xs font-normal text-gray-400">
-                            {booking.bookingRef}
-                          </p>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-4 text-sm text-gray-700">
-                        {itemName}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-600">
-                        {formatDate(
-                          booking.checkIn ??
-                            booking.bookingDate ??
-                            booking.reservationDate ??
-                            booking.date,
-                        )}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-4 text-sm text-gray-600">
-                        {formatDate(booking.checkOut)}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-4 text-sm font-semibold text-gray-900">
-                        {formatCurrency(getBookingAmount(booking))}
-                      </td>
-
-                      <td className="whitespace-nowrap px-4 py-4">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium capitalize ${statusColor}`}
-                        >
-                          {String(status).replace(/[_-]+/g, " ")}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
     </div>
   );
 }

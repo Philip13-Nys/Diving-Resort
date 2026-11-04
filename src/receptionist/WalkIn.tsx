@@ -1,3 +1,5 @@
+import { ensureRecordReferences } from "../app/bookingStore";
+import { displayRecordId } from "../app/bookingAvailability";
 import { useSearchParams } from "react-router-dom";
 import { useBookingInventory } from "../app/useBookingInventory";
 import {
@@ -288,6 +290,7 @@ export default function WalkIn() {
         };
       const request = pendingSave.current;
       setSubmitting(true);
+      await ensureRecordReferences("BK", [request.id]);
       const result = await saveWalkIn({ ...form }, total, request.id);
       setBookingReference(result.reference);
       setAssignedNumbers(result.roomNumbers);
@@ -349,7 +352,7 @@ export default function WalkIn() {
             for {form.firstName} {form.lastName}
           </p>
           <p className="font-mono text-sm" style={{ color: "#0d7377" }}>
-            Booking ID: {bookingReference}
+            Booking ID: {displayRecordId(bookingReference)}
           </p>
           <p className="mt-2 text-sm">Room(s): {assignedNumbers.join(", ")}</p>
           <AsyncButton

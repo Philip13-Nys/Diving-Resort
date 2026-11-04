@@ -1,5 +1,5 @@
-import { toCsv } from "../reportData";
-import { completedPayment, cancelled } from "../bookingAvailability";
+import { toCsv, servicePackageRevenue } from "../reportData";
+import { completedPayment, cancelled, displayRecordId } from "../bookingAvailability";
 import { useRecordRevision } from "../useBookingInventory";
 import {
   getLiveBookingSnapshot as getBookingSnapshot,
@@ -8,9 +8,7 @@ import {
 import { AsyncButton, AsyncForm } from "./ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
-  TrendingUp,
   CreditCard,
-  Calendar,
   X,
   Check,
   Download,
@@ -19,8 +17,8 @@ import {
 } from "lucide-react";
 
 import {
-  AreaChart,
-  Area,
+  BarChart,
+  Bar,
   PieChart as RePieChart,
   Pie,
   Cell,
@@ -29,21 +27,28 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
-
-import { collection, getDocs } from "firebase/firestore";
-
-import { db } from "../firebase";
 
 type Booking = {
   id: string;
   guest: string;
   room: string;
+  roomType: string;
   checkIn: string;
   checkOut: string;
   guests: number;
   total: number;
+  amountPaid: number;
+  bookingType: string;
+  itemType: string;
+  serviceName: string;
+  packageName: string;
+  activityName: string;
+  itemName: string;
+  subtotal: number;
+  roomSubtotal: number;
+  reservationFee: number;
+  addOns: { name: string; type: string; price: number }[];
   status: string;
   paymentStatus: string;
   paymentMethod: string;
@@ -121,6 +126,7 @@ export default function SalesReports() {
           guest: value.customerName || "Unknown Guest",
 
           room: value.roomName || "Unknown Room",
+          roomType: value.roomTypeName || value.roomType || value.roomName || "",
 
           checkIn: value.checkIn || "",
 
@@ -131,6 +137,17 @@ export default function SalesReports() {
           total: Number(
             value.totalPrice ?? value.totalAmount ?? value.total ?? 0,
           ),
+          amountPaid: Number(value.amountPaid ?? value.paid ?? 0),
+          bookingType: String(value.bookingType || ""),
+          itemType: String(value.itemType || ""),
+          serviceName: String(value.serviceName || ""),
+          packageName: String(value.packageName || ""),
+          activityName: String(value.activityName || ""),
+          itemName: String(value.itemName || ""),
+          subtotal: Number(value.subtotal ?? NaN),
+          roomSubtotal: Number(value.roomSubtotal ?? NaN),
+          reservationFee: Number(value.reservationFee || 0),
+          addOns: Array.isArray(value.addOns) ? value.addOns : [],
 
           status: value.status || "pending",
 
@@ -199,20 +216,20 @@ export default function SalesReports() {
         : date.getMonth() === reportMonth)
     );
   });
-  const totalRevenue =
+  const collected = (booking: Booking) =>
+    Math.max(0, Math.min(booking.total, booking.amountPaid));
+  const totalRevenue = reportBookings.reduce(
+    (sum, booking) => sum + collected(booking),
+    0,
+  );
+  const averageRevenue = reportBookings.length
+    ? totalRevenue / reportBookings.length
+    : 0;
+  const paymentTotal =
     reportPayments.reduce(
       (sum, receipt) => sum + Math.round(Number(receipt.amount || 0) * 100),
       0,
     ) / 100;
-
-  const paidBookings = reportBookings.filter(
-    (booking) => booking.paymentStatus === "paid",
-  ).length;
-
-  const pendingPayments = reportBookings.filter(
-    (booking) =>
-      booking.paymentStatus === "unpaid" || booking.paymentStatus === "partial",
-  ).length;
 
   const revenueData = useMemo(() => {
     const result = [];
@@ -237,7 +254,7 @@ export default function SalesReports() {
       });
 
       const revenue = monthBookings.reduce(
-        (sum, booking) => sum + booking.total,
+        (sum, booking) => sum + collected(booking),
         0,
       );
 
@@ -247,6 +264,7 @@ export default function SalesReports() {
         }),
 
         revenue,
+        bookings: monthBookings.length,
       });
     }
 
@@ -254,25 +272,43 @@ export default function SalesReports() {
   }, [validBookings, reportMonth, reportYear]);
 
   const revenueByCategory = useMemo(() => {
-    if (reportBookings.length === 0) {
-      return [];
+    const amounts = new Map<string, number>();
+    for (const booking of reportBookings) {
+      const kinds = [booking.bookingType, booking.itemType].map((value) => value.toLowerCase());
+      if (kinds.some((kind) => ["service", "activity", "package"].includes(kind))) continue;
+      const addOns = booking.addOns.reduce((sum, item) => sum + Number(item.price || 0), 0);
+      const roomSubtotal = Number.isFinite(booking.roomSubtotal)
+        ? booking.roomSubtotal
+        : booking.total - addOns - booking.reservationFee;
+      const amount = booking.total > 0
+        ? Math.round(Math.max(0, roomSubtotal) / booking.total * collected(booking) * 100) / 100
+        : 0;
+      const type = booking.roomType.trim() || "Unknown room type";
+      amounts.set(type, (amounts.get(type) || 0) + amount);
     }
+    const total = [...amounts.values()].reduce((sum, value) => sum + value, 0);
+    return [...amounts].filter(([, value]) => value > 0).map(([name, value], id) => ({
+      id,
+      name,
+      value,
+      percentage: total ? value / total * 100 : 0,
+    })).sort((a, b) => b.value - a.value);
+  }, [reportBookings]);
 
-    return [
-      {
-        id: 1,
-        name: "Accommodations",
-        value: reportBookings.reduce((sum, booking) => sum + booking.total, 0),
-        percentage: 100,
-      },
-    ];
-  }, [reportBookings, totalRevenue]);
+  const itemRevenue = useMemo(() => servicePackageRevenue(reportBookings), [reportBookings]);
+
+  const reportYears = [...new Set([
+    reportYear,
+    ...Array.from({ length: 11 }, (_, index) => currentYear - 5 + index),
+    ...bookings.map((booking) => Number(booking.checkIn.slice(0, 4)))
+      .filter((year) => Number.isInteger(year) && year >= 1900 && year <= 2100),
+  ])].sort((a, b) => b - a);
 
   const paymentMethods = Object.values(
     reportPayments.reduce((map: Record<string, any>, receipt) => {
       const method = String(
         receipt.method || receipt.paymentMethod || "Unspecified",
-      ).toLowerCase();
+      ).trim().toLowerCase();
       const row = (map[method] ||= { method, amount: 0, transactions: 0 });
       row.amount =
         (Math.round(row.amount * 100) +
@@ -283,7 +319,10 @@ export default function SalesReports() {
     }, {}),
   ).map((row: any) => ({
     ...row,
-    percentage: totalRevenue ? (row.amount / totalRevenue) * 100 : 0,
+    method: row.method === "gcash"
+      ? "GCash"
+      : row.method.charAt(0).toUpperCase() + row.method.slice(1),
+    percentage: paymentTotal ? (row.amount / paymentTotal) * 100 : 0,
   }));
 
   const reportLabel =
@@ -315,6 +354,10 @@ export default function SalesReports() {
       ["Collections", totalRevenue],
       ["Expenses", "Not recorded"],
       ["Profit", "Unavailable: expenses are not tracked"],
+      [],
+      ["Type", "Service / Package", "Bookings", "Collected revenue"],
+      ...itemRevenue.map((row) => [row.type, row.name, row.bookings, row.collected]),
+      [],
       ["Payment method", "Collected", "Transactions"],
       ...paymentMethods.map((row) => [
         row.method,
@@ -329,15 +372,19 @@ export default function SalesReports() {
         "Arrival",
         "Departure",
         "Booking value",
+        "Collected",
         "Status",
       ],
       ...reportBookings.map((booking) => [
-        booking.id,
+        displayRecordId(booking.id),
         booking.guest,
-        booking.room,
+        [booking.bookingType, booking.itemType].some((kind) => ["service", "activity", "package"].includes(kind.toLowerCase()))
+          ? booking.packageName || booking.serviceName || booking.activityName || booking.itemName || "Service / package"
+          : booking.room,
         booking.checkIn,
         booking.checkOut,
         booking.total,
+        collected(booking),
         booking.status,
       ]),
     ]);
@@ -417,103 +464,114 @@ export default function SalesReports() {
         </p>
       </div>
 
-      {/* Financial Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <div className="flex items-center gap-3 mb-2">
-            <p className="text-sm text-gray-600">Collections</p>
-          </div>
-
-          <p className="text-3xl font-bold text-gray-900">
-            {formatPeso(totalRevenue)}
-          </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap gap-2">
+          {(["monthly", "quarterly", "annual"] as const).map((period) => (
+            <AsyncButton
+              key={period}
+              type="button"
+              onClick={() => setReportPeriod(period)}
+              className={`rounded-lg border px-4 py-2 text-sm capitalize transition-colors ${
+                reportPeriod === period
+                  ? "border-cyan-700 bg-cyan-700 text-white"
+                  : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {period}
+            </AsyncButton>
+          ))}
         </div>
-
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-2">Total Expenses</p>
-
-          <p className="text-3xl font-bold text-gray-600">{"Not recorded"}</p>
-
-          <p className="text-xs text-gray-500 mt-1">
-            No expense records in database
-          </p>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-2">Net Profit</p>
-
-          <p className="text-3xl font-bold ">{"Unavailable"}</p>
-
-          <p className="text-xs text-gray-500 mt-1">
-            Revenue minus recorded expenses
-          </p>
-        </div>
-
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
-          <p className="text-sm text-gray-600 mb-2">Profit Margin</p>
-
-          <p className="text-3xl font-bold text-gray-900">{"Unavailable"}</p>
-
-          <p className="text-xs text-gray-500 mt-1">
-            Based on available records
-          </p>
+        {reportPeriod !== "annual" && (
+          <select
+            aria-label={reportPeriod === "quarterly" ? "Report quarter" : "Report month"}
+            value={reportPeriod === "quarterly" ? Math.floor(reportMonth / 3) : reportMonth}
+            onChange={(event) => setReportMonth(reportPeriod === "quarterly" ? Number(event.target.value) * 3 : Number(event.target.value))}
+            className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+          >
+            {reportPeriod === "quarterly"
+              ? [0, 1, 2, 3].map((quarter) => <option key={quarter} value={quarter}>Q{quarter + 1}</option>)
+              : months.map((month, index) => <option key={month} value={index}>{month}</option>)}
+          </select>
+        )}
+        <select
+          aria-label="Report year"
+          value={reportYear}
+          onChange={(event) => setReportYear(Number(event.target.value))}
+          className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm"
+        >
+          {reportYears.map((year) => <option key={year} value={year}>{year}</option>)}
+        </select>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <AsyncButton onClick={openReportModal} className="rounded-lg bg-cyan-700 px-4 py-2 text-sm text-white hover:bg-cyan-800">
+            Generate Financial Report
+          </AsyncButton>
+          <AsyncButton onClick={handleExportData} className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm text-cyan-700 hover:bg-gray-50">
+            <Download className="size-4" /> Export Data
+          </AsyncButton>
         </div>
       </div>
 
+      {/* Financial Stats */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {[
+          { label: "Collected Revenue", value: formatPeso(totalRevenue), color: "#0d7377" },
+          { label: "Total Bookings", value: String(reportBookings.length), color: "#14b8a6" },
+          { label: "Avg. Revenue / Booking", value: formatPeso(averageRevenue), color: "#f97316" },
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-xl border border-gray-200 bg-white p-5">
+            <p className="mb-1 text-3xl" style={{ color: stat.color, fontFamily: "Georgia, serif" }}>{stat.value}</p>
+            <p className="text-xs text-gray-500">{stat.label}</p>
+          </div>
+        ))}
+      </div>
+
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 lg:col-span-2">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Revenue Trend
+            Revenue & Bookings
           </h3>
 
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={revenueData}>
-              <CartesianGrid strokeDasharray="3 3" />
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={revenueData} barGap={4}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(13,115,119,0.08)" />
 
               <XAxis dataKey="month" />
 
               <YAxis
+                yAxisId="revenue"
                 tickFormatter={(value) =>
-                  `₱${Number(value).toLocaleString("en-PH")}`
+                  `₱${(Number(value) / 1000).toFixed(0)}K`
                 }
               />
+              <YAxis yAxisId="bookings" orientation="right" allowDecimals={false} />
 
               <Tooltip
-                formatter={(value: number) => formatPeso(Number(value))}
+                formatter={(value: number, name: string) => [name === "Revenue" ? formatPeso(Number(value)) : Number(value), name === "Revenue" ? "Collected revenue" : "Bookings"]}
               />
-
-              <Legend />
-
-              <Area
-                type="monotone"
-                dataKey="revenue"
-                stroke="#0891b2"
-                fill="#06b6d4"
-                fillOpacity={0.4}
-                name="Revenue"
-              />
-            </AreaChart>
+              <Bar yAxisId="revenue" dataKey="revenue" name="Revenue" fill="#0d7377" />
+              <Bar yAxisId="bookings" dataKey="bookings" name="Bookings" fill="#14b8a6" />
+            </BarChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="bg-white rounded-xl p-6 border border-gray-200">
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">
-            Booking Value by Category
+            Revenue by Room Type
           </h3>
 
           {revenueByCategory.length > 0 ? (
-            <ResponsiveContainer width="100%" height={300}>
+            <>
+            <ResponsiveContainer width="100%" height={180}>
               <RePieChart>
                 <Pie
                   data={revenueByCategory}
                   cx="50%"
                   cy="50%"
-                  labelLine={false}
-                  label={({ name, percentage }) => `${name}: ${percentage}%`}
+                  innerRadius={50}
                   outerRadius={80}
-                  fill="#8884d8"
                   dataKey="value"
+                  paddingAngle={3}
                 >
                   {revenueByCategory.map((entry, index) => (
                     <Cell
@@ -528,74 +586,53 @@ export default function SalesReports() {
                 />
               </RePieChart>
             </ResponsiveContainer>
+            <div className="mt-2 space-y-2">
+              {revenueByCategory.map((category, index) => (
+                <div key={category.id} className="flex items-center gap-2 text-xs">
+                  <span className="h-3 w-3 rounded-full" style={{ background: COLORS[index % COLORS.length] }} />
+                  <span className="min-w-0 flex-1 truncate text-gray-600">{category.name}</span>
+                  <span className="text-gray-900">{formatPeso(category.value)} · {category.percentage.toFixed(1)}%</span>
+                </div>
+              ))}
+            </div>
+            </>
           ) : (
-            <div className="flex items-center justify-center h-[300px] text-gray-500 text-sm">
-              No revenue records found.
+            <div className="flex items-center justify-center h-[250px] text-gray-500 text-sm">
+              No collected room revenue for this period.
             </div>
           )}
         </div>
       </div>
 
-      {/* Revenue Breakdown */}
-      <div className="bg-white rounded-xl border border-gray-200">
-        <div className="p-6 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Revenue Breakdown
-          </h3>
-
-          <p className="text-sm text-gray-500 mt-1">
-            Based on available booking categories.
-          </p>
-        </div>
-
-        <div className="p-6">
-          {revenueByCategory.length > 0 ? (
-            <div className="space-y-4">
-              {revenueByCategory.map((category, index) => (
-                <div key={category.id}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="size-3 rounded-full"
-                        style={{
-                          backgroundColor: COLORS[index % COLORS.length],
-                        }}
-                      />
-
-                      <span className="font-medium text-gray-900">
-                        {category.name}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-4">
-                      <span className="text-sm text-gray-600">
-                        {category.percentage.toFixed(1)}%
-                      </span>
-
-                      <span className="font-semibold text-gray-900">
-                        {formatPeso(category.value)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full"
-                      style={{
-                        width: `${category.percentage}%`,
-                        backgroundColor: COLORS[index % COLORS.length],
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {(["Service", "Package"] as const).map((type) => {
+          const rows = itemRevenue.filter((item) => item.type === type);
+          return (
+            <div key={type} className="rounded-xl border border-gray-200 bg-white p-5">
+              <h3 className="mb-1 font-medium text-gray-900" style={{ fontFamily: "Georgia, serif" }}>{type}s Revenue</h3>
+              <p className="mb-4 text-xs text-gray-500">Collected revenue, excluding reservation fees.</p>
+              {rows.length === 0 ? (
+                <p className="text-sm text-gray-500">No collected revenue for this period.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={Math.max(230, rows.length * 48)}>
+                  <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(13,115,119,0.08)" />
+                    <XAxis type="number" tickFormatter={(value) => formatPeso(Number(value))} />
+                    <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12 }} />
+                    <Tooltip content={({ active, payload }) => active && payload?.length ? (
+                      <div className="rounded-lg border bg-white p-3 text-sm shadow-sm">
+                        <p className="font-medium">{payload[0].payload.name}</p>
+                        <p>Collected: {formatPeso(Number(payload[0].payload.collected))}</p>
+                        <p>Bookings: {payload[0].payload.bookings}</p>
+                      </div>
+                    ) : null} />
+                    <Bar dataKey="collected" name="Collected revenue" fill="#0d7377" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
-          ) : (
-            <p className="text-sm text-gray-500 text-center py-6">
-              No revenue records found.
-            </p>
-          )}
-        </div>
+          );
+        })}
       </div>
 
       {/* Payment Distribution */}
@@ -606,7 +643,7 @@ export default function SalesReports() {
           </h3>
 
           <p className="text-sm text-gray-500 mt-1">
-            Based on the payment method stored in your booking records.
+            Completed payment receipts for the selected period.
           </p>
         </div>
 
@@ -687,25 +724,6 @@ export default function SalesReports() {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* Buttons */}
-      <div className="flex flex-wrap gap-3">
-        <AsyncButton
-          onClick={openReportModal}
-          className="flex items-center gap-2 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700"
-        >
-          <span className="font-bold">₱</span>
-          Generate Financial Report
-        </AsyncButton>
-
-        <AsyncButton
-          onClick={handleExportData}
-          className="flex items-center gap-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50"
-        >
-          <Download className="size-4" />
-          Export Data
-        </AsyncButton>
       </div>
 
       {/* Generate Financial Report Modal */}
@@ -792,7 +810,7 @@ export default function SalesReports() {
                           }
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                         >
-                          {[currentYear - 1, currentYear].map((year) => (
+                          {reportYears.map((year) => (
                             <option key={year} value={year}>
                               {year}
                             </option>
@@ -838,7 +856,7 @@ export default function SalesReports() {
                           }
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                         >
-                          {[currentYear - 1, currentYear].map((year) => (
+                          {reportYears.map((year) => (
                             <option key={year} value={year}>
                               {year}
                             </option>
@@ -859,7 +877,7 @@ export default function SalesReports() {
                         onChange={(e) => setReportYear(Number(e.target.value))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                       >
-                        {[currentYear - 1, currentYear].map((year) => (
+                        {reportYears.map((year) => (
                           <option key={year} value={year}>
                             {year}
                           </option>
@@ -912,7 +930,7 @@ export default function SalesReports() {
                     </div>
 
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Total Revenue</span>
+                      <span className="text-gray-600">Collected Revenue</span>
 
                       <span className="font-medium text-green-600">
                         {formatPeso(totalRevenue)}
@@ -936,7 +954,7 @@ export default function SalesReports() {
                     </div>
 
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Total Transactions</span>
+                      <span className="text-gray-600">Total Bookings</span>
 
                       <span className="font-medium">
                         {reportBookings.length}

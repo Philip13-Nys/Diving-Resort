@@ -1,4 +1,28 @@
 export type BookingRecord = Record<string, any>;
+
+const permanentReferences = new Map<string, string>();
+export function rememberRecordReference(id: string, prefix: string, reference: string) {
+  for (const alias of [id, `${prefix}-${id}`, `BK-${id}`, `CBR-${id}`, `RCP-${id}`])
+    permanentReferences.set(`${prefix}:${alias}`, reference);
+}
+
+// Display only: never use these references as Firestore document paths.
+export function displayRecordId(value: unknown, prefix = "BK"): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "—";
+  const remembered = permanentReferences.get(`${prefix}:${raw}`);
+  if (remembered) return remembered;
+  if (/^[A-Z]{2,6}-[A-Z0-9-]{1,16}$/.test(raw)) return raw;
+  const source = raw.replace(/^(?:BK|CBR|RCP|GST)-/, "");
+  const aliased = permanentReferences.get(`${prefix}:${source}`);
+  if (aliased) return aliased;
+  let hash = 14695981039346656037n;
+  for (const character of source) {
+    hash ^= BigInt(character.codePointAt(0)!);
+    hash = BigInt.asUintN(64, hash * 1099511628211n);
+  }
+  return `${prefix}-${hash.toString(36).toUpperCase().padStart(13, "0")}`;
+}
 export const normalizeBookingValue = (value: unknown) =>
   String(value ?? "")
     .trim()

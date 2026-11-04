@@ -1,3 +1,5 @@
+import { ensureRecordReferences } from "../app/bookingStore";
+import { displayRecordId } from "../app/bookingAvailability";
 import { watchRecords } from "../app/bookingStore";
 import { logoutUser } from "../app/auth";
 import { AsyncButton } from "../app/components/ui/async-action";
@@ -18,7 +20,6 @@ import {
   X,
   ChevronRight,
   Bell,
-  Search,
   CalendarCheck,
 } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -66,7 +67,6 @@ export default function ReceptionistLayout() {
   const location = useLocation();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -126,7 +126,7 @@ export default function ReceptionistLayout() {
           ...bookingDoc.data(),
         }));
 
-        setBookings(bookingData);
+        void ensureRecordReferences("BK", bookingData.map(booking => booking.id)).then(() => setBookings(bookingData)).catch(error => console.error("Booking references unavailable", error));
       },
       (error) => {
         console.error("Error loading booking notifications:", error);
@@ -210,7 +210,7 @@ export default function ReceptionistLayout() {
           booking.createdAt?.toMillis?.() ||
           (booking.createdAt?.seconds ? booking.createdAt.seconds * 1000 : 0);
 
-        const bookingRef = booking.bookingRef || booking.id;
+        const bookingRef = displayRecordId(booking.id);
 
         const isActivityBooking =
           booking.bookingType === "service" ||
@@ -536,34 +536,6 @@ export default function ReceptionistLayout() {
             >
               {currentNav?.label}
             </h1>
-          </div>
-
-          <div className="ml-2 hidden min-w-0 max-w-md flex-1 md:block">
-            <div className="relative">
-              <Search
-                className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
-                style={{ color: "#4a7a7a" }}
-              />
-
-              <input
-                type="text"
-                placeholder="Search guests, bookings…"
-                value={searchQuery}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && searchQuery.trim())
-                    navigate(
-                      `/receptionist/reservations?search=${encodeURIComponent(searchQuery.trim())}`,
-                    );
-                }}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border py-2 pl-10 pr-4 text-sm outline-none"
-                style={{
-                  borderColor: "rgba(13,115,119,0.2)",
-                  background: "#f0f9f8",
-                  color: "#0a2e2e",
-                }}
-              />
-            </div>
           </div>
 
           <div className="ml-auto flex flex-shrink-0 items-center gap-1 sm:gap-3">

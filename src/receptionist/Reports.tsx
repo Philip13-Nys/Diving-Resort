@@ -1,4 +1,4 @@
-import { toCsv, downloadFile } from "../app/reportData";
+import { toCsv, downloadFile, servicePackageRevenue } from "../app/reportData";
 import { completedPayment } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot, getLivePaymentSnapshot as getPaymentSnapshot } from "../app/bookingStore";
@@ -15,7 +15,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import { Download, Loader2 } from "lucide-react";
 
@@ -37,6 +36,16 @@ type Booking = {
   status: string;
   paymentStatus: string;
   amountPaid: number;
+  bookingType: string;
+  itemType: string;
+  serviceName: string;
+  packageName: string;
+  activityName: string;
+  itemName: string;
+  subtotal: number;
+  roomSubtotal: number;
+  reservationFee: number;
+  addOns: { name: string; type: string; price: number }[];
 };
 
 type Payment = {
@@ -105,9 +114,42 @@ const getMonthStart = (date: Date) =>
 
 const getYearStart = (date: Date) => new Date(date.getFullYear(), 0, 1);
 
+function RevenueByItemChart({ title, rows }: {
+  title: string;
+  rows: ReturnType<typeof servicePackageRevenue>;
+}) {
+  return (
+    <div className="min-w-0 bg-white rounded-xl border p-5" style={{ borderColor: "rgba(13,115,119,0.1)" }}>
+      <h3 className="font-medium mb-1" style={{ color: "#0a2e2e", fontFamily: "Georgia, serif" }}>{title}</h3>
+      <p className="text-xs text-gray-500 mb-4">Collected revenue, excluding reservation fees.</p>
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-500">No collected revenue for this period.</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={Math.max(230, rows.length * 48)}>
+          <BarChart data={rows} layout="vertical" margin={{ left: 8, right: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(13,115,119,0.08)" />
+            <XAxis type="number" tickFormatter={value => formatPeso(Number(value))} />
+            <YAxis type="category" dataKey="name" width={130} tick={{ fontSize: 12 }} />
+            <Tooltip content={({ active, payload }) => active && payload?.length ? (
+              <div className="rounded-lg border bg-white p-3 text-sm shadow-sm">
+                <p className="font-medium">{payload[0].payload.name}</p>
+                <p>Collected: {formatPeso(Number(payload[0].payload.collected))}</p>
+                <p>Bookings: {payload[0].payload.bookings}</p>
+              </div>
+            ) : null} />
+            <Bar dataKey="collected" name="Collected revenue" fill="#0d7377" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
 export default function Reports() {
   const recordRevision = useRecordRevision("customer:Bookings,admin:reservations,customer:Payments,admin:Payments");
   const [period, setPeriod] = useState<ReportPeriod>("monthly");
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -155,6 +197,16 @@ export default function Reports() {
           status: data.status ?? "pending",
           paymentStatus: data.paymentStatus ?? "unpaid",
           amountPaid: Number(data.amountPaid ?? data.paid ?? 0),
+          bookingType: String(data.bookingType || ""),
+          itemType: String(data.itemType || ""),
+          serviceName: String(data.serviceName || ""),
+          packageName: String(data.packageName || ""),
+          activityName: String(data.activityName || ""),
+          itemName: String(data.itemName || ""),
+          subtotal: Number(data.subtotal ?? NaN),
+          roomSubtotal: Number(data.roomSubtotal ?? NaN),
+          reservationFee: Number(data.reservationFee || 0),
+          addOns: Array.isArray(data.addOns) ? data.addOns : [],
         };
       });
 
@@ -184,12 +236,21 @@ export default function Reports() {
     }
   };
 
-  const today = useMemo(() => startOfDay(new Date()), []);
+  const today = useMemo(() => {
+    const now = new Date();
+    return startOfDay(new Date(selectedYear, selectedMonth, Math.min(now.getDate(), new Date(selectedYear, selectedMonth + 1, 0).getDate())));
+  }, [selectedMonth, selectedYear]);
+  const currentYear = new Date().getFullYear();
+  const years = Array.from(new Set([
+    selectedYear,
+    ...Array.from({ length: 11 }, (_, index) => currentYear - 5 + index),
+    ...bookings.map(booking => Number(booking.checkIn.slice(0, 4))).filter(year => Number.isInteger(year) && year >= 1900 && year <= 2100),
+  ])).sort((a, b) => b - a);
 
   const validBookings = useMemo(
     () =>
       bookings.filter(
-        (booking) => booking.status.toLowerCase() !== "cancelled",
+        (booking) => !["cancelled", "canceled", "rejected"].includes(booking.status.toLowerCase()),
       ),
     [bookings],
   );
@@ -242,10 +303,17 @@ export default function Reports() {
     });
   }, [period, validBookings, today]);
 
+  const collected = (booking: Booking) => Math.max(0, Math.min(booking.total, booking.amountPaid));
+  const roomCollected = (booking: Booking) => {
+    const addOns = booking.addOns.reduce((sum, item) => sum + Number(item.price || 0), 0);
+    const recorded = Number.isFinite(booking.roomSubtotal) ? booking.roomSubtotal : booking.total - addOns - booking.reservationFee;
+    return booking.total > 0 ? Math.round(Math.max(0, recorded) / booking.total * collected(booking) * 100) / 100 : 0;
+  };
+
   const totalRevenue = useMemo(
     () =>
       periodBookings.reduce(
-        (sum, booking) => sum + Number(booking.total || 0),
+        (sum, booking) => sum + collected(booking),
         0,
       ),
     [periodBookings],
@@ -258,15 +326,15 @@ export default function Reports() {
   const roomTypeData = useMemo(() => {
     const map = new Map<string, number>();
 
-    periodBookings.forEach((booking) => {
+    periodBookings.filter(booking => !["service", "activity", "package"].includes((booking.bookingType || booking.itemType).toLowerCase())).forEach((booking) => {
       const type = booking.roomType?.trim() || "Unknown";
 
-      map.set(type, (map.get(type) || 0) + 1);
+      map.set(type, (map.get(type) || 0) + roomCollected(booking));
     });
 
-    const total = periodBookings.length;
+    const total = [...map.values()].reduce((sum, amount) => sum + amount, 0);
 
-    return Array.from(map.entries())
+    return Array.from(map.entries()).filter(([, value]) => value > 0)
       .map(([name, value], index) => ({
         name,
         value,
@@ -327,7 +395,7 @@ export default function Reports() {
       }
     >();
 
-    validBookings.forEach((booking) => {
+    periodBookings.forEach((booking) => {
       const name = booking.guest?.trim() || "Unknown Guest";
 
       const current = map.get(name) || {
@@ -336,7 +404,7 @@ export default function Reports() {
       };
 
       current.visits += 1;
-      current.spent += Number(booking.total || 0);
+      current.spent += collected(booking);
 
       map.set(name, current);
     });
@@ -349,10 +417,10 @@ export default function Reports() {
       }))
       .sort((a, b) => b.spent - a.spent)
       .slice(0, 5);
-  }, [validBookings]);
+  }, [periodBookings]);
 
   const monthlyRevenue = useMemo(() => {
-    const now = new Date();
+    const now = today;
 
     return Array.from({ length: 6 }, (_, index) => {
       const date = new Date(now.getFullYear(), now.getMonth() - (5 - index), 1);
@@ -374,20 +442,23 @@ export default function Reports() {
         }),
 
         revenue: monthBookings.reduce(
-          (sum, booking) => sum + Number(booking.total || 0),
+          (sum, booking) => sum + collected(booking),
           0,
         ),
 
         bookings: monthBookings.length,
       };
     });
-  }, [validBookings]);
+  }, [validBookings, today]);
+
+  const itemRevenue = useMemo(() => servicePackageRevenue(periodBookings), [periodBookings]);
 
   const exportReport = () => {
-    const rows = [["Resort Report", period], ["Booking value", totalRevenue], ["Bookings", totalBookings],
+    const rows = [["Resort Report", `${period} ${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}`], ["Collected revenue", totalRevenue], ["Bookings", totalBookings],
+      [], ["Type", "Service / Package", "Bookings", "Collected revenue"], ...itemRevenue.map(item => [item.type, item.name, item.bookings, item.collected]),
       [], ["Payment method", "Collections", "Transactions"], ...paymentMethodData.map(item => [item.method, item.amount, item.count]),
       [], ["Guest", "Room", "Arrival", "Departure", "Booking value", "Paid", "Status"], ...periodBookings.map(item => [item.guest, item.room, item.checkIn, item.checkOut, item.total, item.amountPaid, item.status])];
-    downloadFile(toCsv(rows), 'resort-report-' + period + '.csv');
+    downloadFile(toCsv(rows), 'resort-report-' + period + '-' + selectedYear + '-' + String(selectedMonth + 1).padStart(2, '0') + '.csv');
 
     setSuccess("Report exported successfully.");
 
@@ -433,6 +504,15 @@ export default function Reports() {
               </AsyncButton>
             ),
           )}
+        </div>
+
+        <div className="flex gap-2">
+          <select aria-label="Report month" value={selectedMonth} onChange={event => setSelectedMonth(Number(event.target.value))} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: "rgba(13,115,119,0.2)" }}>
+            {Array.from({ length: 12 }, (_, month) => <option key={month} value={month}>{new Date(2000, month, 1).toLocaleString("en-US", { month: "long" })}</option>)}
+          </select>
+          <select aria-label="Report year" value={selectedYear} onChange={event => setSelectedYear(Number(event.target.value))} className="px-3 py-2 rounded-lg border text-sm" style={{ borderColor: "rgba(13,115,119,0.2)" }}>
+            {years.map(year => <option key={year} value={year}>{year}</option>)}
+          </select>
         </div>
 
         <AsyncButton
@@ -563,16 +643,14 @@ export default function Reports() {
                 }
               />
 
-              <YAxis yAxisId="right" orientation="right" />
+              <YAxis yAxisId="right" orientation="right" allowDecimals={false} />
 
               <Tooltip
                 formatter={(value: number, name: string) => [
-                  name === "revenue" ? formatPeso(Number(value)) : value,
-                  name === "revenue" ? "Revenue" : "Bookings",
+                  name === "Revenue" ? formatPeso(Number(value)) : Number(value),
+                  name === "Revenue" ? "Collected revenue" : "Bookings",
                 ]}
               />
-
-              <Legend />
 
               <Bar
                 yAxisId="left"
@@ -587,6 +665,7 @@ export default function Reports() {
                 fill="#14b8a6"
                 name="Bookings"
               />
+
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -604,7 +683,7 @@ export default function Reports() {
               fontFamily: "Georgia, serif",
             }}
           >
-            Bookings by Room Type
+            Revenue by Room Type
           </h3>
 
           {roomTypeData.length === 0 ? (
@@ -634,8 +713,8 @@ export default function Reports() {
 
                   <Tooltip
                     formatter={(value: number) => [
-                      `${value} bookings`,
-                      "Bookings",
+                      formatPeso(Number(value)),
+                      "Collected revenue",
                     ]}
                   />
                 </PieChart>
@@ -668,7 +747,7 @@ export default function Reports() {
                         color: "#0a2e2e",
                       }}
                     >
-                      {item.percentage}%
+                      {formatPeso(item.value)} · {item.percentage}%
                     </span>
                   </div>
                 ))}
@@ -676,6 +755,11 @@ export default function Reports() {
             </>
           )}
         </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <RevenueByItemChart title="Services Revenue" rows={itemRevenue.filter(item => item.type === "Service")} />
+        <RevenueByItemChart title="Packages Revenue" rows={itemRevenue.filter(item => item.type === "Package")} />
       </div>
 
       {/* Payments + Top Guests */}

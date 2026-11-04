@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   collection,
   addDoc,
@@ -78,10 +79,13 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
 
 export default function ServicesManagement() {
   const recordRevision = useRecordRevision("admin:services,admin:packages");
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"services" | "packages">(
     "services",
   );
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(
+    () => searchParams.get("action") === "add",
+  );
   const [services, setServices] = useState<Service[]>([]);
   const [packages, setPackages] = useState<Package[]>([]);
   const [editingService, setEditingService] = useState<Service | null>(null);
@@ -260,8 +264,7 @@ export default function ServicesManagement() {
 
       await loadServices();
 
-      setShowForm(false);
-      resetImageSelection();
+      closeAddModal();
 
       console.log("Service added successfully");
     } catch (error) {
@@ -456,7 +459,7 @@ export default function ServicesManagement() {
       });
 
       await loadPackages();
-      setShowForm(false);
+      closeAddModal();
 
       console.log("Package added successfully");
     } catch (error) {
@@ -468,6 +471,11 @@ export default function ServicesManagement() {
   const closeAddModal = () => {
     setShowForm(false);
     resetImageSelection();
+    if (searchParams.has("action")) {
+      const nextParams = new URLSearchParams(searchParams);
+      nextParams.delete("action");
+      setSearchParams(nextParams, { replace: true });
+    }
   };
 
   const openEditService = (service: Service) => {

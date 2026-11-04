@@ -37,18 +37,10 @@ type StaffMember = {
   certifications: string[];
 };
 
-const departmentOptions = [
-  "Water Sports",
-  "Restaurant",
-  "Facilities",
-  "Spa & Wellness",
-  "Guest Services",
-];
-
 const emptyForm = {
   name: "",
   position: "",
-  department: "Water Sports",
+  department: "",
   email: "",
   phone: "",
   joinDate: new Date().toISOString().split("T")[0],
@@ -70,10 +62,13 @@ export default function StaffProfiles() {
   const [success, setSuccess] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const departments = departmentOptions.map((name) => ({
-    name,
-    count: staff.filter((s) => s.department === name).length,
-  }));
+  const departmentOptions = [
+    ...new Set(
+      staff
+        .map((member) => member.department?.trim())
+        .filter((department): department is string => Boolean(department)),
+    ),
+  ].sort();
   useEffect(() => {
     loadStaff();
   }, [recordRevision]);
@@ -132,7 +127,12 @@ export default function StaffProfiles() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!form.name || !form.email || !form.position) return;
+    if (
+      !form.name.trim() ||
+      !form.email.trim() ||
+      !form.position.trim() ||
+      !form.department.trim()
+    ) return;
 
     const certifications = form.certifications
       .split(",")
@@ -144,7 +144,7 @@ export default function StaffProfiles() {
         await updateDoc(doc(db, "Staff", editStaff.id), {
           name: form.name,
           position: form.position,
-          department: form.department,
+          department: form.department.trim(),
           email: form.email,
           phone: form.phone,
           joinDate: form.joinDate,
@@ -157,7 +157,7 @@ export default function StaffProfiles() {
         await addDoc(collection(db, "Staff"), {
           name: form.name,
           position: form.position,
-          department: form.department,
+          department: form.department.trim(),
           email: form.email,
           phone: form.phone,
           joinDate: form.joinDate,
@@ -174,14 +174,16 @@ export default function StaffProfiles() {
       setTimeout(() => setSuccess(""), 3000);
     } catch (error) {
       console.error(error);
+      alert(
+        error instanceof Error ? error.message : "Failed to save staff member.",
+      );
     }
   }
 
   async function handleDelete(id: string) {
     try {
       await deleteDoc(doc(db, "Staff", id));
-
-      await loadStaff();
+      setStaff((current) => current.filter((member) => member.id !== id));
 
       setDeleteConfirm(null);
 
@@ -190,6 +192,9 @@ export default function StaffProfiles() {
       setTimeout(() => setSuccess(""), 3000);
     } catch (error) {
       console.error(error);
+      alert(
+        error instanceof Error ? error.message : "Failed to delete staff member.",
+      );
     }
   }
   return (
@@ -217,21 +222,6 @@ export default function StaffProfiles() {
           <Plus className="size-4" />
           Add Staff Member
         </AsyncButton>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        {departments.map((dept) => (
-          <div
-            key={dept.name}
-            className="bg-white rounded-xl p-4 border border-gray-200"
-          >
-            <p className="text-sm text-gray-600">{dept.name}</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              {dept.count}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">staff members</p>
-          </div>
-        ))}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200">
@@ -358,10 +348,10 @@ export default function StaffProfiles() {
                     {deleteConfirm === member.id ? (
                       <>
                         <AsyncButton
-                          onClick={() => setDeleteConfirm(member.id)}
+                          onClick={() => handleDelete(member.id)}
                           className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded transition-colors"
                         >
-                          Delete
+                          Confirm Delete
                         </AsyncButton>
                         <AsyncButton
                           onClick={() => setDeleteConfirm(null)}
@@ -372,10 +362,10 @@ export default function StaffProfiles() {
                       </>
                     ) : (
                       <AsyncButton
-                        onClick={() => handleDelete(member.id)}
+                        onClick={() => setDeleteConfirm(member.id)}
                         className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded transition-colors"
                       >
-                        Confirm Delete
+                        Delete
                       </AsyncButton>
                     )}
                   </div>
@@ -445,17 +435,16 @@ export default function StaffProfiles() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Department
                   </label>
-                  <select
+                  <input
+                    type="text"
+                    required
                     value={form.department}
                     onChange={(e) =>
                       setForm((f) => ({ ...f, department: e.target.value }))
                     }
+                    placeholder="e.g. Water Sports"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  >
-                    {departmentOptions.map((d) => (
-                      <option key={d}>{d}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">

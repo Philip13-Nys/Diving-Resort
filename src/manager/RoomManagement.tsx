@@ -1,7 +1,9 @@
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getBookingSnapshot } from "../app/bookingStore";
 import { useBookingInventory } from "../app/useBookingInventory";
-import { activeBooking, matchesRoomType, dateOnly, localDate, typeAvailability } from "../app/bookingAvailability";
+import { activeBooking, assignedRoomIds, matchesRoomType, dateOnly, localDate, normalizeBookingValue, normalizeInventory, typeAvailability } from "../app/bookingAvailability";
+import { requireAccess } from "../app/auth";
+import { maintenanceRoomId } from "../app/maintenanceOperations";
 import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -16,6 +18,7 @@ import {
   deleteDoc,
   doc,
   updateDoc,
+  runTransaction,
   serverTimestamp,
 } from "firebase/firestore";
 import { uploadToCloudinary } from "../services/cloudinary";
@@ -53,6 +56,7 @@ export default function RoomManagement() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [editingRoomType, setEditingRoomType] = useState<RoomType | null>(null);
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
+  const [cleaningRoomId, setCleaningRoomId] = useState<string | null>(null);
   const [reservations, setReservations] = useState<any[]>([]);
 
   const normalizeName = (value: unknown) =>
@@ -584,6 +588,10 @@ export default function RoomManagement() {
       const condition = String(data.get("condition") || "good").toLowerCase();
       const status = String(data.get("status") || "available").toLowerCase();
 
+      if (editingRoom.status === "cleaning" && ["available", "occupied", "reserved"].includes(status)) {
+        throw new Error("Use Mark Cleaned to confirm cleaning is complete before changing this room to a bookable status.");
+      }
+
       if (!Number.isInteger(floor) || floor < 1) {
         alert("Enter a valid floor number.");
         return;
@@ -643,6 +651,75 @@ export default function RoomManagement() {
     } catch (error) {
       console.error("Error updating room:", error);
       alert(error instanceof Error ? error.message : "Failed to update room.");
+    }
+  };
+
+  const markRoomCleaned = async (room: Room) => {
+    if (cleaningRoomId) return;
+    if (!window.confirm(`Confirm ${room.roomId} has been cleaned and is ready for guests?`)) return;
+
+    setCleaningRoomId(room.id);
+    try {
+      const actor = await requireAccess("manager");
+      const [roomsSnapshot, requestsSnapshot, bookingsSnapshot] = await Promise.all([
+        getDocs(collection(db, "rooms")),
+        getDocs(collection(db, "maintenanceRequests")),
+        getBookingSnapshot(),
+      ]);
+      const roomRecords = roomsSnapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+      const normalizedRooms = normalizeInventory(roomRecords);
+      const hasOpenMaintenance = requestsSnapshot.docs.some((item) => {
+        if (!["pending", "in-progress"].includes(normalizeBookingValue(item.data().status))) return false;
+        try {
+          return maintenanceRoomId(item.data(), roomRecords) === room.id;
+        } catch {
+          return false;
+        }
+      });
+      if (hasOpenMaintenance)
+        throw new Error("This room has an open maintenance request. Complete it before marking the room cleaned.");
+
+      const hasCheckedInGuest = bookingsSnapshot.docs.some((item) => {
+        const booking = item.data();
+        return normalizeBookingValue(booking.status) === "checked-in" &&
+          assignedRoomIds(booking, normalizedRooms).includes(room.id);
+      });
+      if (hasCheckedInGuest)
+        throw new Error("A guest is still checked in to this room. Resolve the booking before marking it cleaned.");
+
+      await runTransaction(db, async (transaction) => {
+        const roomRef = doc(db, "rooms", room.id);
+        const current = await transaction.get(roomRef);
+        if (!current.exists()) throw new Error("This room no longer exists.");
+        const data = current.data();
+        if (normalizeBookingValue(data.status) !== "cleaning")
+          throw new Error("This room is no longer marked Cleaning. Refresh the room list.");
+        if (data.maintenanceBlocked || /maintenance|out-of-order|out-of-service|damaged/.test(normalizeBookingValue(data.condition)))
+          throw new Error("This room is blocked for maintenance. Resolve that before marking it available.");
+        transaction.update(roomRef, {
+          status: "available",
+          cleanedAt: serverTimestamp(),
+          cleanedBy: actor.name,
+          cleanedByUid: actor.uid,
+          updatedAt: serverTimestamp(),
+        });
+      });
+
+      await loadRooms();
+      try {
+        await createActivityLog({
+          action: "Room Cleaned",
+          details: `${room.roomId} was marked cleaned and available by ${actor.name}.`,
+          status: "success",
+        });
+      } catch (logError) {
+        console.error("Room was marked cleaned, but its activity log was not saved:", logError);
+      }
+    } catch (error) {
+      console.error("Error marking room cleaned:", error);
+      alert(error instanceof Error ? error.message : "Failed to mark room cleaned.");
+    } finally {
+      setCleaningRoomId(null);
     }
   };
 
@@ -1106,6 +1183,7 @@ export default function RoomManagement() {
                     <option value="available">Available</option>
                     <option value="occupied">Occupied</option>
                     <option value="reserved">Reserved</option>
+                    <option value="cleaning">Cleaning</option>
                     <option value="maintenance">Maintenance</option>
                   </select>
                 </div>
@@ -1328,6 +1406,17 @@ export default function RoomManagement() {
 
                       <td className="py-3 px-4">
                         <div className="flex items-center justify-end gap-2">
+                          {room.status === "cleaning" && (
+                            <AsyncButton
+                              type="button"
+                              onClick={() => markRoomCleaned(room)}
+                              disabled={Boolean(cleaningRoomId)}
+                              className="whitespace-nowrap rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 hover:bg-green-100 disabled:opacity-50"
+                              title="Confirm cleaning is complete and make this room available"
+                            >
+                              Mark Cleaned
+                            </AsyncButton>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"

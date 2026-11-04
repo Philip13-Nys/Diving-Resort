@@ -9,6 +9,7 @@ import {
   type QuerySnapshot,
   setDoc,
   serverTimestamp,
+  runTransaction,
 } from "firebase/firestore";
 import { db, customerDb } from "./firebase";
 import {
@@ -18,9 +19,37 @@ import {
   dateOnly,
   bookingPaid,
   cancelled,
+  rememberRecordReference,
 } from "./bookingAvailability";
 import { requireAccess } from "./auth";
 type SnapshotDocument = { id: string; ref: any; data: () => BookingRecord };
+
+// One permanent, transactionally assigned number per record and category.
+// Old records are assigned on first load; deleted numbers are never reused.
+export async function ensureRecordReferences(prefix: "BK" | "RCP" | "GST" | "RT", ids: string[]) {
+  const unique = [...new Set(ids.map(String).filter(Boolean))].sort();
+  for (let offset = 0; offset < unique.length; offset += 100) {
+    const batch = unique.slice(offset, offset + 100);
+    const references = batch.map(id => doc(db, "DisplayReferences", `${prefix}_${encodeURIComponent(id)}`));
+    const counter = doc(db, "DisplayCounters", prefix);
+    const results = await runTransaction(db, async transaction => {
+      const existing = await Promise.all(references.map(reference => transaction.get(reference)));
+      if (existing.every(snapshot => snapshot.exists()))
+        return existing.map(snapshot => String(snapshot.data()!.value));
+      const current = await transaction.get(counter);
+      let next = Number(current.data()?.last || 0);
+      const values = existing.map((snapshot, index) => {
+        if (snapshot.exists()) return String(snapshot.data()!.value);
+        const value = `${prefix}-${String(++next).padStart(3, "0")}`;
+        transaction.set(references[index], { value, sourceId: batch[index], category: prefix, createdAt: serverTimestamp() });
+        return value;
+      });
+      transaction.set(counter, { last: next });
+      return values;
+    });
+    batch.forEach((id, index) => rememberRecordReference(id, prefix, results[index]));
+  }
+}
 function bookingDocument(
   document: QueryDocumentSnapshot<DocumentData>,
   store: "staff" | "customer",
@@ -95,6 +124,7 @@ export async function getBookingSnapshot(display = false) {
       : getDocs(collection(db, "reservations")),
   ]);
   const docs = mergeBookingDocuments(customer.docs, staff.docs);
+  if (display) await ensureRecordReferences("BK", docs.map(document => document.id));
   return {
     docs,
     size: docs.length,
@@ -124,6 +154,7 @@ export async function getPaymentSnapshot(display = false) {
       data: () => ({ ...document.data(), _bookingStore: "staff" }),
     })),
   ];
+  if (display) await ensureRecordReferences("RCP", docs.map(document => document.id));
   return {
     docs,
     size: docs.length,
@@ -286,10 +317,12 @@ export async function getGuests() {
     getBookingSnapshot(true),
     readDisplayRecords("admin:Guests"),
   ]);
-  return aggregateGuests(
+  const guests = aggregateGuests(
     bookings.docs.map((doc) => ({ ...doc.data(), id: doc.id })),
     profiles.docs.map((doc) => ({ ...doc.data(), id: doc.id })),
   );
+  await ensureRecordReferences("GST", guests.map(guest => guest.id || guest.identityKey));
+  return guests;
 }
 export async function saveGuestProfile(guest: BookingRecord) {
   await requireAccess("receptionist");

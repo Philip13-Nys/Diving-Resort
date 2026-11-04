@@ -290,7 +290,7 @@ export default function MaintenanceManagement() {
       }
     } catch (error) {
       console.error("Error updating maintenance status:", error);
-      alert("Failed to update maintenance request. Please try again.");
+      alert(error instanceof Error ? error.message : "Failed to update maintenance request. Please try again.");
     } finally {
       setUpdatingId(null);
     }
@@ -336,7 +336,7 @@ export default function MaintenanceManagement() {
       alert(`REQ-${request.requestNumber} was removed successfully.`);
     } catch (error) {
       console.error("Error removing maintenance request:", error);
-      alert("Failed to remove maintenance request. Please try again.");
+      alert(error instanceof Error ? error.message : "Failed to remove maintenance request. Please try again.");
     } finally {
       setDeletingId(null);
     }
@@ -406,7 +406,7 @@ export default function MaintenanceManagement() {
       );
     } catch (error) {
       console.error("Error adding maintenance request:", error);
-      alert("Failed to add maintenance request. Please try again.");
+      alert(error instanceof Error ? error.message : "Failed to add maintenance request. Please try again.");
     } finally {
       setSubmitting(false);
     }

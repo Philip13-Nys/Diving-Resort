@@ -39,6 +39,8 @@ type Booking = {
   guest: string;
   email: string;
   room: string;
+  category: "Room" | "Service" | "Package";
+  subject: string;
   checkIn: string;
   checkOut: string;
   guests: number;
@@ -115,11 +117,27 @@ export default function Dashboard() {
                   ? "partial"
                   : "unpaid";
 
+            const kinds = [data.bookingType, data.itemType].map((value) =>
+              String(value || "").trim().toLowerCase(),
+            );
+            const category: Booking["category"] = kinds.includes("package")
+              ? "Package"
+              : kinds.includes("service") || kinds.includes("activity")
+                ? "Service"
+                : "Room";
+            const subject = category === "Room"
+              ? String(data.roomName || data.roomTypeName || data.roomType || "Room assignment pending")
+              : category === "Package"
+                ? String(data.packageName || data.itemName || "Package booking")
+                : String(data.serviceName || data.activityName || data.itemName || "Service booking");
+
             return {
               id: bookingDoc.id,
               guest: data.customerName || "Unknown Guest",
               email: data.customerEmail || "",
-              room: data.roomName || "Unknown Room",
+              room: data.roomName || data.roomTypeName || data.roomType || "Room assignment pending",
+              category,
+              subject,
               checkIn,
               checkOut,
               guests: Number(data.guests || 0),
@@ -230,7 +248,7 @@ export default function Dashboard() {
   const bookingsToday = useMemo(
     () =>
       bookings.filter(
-        (booking) => isToday(booking.checkIn) && booking.status !== "cancelled",
+        (booking) => booking.category === "Room" && isToday(booking.checkIn) && booking.status !== "cancelled",
       ),
     [bookings, todayKey],
   );
@@ -329,6 +347,7 @@ export default function Dashboard() {
           return (
             date &&
             date.getTime() >= today.getTime() &&
+            booking.category === "Room" &&
             booking.status !== "cancelled" &&
             booking.status !== "checked-out"
           );
@@ -672,7 +691,7 @@ export default function Dashboard() {
                       {booking.guest}
                     </p>
                     <p className="truncate text-sm text-muted-foreground">
-                      Room: {booking.room}
+                      {booking.category}: {booking.subject}
                     </p>
 
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">

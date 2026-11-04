@@ -1,6 +1,40 @@
+import { displayRecordId } from "./bookingAvailability";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { getBookingSnapshot, getPaymentSnapshot } from "./bookingStore";
+
+export function servicePackageRevenue(records: Record<string, any>[]) {
+  const totals = new Map<string, { type: "Service" | "Package"; name: string; bookings: number; collected: number }>();
+  for (const record of records) {
+    if (["cancelled", "canceled", "rejected"].includes(String(record.status || "").toLowerCase())) continue;
+    const total = Number(record.totalPrice ?? record.totalAmount ?? record.total ?? 0);
+    const paid = Math.max(0, Math.min(total, Number(record.amountPaid ?? record.paid ?? 0)));
+    if (!(total > 0 && paid > 0)) continue;
+    const kind = String(record.bookingType || record.itemType || "").toLowerCase();
+    const items: { type: "Service" | "Package"; name: string; price: number }[] = [];
+    if (["service", "activity", "package"].includes(kind)) {
+      const name = String(record.packageName || record.serviceName || record.activityName || record.itemName || "").trim();
+      const subtotal = Number(record.subtotal);
+      const price = Number.isFinite(subtotal) && subtotal > 0
+        ? subtotal : Math.max(0, total - Number(record.reservationFee || 0));
+      if (name && price > 0) items.push({ type: kind === "package" ? "Package" : "Service", name, price });
+    } else if (Array.isArray(record.addOns)) {
+      for (const item of record.addOns) {
+        const name = String(item.name || "").trim();
+        const price = Number(item.price || 0);
+        if (name && price > 0) items.push({ type: String(item.type || "").toLowerCase() === "package" ? "Package" : "Service", name, price });
+      }
+    }
+    for (const item of items) {
+      const key = `${item.type}:${item.name.toLowerCase()}`;
+      const row = totals.get(key) || { type: item.type, name: item.name, bookings: 0, collected: 0 };
+      row.bookings++;
+      row.collected += Math.round(item.price / total * paid * 100) / 100;
+      totals.set(key, row);
+    }
+  }
+  return [...totals.values()].sort((a, b) => b.collected - a.collected || a.name.localeCompare(b.name));
+}
 import {
   bookingRoomLabel,
   dateOnly,
@@ -61,7 +95,7 @@ export async function reportRows(
     ];
   }
   if (kind.includes("Revenue")) {
-    const docs = await getPaymentSnapshot();
+    const docs = await getPaymentSnapshot(true);
     return [
       [
         "Receipt",
@@ -81,8 +115,8 @@ export async function reportRows(
         .map((doc) => {
           const d = doc.data();
           return [
-            d.receiptNo || doc.id,
-            d.bookingId,
+            displayRecordId(d.receiptNo || doc.id, "RCP"),
+            displayRecordId(d.bookingId),
             d.guest || d.customerName,
             d.amount,
             d.method || d.paymentMethod,
@@ -92,7 +126,7 @@ export async function reportRows(
         }),
     ];
   }
-  const docs = await getBookingSnapshot();
+  const docs = await getBookingSnapshot(true);
   const records: Record<string, any>[] = docs.docs.map((doc) => ({
     ...doc.data(),
     id: doc.id,
@@ -163,7 +197,7 @@ export async function reportRows(
       "Source",
     ],
     ...bookings.map((b) => [
-      b.bookingId || b.id,
+      displayRecordId(b.id),
       b.customerName,
       bookingRoomLabel(b),
       dateOnly(b.checkIn),

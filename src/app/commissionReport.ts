@@ -1,3 +1,4 @@
+import { displayRecordId } from "./bookingAvailability";
 import {
   bookingRoomLabel,
   dateOnly,
@@ -34,9 +35,7 @@ export function commissionRows(
       return [
         {
           id: String(booking.id),
-          reference: String(
-            booking.bookingRef || booking.bookingId || booking.id,
-          ),
+          reference: displayRecordId(booking.id),
           commissioner:
             String(booking.commissionerName || "").trim() ||
             "Unassigned commissioner",

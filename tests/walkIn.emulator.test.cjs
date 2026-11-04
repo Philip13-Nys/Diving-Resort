@@ -108,6 +108,20 @@ after(async () => {
   if (!host) return;
   await Promise.all(apps.map((app) => require("firebase/app").deleteApp(app)));
 });
+
+integration("permanent references are sequential, shared, and safe under concurrent assignment", async () => {
+  const { ensureRecordReferences } = operations("src/app/bookingStore.ts");
+  await Promise.all([
+    ensureRecordReferences("BK", ["booking-a", "booking-b"]),
+    ensureRecordReferences("BK", ["booking-b", "booking-c"]),
+  ]);
+  const references = await Promise.all(["booking-a", "booking-b", "booking-c"].map(id => sdk.getDoc(sdk.doc(db, "DisplayReferences", `BK_${id}`))));
+  assert.deepEqual(references.map(item => item.data().value).sort(), ["BK-001", "BK-002", "BK-003"]);
+  await ensureRecordReferences("BK", ["booking-a"]);
+  assert.equal((await sdk.getDoc(sdk.doc(db, "DisplayCounters/BK"))).data().last, 3);
+  await ensureRecordReferences("RCP", ["receipt-a"]);
+  assert.equal((await sdk.getDoc(sdk.doc(db, "DisplayReferences/RCP_receipt-a"))).data().value, "RCP-001");
+});
 integration(
   "real client transaction writes online-compatible booking, payment and commission together",
   async () => {
@@ -408,9 +422,10 @@ integration(
   "maintenance blocks room inventory until every open request is resolved",
   async () => {
     await sdk.updateDoc(sdk.doc(db, "Users/reception"), { role: "Manager" });
+    await sdk.updateDoc(sdk.doc(db, "rooms/room1"), { roomId: "R-001" });
     const { saveMaintenance } = operations("src/app/maintenanceOperations.ts");
     await saveMaintenance("m1", {
-      roomId: "room1",
+      roomId: "R-001",
       issue: "Test one",
       status: "pending",
     });

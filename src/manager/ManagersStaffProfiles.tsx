@@ -20,14 +20,6 @@ type StaffMember = {
   shift: string;
 };
 
-const departments = [
-  "Front Desk",
-  "Activities",
-  "Maintenance",
-  "Housekeeping",
-  "Food & Beverage",
-  "Security",
-];
 const shifts = [
   "Morning (7AM - 3PM)",
   "Afternoon (3PM - 11PM)",
@@ -50,6 +42,10 @@ export default function StaffProfiles() {
 
   const saveEdit = async () => {
     if (!form) return;
+    if (!form.department.trim()) {
+      alert("Enter a department.");
+      return;
+    }
 
     try {
       await updateDoc(doc(db, "Staff", form.id), {
@@ -57,12 +53,16 @@ export default function StaffProfiles() {
         position: form.role,
         email: form.email,
         phone: form.phone,
-        department: form.department,
+        department: form.department.trim(),
         shift: form.shift,
         status: form.status,
       });
 
-      setStaff((prev) => prev.map((s) => (s.id === form.id ? form : s)));
+      setStaff((prev) =>
+        prev.map((s) =>
+          s.id === form.id ? { ...form, department: form.department.trim() } : s,
+        ),
+      );
 
       setEditing(null);
       setForm(null);
@@ -376,17 +376,15 @@ export default function StaffProfiles() {
                   <label className="text-sm font-medium text-gray-700 block mb-1">
                     Department
                   </label>
-                  <select
+                  <input
+                    type="text"
                     value={form.department}
                     onChange={(e) =>
                       setForm({ ...form, department: e.target.value })
                     }
+                    placeholder="Enter department"
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {departments.map((d) => (
-                      <option key={d}>{d}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">

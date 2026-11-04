@@ -39,7 +39,7 @@ const emptyForm = {
 type FormState = typeof emptyForm;
 
 export default function UserRoleManagement() {
-  const recordRevision = useRecordRevision("admin:Users,admin:Staff");
+  const recordRevision = useRecordRevision("admin:Users");
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -48,7 +48,6 @@ export default function UserRoleManagement() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [userName, setUserName] = useState("User");
   const [users, setUsers] = useState<User[]>([]);
-  const [staffCount, setStaffCount] = useState(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -99,18 +98,11 @@ export default function UserRoleManagement() {
       count: users.filter((user) => user.role?.toLowerCase() === "receptionist")
         .length,
     },
-    {
-      name: "Staff",
-      count: staffCount,
-    },
   ];
 
   async function loadUsers() {
     try {
-      const [userSnapshot, staffSnapshot] = await Promise.all([
-        getDocs(collection(db, "Users")),
-        getDocs(collection(db, "Staff")),
-      ]);
+      const userSnapshot = await getDocs(collection(db, "Users"));
 
       const userData = userSnapshot.docs.map((userDoc) => {
         const data = userDoc.data();
@@ -127,9 +119,8 @@ export default function UserRoleManagement() {
       });
 
       setUsers(userData);
-      setStaffCount(staffSnapshot.size);
     } catch (error) {
-      console.error("Failed to load users and staff:", error);
+      console.error("Failed to load users:", error);
     }
   }
 
@@ -358,7 +349,7 @@ export default function UserRoleManagement() {
         </AsyncButton>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {roles.map((role) => (
           <div
             key={role.name}

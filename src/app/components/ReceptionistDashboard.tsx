@@ -1,3 +1,4 @@
+import { displayRecordId } from "../bookingAvailability";
 import { useRecordRevision } from "../useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
 import { AsyncButton } from "./ui/async-action";
@@ -273,12 +274,7 @@ export default function ManagerDashboard() {
 
         return {
           id: bookingDoc.id,
-          bookingRef: String(
-            data.bookingRef ??
-              data.reservationId ??
-              data.bookingCode ??
-              bookingDoc.id,
-          ),
+          bookingRef: displayRecordId(bookingDoc.id),
           guest: String(
             data.customerName ??
               data.guestName ??
@@ -654,7 +650,7 @@ export default function ManagerDashboard() {
                 </thead>
 
                 <tbody>
-                  {recentBookings.map((booking) => (
+                  {recentBookings.map((booking, index) => (
                     <tr
                       key={booking.id}
                       className="border-b border-gray-100 transition last:border-b-0 hover:bg-gray-50"

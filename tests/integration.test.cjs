@@ -3,10 +3,52 @@ const assert = require("node:assert/strict");
 const load = require("./load-ts.cjs");
 const values = load("src/app/bookingAvailability.ts");
 const access = load("src/app/auth.ts");
-const { validateTransition } = load("src/app/bookingOperations.ts");
+const { validateTransition, checkInDateError } = load("src/app/bookingOperations.ts");
+
+test("services allow same-day check-in without an overnight stay or room-date restriction", () => {
+  const service = { bookingType: "service", status: "confirmed", bookingDate: "2026-11-05", checkIn: "2026-11-05", checkOut: "2026-11-05" };
+  assert.doesNotThrow(() => validateTransition(service, "checked-in", "2026-11-05"));
+  assert.equal(checkInDateError(service, "2026-11-04"), "");
+  assert.doesNotThrow(() => validateTransition(service, "checked-in", "2026-11-04"));
+  assert.throws(() => validateTransition({ ...service, bookingType: "room" }, "checked-in", "2026-11-05"), /reserved stay dates/);
+});
 const { aggregateGuests } = load("src/app/bookingStore.ts");
-const { toCsv } = load("src/app/reportData.ts");
+const { toCsv, servicePackageRevenue } = load("src/app/reportData.ts");
+
+test("service and package revenue uses collected shares without counting package contents twice", () => {
+  const rows = servicePackageRevenue([
+    { bookingType: "service", serviceName: "Night Dive", totalPrice: 110, reservationFee: 10, amountPaid: 55 },
+    { bookingType: "package", packageName: "Dive Bundle", totalPrice: 220, reservationFee: 20, amountPaid: 220, services: ["Night Dive"] },
+    { bookingType: "walk-in", totalPrice: 220, amountPaid: 110, addOns: [{ type: "service", name: "Night Dive", price: 20 }, { type: "package", name: "Dive Bundle", price: 40 }] },
+    { bookingType: "service", serviceName: "Night Dive", totalPrice: 100, amountPaid: 100, status: "cancelled" },
+    { bookingType: "service", serviceName: "Unpaid", totalPrice: 50, amountPaid: 0 },
+  ]);
+  assert.deepEqual(rows.map(row => [row.name, row.bookings, row.collected]), [["Dive Bundle", 2, 220], ["Night Dive", 2, 60]]);
+});
 const { validateBackup } = load("src/app/localBackup.ts");
+
+test('display references are stable across booking aliases and preserve existing readable codes', () => {
+  const raw = 'dhCNn9EUrpizgEC8AaVG';
+  const reference = values.displayRecordId(raw);
+  assert.match(reference, /^BK-[A-Z0-9]{13}$/);
+  assert.equal(values.displayRecordId(`BK-${raw}`), reference);
+  assert.equal(values.displayRecordId(`CBR-${raw}`), reference);
+  assert.equal(values.displayRecordId(reference), reference);
+  assert.equal(values.displayRecordId('BK-001'), 'BK-001');
+  assert.equal(values.displayRecordId('RCP-123', 'RCP'), 'RCP-123');
+  assert.notEqual(values.displayRecordId(raw.toLowerCase()), reference);
+  assert.equal(values.displayRecordId(''), '—');
+});
+
+test('maintenance resolves display codes and document IDs to the same physical room', () => {
+  const { maintenanceRoomId } = load('src/app/maintenanceOperations.ts');
+  const rooms = [{ id: 'physical-1', roomId: 'R-001' }, { id: 'physical-2', roomId: 'R-002' }];
+  assert.equal(maintenanceRoomId({ roomId: 'R-001' }, rooms), 'physical-1');
+  assert.equal(maintenanceRoomId({ roomId: 'physical-1' }, rooms), 'physical-1');
+  assert.equal(maintenanceRoomId({ roomID: 'R-002' }, rooms), 'physical-2');
+  assert.throws(() => maintenanceRoomId({ roomId: 'missing' }, rooms), /no longer exists/);
+  assert.throws(() => maintenanceRoomId({ roomId: 'R-001' }, [...rooms, { id: 'duplicate', roomId: 'R-001' }]), /multiple rooms/);
+});
 
 test("legacy zero room numbers cannot spread one walk-in across the entire resort", () => {
   const types = [

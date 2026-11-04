@@ -1,3 +1,4 @@
+import { displayRecordId } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { Card } from "../app/components/ui/card";
@@ -23,6 +24,12 @@ interface Booking {
   phone?: string;
   room?: string;
   roomType?: string;
+  bookingType?: string;
+  itemType?: string;
+  serviceName?: string;
+  packageName?: string;
+  activityName?: string;
+  itemName?: string;
   checkIn?: string;
   checkOut?: string;
   nights?: number;
@@ -44,6 +51,22 @@ interface Booking {
   createdAt?: any;
 }
 
+function bookingSubject(booking: Booking) {
+  const kinds = [booking.bookingType, booking.itemType]
+    .map((value) => String(value || "").trim().toLowerCase());
+  if (kinds.includes("package")) {
+    return { label: "Package", name: booking.packageName || booking.itemName || "Package booking" };
+  }
+  if (kinds.includes("service") || kinds.includes("activity")) {
+    return { label: "Service", name: booking.serviceName || booking.activityName || booking.itemName || "Service booking" };
+  }
+  const room = String(booking.room || "").trim();
+  return {
+    label: "Room",
+    name: booking.roomType || (room && room !== "0" ? room : "Room assignment pending"),
+  };
+}
+
 export default function ReceptionistDashboards() {
   const recordRevision = useRecordRevision(
     "customer:Bookings,admin:reservations",
@@ -59,12 +82,8 @@ export default function ReceptionistDashboards() {
 
         const snapshot = await getBookingSnapshot();
 
-        console.log("Bookings found:", snapshot.size);
-
         const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
           const data = bookingDoc.data();
-
-          console.log("Booking:", bookingDoc.id, data);
 
           return {
             id: bookingDoc.id,
@@ -72,7 +91,13 @@ export default function ReceptionistDashboards() {
             email: data.email ?? data.customerEmail,
             phone: data.phone ?? data.customerPhone,
             room: data.room ?? data.roomName,
-            roomType: data.roomType,
+            roomType: data.roomTypeName ?? data.roomType,
+            bookingType: data.bookingType,
+            itemType: data.itemType,
+            serviceName: data.serviceName,
+            packageName: data.packageName,
+            activityName: data.activityName,
+            itemName: data.itemName,
             checkIn: data.checkIn,
             checkOut: data.checkOut,
             nights: Number(data.nights ?? 0),
@@ -345,7 +370,7 @@ export default function ReceptionistDashboards() {
                 </th>
 
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
-                  Room
+                  Booking
                 </th>
 
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
@@ -380,12 +405,13 @@ export default function ReceptionistDashboards() {
                   </td>
                 </tr>
               ) : (
-                recentBookings.map((booking) => {
+                recentBookings.map((booking, index) => {
                   const acceptedBy = getAcceptedBy(booking);
 
                   const cancelledBy = getCancelledBy(booking);
 
                   const isCancelled = booking.status === "cancelled";
+                  const subject = bookingSubject(booking);
 
                   return (
                     <tr
@@ -393,7 +419,7 @@ export default function ReceptionistDashboards() {
                       className="border-b border-gray-100 hover:bg-gray-50"
                     >
                       <td className="py-3 px-4 text-sm font-medium text-gray-900">
-                        {booking.id}
+                        {displayRecordId(booking.id)}
                       </td>
 
                       <td className="py-3 px-4 text-sm text-gray-700">
@@ -461,9 +487,10 @@ export default function ReceptionistDashboards() {
                       </td>
 
                       <td className="py-3 px-4 text-sm text-gray-700">
-                        {booking.room
-                          ? `Room ${booking.room}`
-                          : booking.roomType || "N/A"}
+                        <span className={`mr-2 rounded px-1.5 py-0.5 text-xs ${subject.label === "Room" ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"}`}>
+                          {subject.label}
+                        </span>
+                        {subject.name}
                       </td>
 
                       <td className="py-3 px-4 text-sm text-gray-700">

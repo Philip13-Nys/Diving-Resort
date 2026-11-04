@@ -1,3 +1,4 @@
+import { displayRecordId } from "../app/bookingAvailability";
 import {
   assignedRoomIds,
   normalizeInventory,
@@ -6,10 +7,11 @@ import { cancelled } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Filter,
   Download,
   Loader2,
@@ -236,6 +238,7 @@ export default function CalendarView() {
 
   const [filterRoom, setFilterRoom] = useState("All");
   const [filterOpen, setFilterOpen] = useState(false);
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
 
   const today = useMemo(() => startOfDay(new Date()), []);
 
@@ -260,7 +263,7 @@ export default function CalendarView() {
 
       const bookingData: Booking[] = [];
       const roomMap = new Map<string, string>(
-        inventory.map((room) => [room.roomNumber, room.type]),
+        inventory.map((room) => [String(room.roomId || room.roomNumber), room.type]),
       );
 
       snapshot.docs.forEach((docSnap, index) => {
@@ -277,7 +280,10 @@ export default function CalendarView() {
         const assigned = assignedRoomIds(data, inventory);
         const labels = assigned.length
           ? assigned.map(
-              (id) => inventory.find((room) => room.id === id)!.roomNumber,
+              (id) => {
+                const room = inventory.find((item) => item.id === id)!;
+                return String(room.roomId || room.roomNumber);
+              },
             )
           : [
               "Unassigned: " +
@@ -357,6 +363,26 @@ export default function CalendarView() {
     return bookings.filter((booking) => booking.room === filterRoom);
   }, [bookings, filterRoom]);
 
+  const roomGroups = useMemo(() => {
+    const groups = new Map<string, Room[]>();
+    for (const room of rooms) {
+      if (filterRoom !== "All" && room.id !== filterRoom) continue;
+      const group = groups.get(room.type) ?? [];
+      group.push(room);
+      groups.set(room.type, group);
+    }
+    return Array.from(groups, ([type, groupRooms]) => ({ type, rooms: groupRooms }));
+  }, [rooms, filterRoom]);
+
+  const toggleType = (type: string) => {
+    setExpandedTypes((current) => {
+      const next = new Set(current);
+      if (next.has(type)) next.delete(type);
+      else next.add(type);
+      return next;
+    });
+  };
+
   const weekDays = getWeekDays(anchor);
   const rangeLabel = `${format(
     weekDays[0],
@@ -390,7 +416,7 @@ export default function CalendarView() {
         .join(","),
       ...filteredBookings.map((booking) =>
         [
-          booking.id,
+          displayRecordId(booking.id.split(":")[0]),
           booking.guest,
           booking.room,
           booking.roomType,
@@ -443,7 +469,7 @@ export default function CalendarView() {
       )}
 
       <div
-        className="bg-white rounded-xl border mb-4 px-5 py-3 flex items-center gap-4 flex-wrap shrink-0"
+        className="bg-white rounded-xl border mb-3 px-4 py-2 flex items-center gap-3 flex-wrap shrink-0"
         style={{
           borderColor: "rgba(13,115,119,0.1)",
         }}
@@ -591,7 +617,7 @@ export default function CalendarView() {
                 }}
               >
                 <div
-                  className="flex-shrink-0 px-4 py-3 text-xs font-medium border-r"
+                  className="flex-shrink-0 px-3 py-2 text-xs font-medium border-r"
                   style={{
                     width: ROOM_COL_W,
                     color: "#4a7a7a",
@@ -608,7 +634,7 @@ export default function CalendarView() {
                     return (
                       <div
                         key={day.toISOString()}
-                        className="text-center py-2 border-r"
+                        className="text-center py-1 border-r"
                         style={{
                           borderColor: "rgba(13,115,119,0.08)",
                           background: isToday ? "#f0fffe" : undefined,
@@ -619,7 +645,7 @@ export default function CalendarView() {
                         </div>
 
                         <div
-                          className="w-8 h-8 mx-auto mt-1 flex items-center justify-center rounded-full text-sm"
+                          className="w-7 h-7 mx-auto flex items-center justify-center rounded-full text-sm"
                           style={{
                             background: isToday ? "#0d7377" : "transparent",
                             color: isToday ? "#fff" : "#0a2e2e",
@@ -634,11 +660,41 @@ export default function CalendarView() {
                 </div>
               </div>
 
-              {rooms
-                .filter(
-                  (room) => filterRoom === "All" || room.id === filterRoom,
-                )
-                .map((room, roomIndex) => {
+              {roomGroups.map((group) => {
+                const expanded = filterRoom !== "All" || expandedTypes.has(group.type);
+                const roomIds = new Set(group.rooms.map((room) => room.id));
+
+                return (
+                  <Fragment key={group.type}>
+                    {filterRoom === "All" && <div className="flex border-b bg-[#f0fffe]" style={{ borderColor: "rgba(13,115,119,0.1)" }}>
+                      <button
+                        type="button"
+                        onClick={() => toggleType(group.type)}
+                        aria-expanded={expanded}
+                        className="flex flex-shrink-0 items-center gap-1.5 px-3 py-2 text-left text-sm font-medium"
+                        style={{ width: ROOM_COL_W, color: "#0a2e2e" }}
+                      >
+                        {expanded ? <ChevronDown className="h-4 w-4 flex-shrink-0" /> : <ChevronRight className="h-4 w-4 flex-shrink-0" />}
+                        <span className="min-w-0 truncate" title={group.type}>{group.type}</span>
+                        <span className="text-xs font-normal" style={{ color: "#4a7a7a" }}>({group.rooms.length})</span>
+                      </button>
+                      <div className="grid min-w-0 flex-1 grid-cols-7">
+                        {weekDays.map((day) => {
+                          const nextDay = addDays(day, 1);
+                          const occupied = new Set(
+                            filteredBookings
+                              .filter((booking) => roomIds.has(booking.room) && booking.checkIn < nextDay && booking.checkOut > day)
+                              .map((booking) => booking.room),
+                          ).size;
+                          return (
+                            <div key={day.toISOString()} className="flex items-center justify-center border-l py-2 text-xs" style={{ borderColor: "rgba(13,115,119,0.08)", color: occupied ? "#0d7377" : "#4a7a7a" }} title={`${occupied} of ${group.rooms.length} rooms booked`}>
+                              {occupied ? `${occupied}/${group.rooms.length} booked` : "Available"}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>}
+                    {expanded && group.rooms.map((room, roomIndex) => {
                   const bars = getBookingBars(
                     filteredBookings,
                     room.id,
@@ -655,11 +711,11 @@ export default function CalendarView() {
                       }}
                     >
                       <div
-                        className="flex-shrink-0 px-4 py-3 border-r flex flex-col justify-center"
+                        className="flex-shrink-0 px-3 py-1 border-r flex flex-col justify-center"
                         style={{
                           width: ROOM_COL_W,
                           borderColor: "rgba(13,115,119,0.1)",
-                          minHeight: 74,
+                          minHeight: 52,
                         }}
                       >
                         <span
@@ -676,7 +732,7 @@ export default function CalendarView() {
 
                       <div
                         className="relative flex-1 grid grid-cols-7 min-w-0"
-                        style={{ minHeight: 74 }}
+                        style={{ minHeight: 52 }}
                       >
                         {weekDays.map((day) => {
                           const isToday = isSameDay(day, today);
@@ -751,7 +807,7 @@ export default function CalendarView() {
                                     width,
                                     top: "50%",
                                     transform: "translateY(-50%)",
-                                    height: 36,
+                                    height: 30,
                                     boxSizing: "border-box",
                                     background: booking.color,
                                     borderRadius: startsBeforeWeek
@@ -805,7 +861,10 @@ export default function CalendarView() {
                       </div>
                     </div>
                   );
-                })}
+                    })}
+                  </Fragment>
+                );
+              })}
             </div>
           </div>
         )}

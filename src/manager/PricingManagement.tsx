@@ -1,7 +1,9 @@
+import { displayRecordId } from "../app/bookingAvailability";
+import { ensureRecordReferences } from "../app/bookingStore";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
-import { Edit, TrendingUp, Calendar, X, Save, AlertCircle } from "lucide-react";
+import { Edit, TrendingUp, X, Save, AlertCircle } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import {
   collection,
@@ -25,18 +27,19 @@ type RoomType = {
   image: string;
 };
 
-type PricingRule = {
+type PricedItem = {
   id: string;
   name: string;
-  period: string;
-  multiplier: string;
-  status: string;
-  affectedRooms: string;
+  price: number;
+  kind: "service" | "package";
+  description: string;
+  originalPrice?: number;
+  discount?: number;
 };
 
 export default function PricingManagement() {
   const recordRevision = useRecordRevision(
-    "admin:roomTypes,admin:settings,admin:pricingRules",
+    "admin:roomTypes,admin:settings,admin:services,admin:packages",
   );
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
@@ -44,24 +47,18 @@ export default function PricingManagement() {
   const [editingRate, setEditingRate] = useState<string | null>(null);
   const [editingPrice, setEditingPrice] = useState<string>("");
   const [savingRoomPrice, setSavingRoomPrice] = useState(false);
-
-  const [pricingRules, setPricingRules] = useState<PricingRule[]>([]);
-  const [loadingRules, setLoadingRules] = useState(true);
-  const [ruleError, setRuleError] = useState("");
-
-  const [editingRule, setEditingRule] = useState<string | null>(null);
+  const [pricedItems, setPricedItems] = useState<PricedItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState(true);
+  const [itemError, setItemError] = useState("");
+  const [editingItem, setEditingItem] = useState<string | null>(null);
+  const [itemPrice, setItemPrice] = useState("");
+  const [savingItemPrice, setSavingItemPrice] = useState(false);
 
   const [reservationFee, setReservationFee] = useState("5");
   const [loadingFee, setLoadingFee] = useState(true);
   const [savingFee, setSavingFee] = useState(false);
   const [feeError, setFeeError] = useState("");
   const [feeMessage, setFeeMessage] = useState("");
-
-  const [editingRuleData, setEditingRuleData] = useState<PricingRule | null>(
-    null,
-  );
-
-  const [savingRule, setSavingRule] = useState(false);
 
   useEffect(() => {
     const loadRoomTypes = async () => {
@@ -90,6 +87,7 @@ export default function PricingManagement() {
           };
         });
 
+        await ensureRecordReferences("RT", data.map(room => room.id));
         setRoomTypes(data);
       } catch (error) {
         console.error("Error loading room types:", error);
@@ -123,6 +121,48 @@ export default function PricingManagement() {
     };
 
     loadReservationFee();
+  }, [recordRevision]);
+
+  useEffect(() => {
+    let active = true;
+    const loadItems = async () => {
+      setLoadingItems(true);
+      setItemError("");
+      try {
+        const [serviceSnapshot, packageSnapshot] = await Promise.all([
+          getDocs(collection(db, "services")),
+          getDocs(collection(db, "packages")),
+        ]);
+        if (!active) return;
+        setPricedItems([
+          ...serviceSnapshot.docs.map((item): PricedItem => ({
+            id: item.id,
+            name: String(item.data().name || "Unnamed Service"),
+            price: Number(item.data().price || 0),
+            kind: "service",
+            description: String(item.data().category || ""),
+          })),
+          ...packageSnapshot.docs.map((item): PricedItem => ({
+            id: item.id,
+            name: String(item.data().name || "Unnamed Package"),
+            price: Number(item.data().packagePrice || 0),
+            kind: "package",
+            description: Array.isArray(item.data().services)
+              ? item.data().services.join(", ")
+              : "",
+            originalPrice: Number(item.data().originalPrice || 0),
+            discount: Number(item.data().discount || 0),
+          })),
+        ]);
+      } catch (error) {
+        console.error("Error loading service and package prices:", error);
+        if (active) setItemError("Failed to load service and package prices.");
+      } finally {
+        if (active) setLoadingItems(false);
+      }
+    };
+    void loadItems();
+    return () => { active = false; };
   }, [recordRevision]);
 
   const saveReservationFee = async () => {
@@ -167,45 +207,6 @@ export default function PricingManagement() {
       setSavingFee(false);
     }
   };
-
-  useEffect(() => {
-    const loadPricingRules = async () => {
-      try {
-        setLoadingRules(true);
-        setRuleError("");
-
-        console.log("Loading pricing rules...");
-        const snapshot = await getDocs(collection(db, "pricingRules"));
-        console.log("Pricing rules found:", snapshot.size);
-        const rules: PricingRule[] = snapshot.docs.map((ruleDoc) => {
-          const data = ruleDoc.data();
-          console.log("Pricing rule:", ruleDoc.id, data);
-          return {
-            id: ruleDoc.id,
-            name: typeof data.name === "string" ? data.name : "Unnamed Rule",
-            period: typeof data.period === "string" ? data.period : "",
-            multiplier:
-              typeof data.multiplier === "string"
-                ? data.multiplier
-                : String(data.multiplier ?? ""),
-            status: typeof data.status === "string" ? data.status : "active",
-            affectedRooms:
-              typeof data.affectedRooms === "string" ? data.affectedRooms : "",
-          };
-        });
-
-        setPricingRules(rules);
-      } catch (error) {
-        console.error("Error loading pricing rules:", error);
-
-        setRuleError("Failed to load pricing rules.");
-      } finally {
-        setLoadingRules(false);
-      }
-    };
-
-    loadPricingRules();
-  }, [recordRevision]);
 
   const startEditingRoom = (room: RoomType) => {
     setEditingRate(room.id);
@@ -266,85 +267,40 @@ export default function PricingManagement() {
     }
   };
 
-  const startEditingRule = (rule: PricingRule) => {
-    setEditingRule(rule.id);
+  const saveItemPrice = async (item: PricedItem) => {
+    const newPrice = Number(itemPrice);
+    if (itemPrice.trim() === "" || !Number.isFinite(newPrice) || newPrice < 0) {
+      alert("Please enter a valid nonnegative price.");
+      return;
+    }
 
-    setEditingRuleData({
-      ...rule,
-    });
-  };
-
-  const cancelEditingRule = () => {
-    setEditingRule(null);
-    setEditingRuleData(null);
-  };
-
-  const updateRuleField = (field: keyof PricingRule, value: string) => {
-    setEditingRuleData((previous) => {
-      if (!previous) {
-        return previous;
-      }
-      return {
-        ...previous,
-        [field]: value,
-      };
-    });
-  };
-
-  const savePricingRule = async () => {
-    if (!editingRuleData) {
-      return;
-    }
-    if (!editingRuleData.name.trim()) {
-      alert("Please enter a rule name.");
-      return;
-    }
-    if (!editingRuleData.period.trim()) {
-      alert("Please enter a period.");
-      return;
-    }
-    if (!editingRuleData.multiplier.trim()) {
-      alert("Please enter a price multiplier.");
-      return;
-    }
-    if (!editingRuleData.affectedRooms.trim()) {
-      alert("Please enter the affected rooms.");
-      return;
-    }
+    setSavingItemPrice(true);
     try {
-      setSavingRule(true);
-
-      console.log("Updating pricing rule:", editingRuleData.id);
-
-      await updateDoc(doc(db, "pricingRules", editingRuleData.id), {
-        name: editingRuleData.name,
-        period: editingRuleData.period,
-        multiplier: editingRuleData.multiplier,
-        status: editingRuleData.status,
-        affectedRooms: editingRuleData.affectedRooms,
-      });
-
-      await createActivityLog({
-        action: "Updated Pricing Rule",
-        details: `Updated pricing rule "${editingRuleData.name}" for ${editingRuleData.affectedRooms}. Multiplier: ${editingRuleData.multiplier}, Period: ${editingRuleData.period}.`,
-        status: "success",
-      });
-
-      setPricingRules((previous) =>
-        previous.map((rule) =>
-          rule.id === editingRuleData.id ? editingRuleData : rule,
-        ),
+      const discount = item.kind === "package" && item.originalPrice
+        ? Math.max(0, Math.min(100, Math.round((1 - newPrice / item.originalPrice) * 100)))
+        : item.discount ?? 0;
+      await updateDoc(doc(db, item.kind === "service" ? "services" : "packages", item.id),
+        item.kind === "service"
+          ? { price: newPrice }
+          : { packagePrice: newPrice, discount },
       );
-
-      alert("Pricing rule updated successfully.");
-
-      cancelEditingRule();
+      setPricedItems((current) => current.map((entry) =>
+        entry.id === item.id && entry.kind === item.kind
+          ? { ...entry, price: newPrice, discount }
+          : entry,
+      ));
+      setEditingItem(null);
+      setItemPrice("");
+      void createActivityLog({
+        action: item.kind === "service" ? "Updated Service Price" : "Updated Package Price",
+        details: `Updated ${item.kind} "${item.name}" from ₱${item.price.toLocaleString()} to ₱${newPrice.toLocaleString()}.`,
+        status: "success",
+      }).catch((error) => console.error("Failed to record price change:", error));
     } catch (error) {
-      console.error("Error updating pricing rule:", error);
-
-      alert("Failed to update pricing rule. Check your Firestore rules.");
+      console.error("Error updating service or package price:", error);
+      alert("Failed to update price. Check your Firestore rules.");
     } finally {
-      setSavingRule(false);
+      setSavingItemPrice(false);
     }
   };
 
@@ -357,7 +313,7 @@ export default function PricingManagement() {
           </h1>
 
           <p className="text-gray-500 mt-2">
-            Set and manage room rates and pricing policies
+            Set and manage room, service, and package rates
           </p>
         </div>
 
@@ -366,7 +322,7 @@ export default function PricingManagement() {
 
           <span>
             Click <span className="font-medium text-blue-600">Edit</span> on any
-            row to update rates or rules
+            row to update rates
           </span>
         </div>
       </div>
@@ -428,7 +384,7 @@ export default function PricingManagement() {
               </thead>
 
               <tbody>
-                {roomTypes.map((room) => (
+                {roomTypes.map((room, index) => (
                   <Fragment key={room.id}>
                     <tr className="border-b border-gray-100 hover:bg-gray-50">
                       <td className="py-3 px-4">
@@ -453,7 +409,7 @@ export default function PricingManagement() {
                             </p>
 
                             <p className="text-xs text-gray-500">
-                              ID: {room.id}
+                              ID: {displayRecordId(room.id, "RT")}
                             </p>
                           </div>
                         </div>
@@ -543,6 +499,125 @@ export default function PricingManagement() {
           </div>
         )}
       </Card>
+
+      {(["service", "package"] as const).map((kind) => {
+        const items = pricedItems.filter((item) => item.kind === kind);
+        return (
+          <Card key={kind} className="p-6 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <TrendingUp className="w-5 h-5 text-blue-600" />
+              <h2 className="text-lg font-semibold text-gray-900">
+                Current {kind === "service" ? "Service" : "Package"} Prices
+              </h2>
+            </div>
+
+            {loadingItems ? (
+              <div className="py-10 text-center text-gray-500">Loading prices...</div>
+            ) : itemError ? (
+              <div className="py-10 text-center text-red-500">{itemError}</div>
+            ) : items.length === 0 ? (
+              <div className="py-10 text-center text-gray-500">
+                No {kind === "service" ? "services" : "packages"} found.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
+                        {kind === "service" ? "Service" : "Package"}
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
+                        {kind === "service" ? "Category" : "Included Services"}
+                      </th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Current Price</th>
+                      <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => {
+                      const editKey = `${item.kind}:${item.id}`;
+                      return (
+                        <Fragment key={editKey}>
+                          <tr className="border-b border-gray-100 hover:bg-gray-50">
+                            <td className="py-3 px-4 font-medium text-gray-900">{item.name}</td>
+                            <td className="py-3 px-4 text-sm text-gray-700">{item.description || "—"}</td>
+                            <td className="py-3 px-4">
+                              <span className="text-blue-600 font-semibold">₱{item.price.toLocaleString()}</span>
+                              {kind === "package" && item.originalPrice ? (
+                                <span className="ml-2 text-xs text-gray-500">
+                                  Original ₱{item.originalPrice.toLocaleString()} · {item.discount ?? 0}% off
+                                </span>
+                              ) : null}
+                            </td>
+                            <td className="py-3 px-4">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                title={`Edit ${kind} price`}
+                                disabled={savingItemPrice}
+                                onClick={() => {
+                                  if (editingItem === editKey) {
+                                    setEditingItem(null);
+                                    setItemPrice("");
+                                  } else {
+                                    setEditingItem(editKey);
+                                    setItemPrice(String(item.price));
+                                  }
+                                }}
+                              >
+                                {editingItem === editKey ? <X className="w-4 h-4" /> : <Edit className="w-4 h-4" />}
+                              </Button>
+                            </td>
+                          </tr>
+                          {editingItem === editKey && (
+                            <tr className="bg-blue-50 border-b border-blue-100">
+                              <td colSpan={4} className="px-4 py-4">
+                                <div className="max-w-md">
+                                  <label className="text-xs font-medium text-gray-600 block mb-1">
+                                    {kind === "service" ? "Service Price (₱)" : "Package Price (₱)"}
+                                  </label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={itemPrice}
+                                    onChange={(event) => setItemPrice(event.target.value)}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                                <div className="flex gap-2 mt-4">
+                                  <Button
+                                    size="sm"
+                                    disabled={savingItemPrice}
+                                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                                    onClick={() => void saveItemPrice(item)}
+                                  >
+                                    <Save className="w-3 h-3 mr-1" />
+                                    {savingItemPrice ? "Saving..." : "Save Changes"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={savingItemPrice}
+                                    onClick={() => { setEditingItem(null); setItemPrice(""); }}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        );
+      })}
 
       <Card className="p-6 mb-6">
         <div className="flex items-center gap-2 mb-2">
@@ -640,218 +715,7 @@ export default function PricingManagement() {
         )}
       </Card>
 
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Calendar className="w-5 h-5 text-blue-600" />
 
-          <h2 className="text-lg font-semibold text-gray-900">
-            Pricing Rules & Policies
-          </h2>
-        </div>
-
-        {loadingRules && (
-          <div className="py-10 text-center text-gray-500">
-            Loading pricing rules...
-          </div>
-        )}
-
-        {!loadingRules && ruleError && (
-          <div className="py-10 flex flex-col items-center justify-center text-red-500">
-            <AlertCircle className="w-6 h-6 mb-2" />
-
-            <p>{ruleError}</p>
-          </div>
-        )}
-
-        {!loadingRules && !ruleError && pricingRules.length === 0 && (
-          <div className="py-10 text-center text-gray-500">
-            No pricing rules found.
-          </div>
-        )}
-
-        {!loadingRules && !ruleError && pricingRules.length > 0 && (
-          <div className="space-y-4">
-            {pricingRules.map((rule) => (
-              <div
-                key={rule.id}
-                className={`p-4 border rounded-lg transition-colors ${
-                  editingRule === rule.id
-                    ? "border-blue-400 bg-blue-50"
-                    : "border-gray-200 hover:border-blue-300"
-                }`}
-              >
-                {editingRule === rule.id ? (
-                  <div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">
-                          Rule Name
-                        </label>
-
-                        <input
-                          value={editingRuleData?.name || ""}
-                          onChange={(e) =>
-                            updateRuleField("name", e.target.value)
-                          }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">
-                          Period
-                        </label>
-
-                        <input
-                          value={editingRuleData?.period || ""}
-                          onChange={(e) =>
-                            updateRuleField("period", e.target.value)
-                          }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">
-                          Price Multiplier
-                        </label>
-
-                        <input
-                          value={editingRuleData?.multiplier || ""}
-                          onChange={(e) =>
-                            updateRuleField("multiplier", e.target.value)
-                          }
-                          placeholder="Example: 1.5x"
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">
-                          Affected Rooms
-                        </label>
-
-                        <input
-                          value={editingRuleData?.affectedRooms || ""}
-                          onChange={(e) =>
-                            updateRuleField("affectedRooms", e.target.value)
-                          }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">
-                          Status
-                        </label>
-
-                        <select
-                          value={editingRuleData?.status || "active"}
-                          onChange={(e) =>
-                            updateRuleField("status", e.target.value)
-                          }
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="active">Active</option>
-
-                          <option value="scheduled">Scheduled</option>
-
-                          <option value="inactive">Inactive</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        disabled={savingRule}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                        onClick={savePricingRule}
-                      >
-                        <Save className="w-3 h-3 mr-1" />
-
-                        {savingRule ? "Saving..." : "Save Changes"}
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={savingRule}
-                        onClick={cancelEditingRule}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex justify-between items-start gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="font-semibold text-gray-900">
-                          {rule.name}
-                        </h3>
-
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            rule.status === "active"
-                              ? "bg-green-100 text-green-800"
-                              : rule.status === "scheduled"
-                                ? "bg-blue-100 text-blue-800"
-                                : "bg-gray-100 text-gray-800"
-                          }`}
-                        >
-                          {rule.status.charAt(0).toUpperCase() +
-                            rule.status.slice(1)}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
-                        <div>
-                          <p className="text-xs text-gray-500">Period</p>
-                          <p className="text-sm text-gray-900 mt-1">
-                            {rule.period}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-gray-500">
-                            Price Multiplier
-                          </p>
-
-                          <p className="text-sm font-semibold text-blue-600 mt-1">
-                            {rule.multiplier}
-                          </p>
-                        </div>
-
-                        <div>
-                          <p className="text-xs text-gray-500">
-                            Affected Rooms
-                          </p>
-
-                          <p className="text-sm text-gray-900 mt-1">
-                            {rule.affectedRooms}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        title="Edit pricing rule"
-                        onClick={() => startEditingRule(rule)}
-                      >
-                        <Edit className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
     </div>
   );
 }

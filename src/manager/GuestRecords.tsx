@@ -1,3 +1,4 @@
+import { displayRecordId } from "../app/bookingAvailability";
 import { getGuests } from "../app/bookingStore";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
@@ -251,13 +252,13 @@ export default function GuestRecords() {
             </thead>
 
             <tbody>
-              {filtered.map((guest) => (
+              {filtered.map((guest, index) => (
                 <tr
                   key={guest.id}
                   className="border-b border-gray-100 hover:bg-gray-50"
                 >
                   <td className="py-3 px-4 font-medium text-gray-900">
-                    {guest.id}
+                    {displayRecordId(guest.id, "GST")}
                   </td>
 
                   <td className="py-3 px-4 text-sm font-medium text-gray-900">
@@ -339,7 +340,7 @@ export default function GuestRecords() {
                 </h2>
 
                 <div className="flex items-center gap-2 mt-1">
-                  <p className="text-sm text-gray-500">{viewingGuest.id}</p>
+                  <p className="text-sm text-gray-500">{displayRecordId(viewingGuest.id, "GST")}</p>
 
                   {statusBadge(viewingGuest.status)}
                 </div>

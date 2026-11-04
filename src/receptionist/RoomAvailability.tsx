@@ -157,7 +157,7 @@ export default function RoomAvailability() {
         if (!blockedRoom(room) && departing) status = "checkout-today";
         const guestBooking = departing || booking || future;
         return {
-          id: room.roomNumber,
+          id: String(room.roomId || room.roomNumber),
           firestoreId: room.id,
           type: room.type,
           capacity: room.capacity,

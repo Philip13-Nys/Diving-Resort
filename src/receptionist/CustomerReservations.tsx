@@ -1,6 +1,7 @@
+import { displayRecordId } from "../app/bookingAvailability";
 import { customerNotifier } from "../app/activitylogss";
 import { useRecordRevision } from "../app/useBookingInventory";
-import { changeBooking } from "../app/bookingOperations";
+import { changeBooking, checkInDateError } from "../app/bookingOperations";
 import { useSearchParams } from "react-router-dom";
 
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
@@ -21,6 +22,13 @@ type BookingStatus =
   | "pending";
 
 interface Booking {
+  bookingType?: string;
+  itemType?: string;
+  bookingDate?: string;
+  serviceName?: string;
+  packageName?: string;
+  activityName?: string;
+  itemName?: string;
   bookingStore?: string;
   id: string;
   bookingId: string;
@@ -60,6 +68,20 @@ const STATUS: Record<
   cancelled: { label: "Cancelled", color: "#d4183d", bg: "#fef2f2" },
   pending: { label: "Pending", color: "#f97316", bg: "#fff7ed" },
 };
+
+function bookingSubject(booking: Booking) {
+  const kinds = [booking.bookingType, booking.itemType]
+    .map((value) => String(value || "").trim().toLowerCase());
+  const kind = ["package", "service", "activity"].find((value) => kinds.includes(value));
+  if (kind) {
+    const label = kind === "activity" ? "Service" : kind.charAt(0).toUpperCase() + kind.slice(1);
+    return {
+      label,
+      name: booking.packageName || booking.serviceName || booking.activityName || booking.itemName || label,
+    };
+  }
+  return { label: "Room", name: booking.roomType || (booking.room && booking.room !== "0" ? booking.room : "Room stay") };
+}
 
 function BookingModal({
   booking,
@@ -106,7 +128,9 @@ function BookingModal({
               { label: "Guest Name", key: "guest" as const, type: "text" },
               { label: "Email", key: "email" as const, type: "email" },
               { label: "Phone", key: "phone" as const, type: "tel" },
-              { label: "Room Number", key: "room" as const, type: "text" },
+              ...(bookingSubject(form as Booking).label === "Room"
+                ? [{ label: "Room Number", key: "room" as const, type: "text" }]
+                : []),
               { label: "Check-in Date", key: "checkIn" as const, type: "date" },
               {
                 label: "Check-out Date",
@@ -266,12 +290,16 @@ export default function Reservations() {
         return {
           id: bookingDoc.id,
           bookingStore: data._bookingStore,
-          bookingId: data.bookingId || data.bookingRef || bookingDoc.id,
+          bookingId: displayRecordId(bookingDoc.id),
           userId: data.userId || "",
           guest: data.customerName || data.guestName || "Unknown Guest",
           email: data.customerEmail || data.email || "",
           phone: data.customerPhone || data.phone || "",
           room: bookingRoomLabel(data),
+          serviceName: data.serviceName || "",
+          packageName: data.packageName || "",
+          activityName: data.activityName || "",
+          itemName: data.itemName || "",
           assignedRoomIds: Array.isArray(data.assignedRoomIds)
             ? data.assignedRoomIds
             : [],
@@ -281,6 +309,9 @@ export default function Reservations() {
           roomType: data.roomTypeName || data.roomType || "",
           checkIn: data.checkIn || "",
           checkOut: data.checkOut || "",
+          bookingDate: data.bookingDate || "",
+          bookingType: data.bookingType || "",
+          itemType: data.itemType || "",
           nights: Number(data.nights || 0),
           pax: Number(data.guests || data.pax || 0),
           status,
@@ -303,15 +334,7 @@ export default function Reservations() {
         };
       });
 
-      bookingData.sort((a, b) => {
-        const numberA = Number(a.bookingId.replace(/^BK-/, ""));
-        const numberB = Number(b.bookingId.replace(/^BK-/, ""));
-
-        if (!Number.isFinite(numberA) && !Number.isFinite(numberB)) return 0;
-        if (!Number.isFinite(numberA)) return 1;
-        if (!Number.isFinite(numberB)) return -1;
-        return numberA - numberB;
-      });
+      bookingData.sort((a, b) => a.bookingId.localeCompare(b.bookingId, undefined, { numeric: true }));
 
       setBookings(bookingData);
     } catch (error) {
@@ -332,7 +355,9 @@ export default function Reservations() {
       (b.id ?? "").toLowerCase().includes(searchText) ||
       String(b.room ?? "")
         .toLowerCase()
-        .includes(searchText);
+        .includes(searchText) ||
+      bookingSubject(b).name.toLowerCase().includes(searchText) ||
+      bookingSubject(b).label.toLowerCase().includes(searchText);
 
     const matchesStatus = statusFilter === "all" || b.status === statusFilter;
     return matchesSearch && matchesStatus;
@@ -397,7 +422,7 @@ export default function Reservations() {
         customerId: booking.userId,
         eventId: `booking-confirmed-${booking.id}`,
         title: "Booking Confirmed",
-        message: `Your booking ${booking.bookingId} has been confirmed. Room: ${booking.room}. Check-in: ${booking.checkIn}.`,
+        message: `Your booking ${booking.bookingId} has been confirmed. ${bookingSubject(booking).label}: ${bookingSubject(booking).name}. Date: ${booking.checkIn}.`,
         targetPath: "/booking-history",
       });
 
@@ -409,7 +434,7 @@ export default function Reservations() {
 
       await createActivityLog({
         action: "Accepted Booking",
-        details: `Accepted booking ${booking.bookingId} for ${booking.guest}. Room: ${booking.room}, Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}.`,
+        details: `Accepted booking ${booking.bookingId} for ${booking.guest}. ${bookingSubject(booking).label}: ${bookingSubject(booking).name}, Date: ${booking.checkIn}.`,
         status: "success",
       });
 
@@ -446,7 +471,7 @@ export default function Reservations() {
       }
 
       const confirmCheckIn = window.confirm(
-        `Check in ${booking.guest} to Room ${booking.room}?`,
+        `Check in ${booking.guest} for ${bookingSubject(booking).label} ${bookingSubject(booking).name}?`,
       );
       if (!confirmCheckIn) return;
 
@@ -462,7 +487,7 @@ export default function Reservations() {
         customerId: booking.userId,
         eventId: `booking-checked-in-${booking.id}`,
         title: "Check-in Completed",
-        message: `You have been checked in for booking ${booking.bookingId}. Room: ${booking.room}. Enjoy your stay!`,
+        message: `You have been checked in for booking ${booking.bookingId}. ${bookingSubject(booking).label}: ${bookingSubject(booking).name}. Enjoy your visit!`,
         targetPath: "/booking-history",
       });
 
@@ -474,14 +499,14 @@ export default function Reservations() {
 
       await createActivityLog({
         action: "Guest Checked In",
-        details: `Guest ${booking.guest} checked in to Room ${booking.room}. Booking: ${booking.bookingId}. Check-in date: ${booking.checkIn}.`,
+        details: `Guest ${booking.guest} checked in for ${bookingSubject(booking).label} ${bookingSubject(booking).name}. Booking: ${booking.bookingId}. Check-in date: ${booking.checkIn}.`,
         status: "success",
       });
 
       await loadBookings();
       setDetail(null);
       alert(
-        `Guest ${booking.guest} has been checked in to Room ${booking.room}.`,
+        `Guest ${booking.guest} has been checked in for ${bookingSubject(booking).label} ${bookingSubject(booking).name}.`,
       );
     } catch (error) {
       console.error("Error checking in guest:", error);
@@ -517,7 +542,7 @@ export default function Reservations() {
       }
 
       const confirmCheckout = window.confirm(
-        `Check out ${booking.guest} from Room ${booking.room}?`,
+        `Check out ${booking.guest} from ${bookingSubject(booking).label} ${bookingSubject(booking).name}?`,
       );
       if (!confirmCheckout) return;
 
@@ -545,7 +570,7 @@ export default function Reservations() {
 
       await createActivityLog({
         action: "Guest Checked Out",
-        details: `Guest ${booking.guest} checked out from Room ${booking.room}. Booking: ${booking.bookingId}. Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}. Total: ₱${booking.amount.toLocaleString()}, Paid: ₱${booking.paid.toLocaleString()}, Balance: ₱${(
+        details: `Guest ${booking.guest} checked out from ${bookingSubject(booking).label} ${bookingSubject(booking).name}. Booking: ${booking.bookingId}. Check-in: ${booking.checkIn}, Check-out: ${booking.checkOut}. Total: ₱${booking.amount.toLocaleString()}, Paid: ₱${booking.paid.toLocaleString()}, Balance: ₱${(
           booking.amount - booking.paid
         ).toLocaleString()}.`,
         status: "success",
@@ -554,7 +579,9 @@ export default function Reservations() {
       await loadBookings();
       setDetail(null);
       alert(
-        `Guest ${booking.guest} has been checked out. Room ${booking.room} is now under Cleaning.`,
+        bookingSubject(booking).label === "Room"
+          ? `Guest ${booking.guest} has been checked out. Room ${booking.room} is now under Cleaning.`
+          : `Guest ${booking.guest} has completed ${bookingSubject(booking).label} ${bookingSubject(booking).name}.`,
       );
     } catch (error) {
       console.error("Error checking out guest:", error);
@@ -700,7 +727,7 @@ export default function Reservations() {
                   "Booking ID",
                   "Guest",
                   "Receptionist",
-                  "Room",
+                  "Booking",
                   "Check-in",
                   "Check-out",
                   "Pax",
@@ -734,6 +761,9 @@ export default function Reservations() {
                 filtered.map((b, i) => {
                   const s = STATUS[b.status];
                   const balance = b.amount - b.paid;
+                  const subject = bookingSubject(b);
+                  const roomNumber = b.room.trim();
+                  const hasRoomNumber = /^(?:[A-Za-z]+-)?\d+(?:\s*,\s*(?:[A-Za-z]+-)?\d+)*$/.test(roomNumber);
 
                   return (
                     <tr
@@ -787,12 +817,13 @@ export default function Reservations() {
                       </td>
 
                       <td className="px-4 py-3">
-                        <p className="text-sm" style={{ color: "#0a2e2e" }}>
-                          Rm {b.room}
-                        </p>
-                        <p className="text-xs" style={{ color: "#4a7a7a" }}>
-                          {b.roomType}
-                        </p>
+                        <span className="inline-block rounded px-1.5 py-0.5 text-xs" style={{ background: subject.label === "Room" ? "#e2f3f2" : "#fff7ed", color: subject.label === "Room" ? "#0d7377" : "#c2410c" }}>
+                          {subject.label}
+                        </span>
+                        <p className="mt-1 text-sm" style={{ color: "#0a2e2e" }}>{subject.name}</p>
+                        {subject.label === "Room" && hasRoomNumber && subject.name !== roomNumber && (
+                          <p className="text-xs" style={{ color: "#4a7a7a" }}>Room {roomNumber}</p>
+                        )}
                       </td>
 
                       <td
@@ -856,7 +887,7 @@ export default function Reservations() {
                               onClick={() => checkInGuest(b.id)}
                               className="p-1.5 rounded-lg"
                               style={{ color: "#0d7377" }}
-                              title="Check In"
+                              title={checkInDateError(b) || "Check In"}
                             >
                               <Check className="w-4 h-4" />
                             </AsyncButton>
@@ -974,12 +1005,15 @@ export default function Reservations() {
                         : detail.acceptedBy || "Not yet accepted",
                 },
                 {
-                  label: "Room",
-                  value: `${detail.roomType} (Rm ${detail.room})`,
+                  label: bookingSubject(detail).label,
+                  value: bookingSubject(detail).label === "Room"
+                    ? `${bookingSubject(detail).name}${detail.room && detail.room !== "0" && detail.room !== bookingSubject(detail).name ? ` (Room ${detail.room})` : ""}`
+                    : bookingSubject(detail).name,
                 },
-                { label: "Check-in", value: detail.checkIn },
-                { label: "Check-out", value: detail.checkOut },
-                { label: "Nights", value: `${detail.nights}` },
+                { label: bookingSubject(detail).label === "Room" ? "Check-in" : "Date", value: bookingSubject(detail).label === "Room" ? detail.checkIn : detail.bookingDate || detail.checkIn },
+                ...(bookingSubject(detail).label === "Room"
+                  ? [{ label: "Check-out", value: detail.checkOut }, { label: "Nights", value: `${detail.nights}` }]
+                  : []),
                 { label: "Guests", value: `${detail.pax} pax` },
                 { label: "Total", value: `₱${detail.amount.toLocaleString()}` },
                 { label: "Paid", value: `₱${detail.paid.toLocaleString()}` },
@@ -992,7 +1026,7 @@ export default function Reservations() {
                 <div
                   key={f.label}
                   className={
-                    f.label === "Notes" || f.label === "Room"
+                    f.label === "Notes" || ["Room", "Service", "Package"].includes(f.label)
                       ? "col-span-2"
                       : ""
                   }
@@ -1011,6 +1045,7 @@ export default function Reservations() {
               {detail.status === "confirmed" && (
                 <AsyncButton
                   type="button"
+                  title={checkInDateError(detail) || "Check In"}
                   onClick={() => checkInGuest(detail.id)}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
                   style={{ background: "#0d7377" }}

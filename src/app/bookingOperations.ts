@@ -31,6 +31,13 @@ const activityBooking = (record: BookingRecord) =>
     String(record.bookingType || record.itemType || "").toLowerCase(),
   );
 
+export function checkInDateError(record: BookingRecord, today = localDate()): string {
+  if (activityBooking(record)) return "";
+  return dateOnly(record.checkIn) > today || dateOnly(record.checkOut) <= today
+    ? "Check-in must be within the reserved stay dates. Edit the dates first."
+    : "";
+}
+
 export function validateTransition(
   record: BookingRecord,
   action: string,
@@ -42,14 +49,8 @@ export function validateTransition(
   if (action === "checked-in") {
     if (status !== "confirmed")
       throw new Error("Only confirmed bookings can be checked in.");
-    if (
-      activityBooking(record)
-        ? dateOnly(record.bookingDate || record.checkIn) !== today
-        : dateOnly(record.checkIn) > today || dateOnly(record.checkOut) <= today
-    )
-      throw new Error(
-        "Check-in must be within the reserved stay dates. Edit the dates first.",
-      );
+    const dateError = checkInDateError(record, today);
+    if (dateError) throw new Error(dateError);
   }
   if (action === "checked-out") {
     if (

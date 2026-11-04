@@ -4,6 +4,7 @@ import { doc, onSnapshot } from "firebase/firestore";
 import { Navigate } from "react-router-dom";
 import { auth, db } from "./firebase";
 import { accountAllowed, canEnter, roleHome } from "./auth";
+import { Loader2 } from "lucide-react";
 
 export default function RequireRole({
   area,
@@ -55,8 +56,9 @@ export default function RequireRole({
   }, []);
   if (state.loading)
     return (
-      <div role="status" className="p-8 text-gray-500">
-        Loading account…
+      <div role="status" className="flex min-h-screen items-center justify-center gap-3 text-gray-600">
+        <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin" />
+        <span>Loading account…</span>
       </div>
     );
   if (state.error)

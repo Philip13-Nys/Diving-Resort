@@ -34,9 +34,12 @@ export const AsyncButton = React.forwardRef<
   const { pending, locked, run } = usePendingAction();
   const formPending = React.useContext(FormPending);
   const busy = pending || (formPending && (props.type ?? "submit") === "submit");
+  const className = props.className || "";
+  const hasPosition = /(?:^|\s)(?:static|fixed|absolute|relative|sticky)(?:\s|$)/.test(className);
   return (
     <button
       {...props}
+      className={`${hasPosition ? "" : "relative "}${className}`}
       ref={ref}
       disabled={disabled || pending || formPending}
       aria-busy={busy || undefined}
@@ -48,8 +51,8 @@ export const AsyncButton = React.forwardRef<
         if (onClick) return run(() => onClick(event));
       }}
     >
-      {busy && <Loader2 aria-hidden="true" className="inline-block h-4 w-4 shrink-0 animate-spin mr-2" />}
-      {children}
+      <span className={busy ? "contents invisible" : "contents"}>{children}</span>
+      {busy && <Loader2 aria-hidden="true" className="absolute left-1/2 top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 animate-spin" />}
       {busy && <span className="sr-only" role="status">Processing, please wait</span>}
     </button>
   );

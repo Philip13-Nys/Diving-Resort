@@ -1,3 +1,4 @@
+import { displayRecordId } from "../app/bookingAvailability";
 import { customerNotifier } from "../app/activitylogss";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { reviewPayment } from "../app/bookingOperations";
@@ -105,7 +106,7 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
               Process Payment
             </h3>
             <p className="text-sm" style={{ color: "#4a7a7a" }}>
-              {booking.bookingId} · {booking.guest}
+              {displayRecordId(booking.bookingId)} · {booking.guest}
             </p>
           </div>
           <AsyncButton onClick={onClose} style={{ color: "#4a7a7a" }}>
@@ -597,6 +598,8 @@ export default function Payments() {
     (p) =>
       p.guest.toLowerCase().includes(search.toLowerCase()) ||
       p.bookingId.toLowerCase().includes(search.toLowerCase()) ||
+      displayRecordId(p.bookingId).toLowerCase().includes(search.toLowerCase()) ||
+      displayRecordId(p.receiptNo || p.id, "RCP").toLowerCase().includes(search.toLowerCase()) ||
       p.referenceNumber.toLowerCase().includes(search.toLowerCase()),
   );
 
@@ -850,7 +853,7 @@ export default function Payments() {
                           className="text-xs mt-1"
                           style={{ color: "#4a7a7a" }}
                         >
-                          Booking: {p.bookingId}
+                          Booking: {displayRecordId(p.bookingId)}
                         </p>
                         <p className="text-xs" style={{ color: "#4a7a7a" }}>
                           Room: {p.room}
@@ -1001,7 +1004,7 @@ export default function Payments() {
                             className="px-4 py-3 text-xs font-mono"
                             style={{ color: "#4a7a7a" }}
                           >
-                            {p.receiptNo}
+                            {displayRecordId(p.receiptNo || p.id, "RCP")}
                           </td>
 
                           <td
@@ -1015,7 +1018,7 @@ export default function Payments() {
                             className="px-4 py-3 text-sm font-mono"
                             style={{ color: "#0d7377" }}
                           >
-                            {p.bookingId}
+                            {displayRecordId(p.bookingId)}
                           </td>
 
                           <td className="px-4 py-3">

@@ -24,6 +24,8 @@ export const backupCollections = [
   "paymentSettings",
   "maintenanceRequests",
   "ActivityLogs",
+  "DisplayReferences",
+  "DisplayCounters",
 ];
 export type LocalBackup = {
   version: 1;
