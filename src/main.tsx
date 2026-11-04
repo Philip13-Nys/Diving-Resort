@@ -7,9 +7,9 @@ const required = [
   "VITE_FIREBASE_API_KEY",
   "VITE_FIREBASE_AUTH_DOMAIN",
   "VITE_FIREBASE_PROJECT_ID",
-  "VITE_FIREBASE_API_KEYs",
-  "VITE_FIREBASE_AUTH_DOMAINs",
-  "VITE_FIREBASE_PROJECT_IDs",
+  "VITE_FIREBASE_API_KEYS",
+  "VITE_FIREBASE_AUTH_DOMAINS",
+  "VITE_FIREBASE_PROJECT_IDS",
 ];
 const missing = required.filter(
   (key) => !String(import.meta.env[key] || "").trim(),
