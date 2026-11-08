@@ -1,3 +1,4 @@
+import ServiceAvailabilityPanel from "./ServiceAvailabilityPanel";
 import { useRecordRevision } from "../useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
 import {
@@ -730,6 +731,7 @@ export default function Dashboard() {
       </div>
 
       {/* Bottom Summary: Active Staff card removed */}
+      <ServiceAvailabilityPanel managePath="/manager/services" />
     </div>
   );
 }

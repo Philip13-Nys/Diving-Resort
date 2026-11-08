@@ -1,3 +1,8 @@
+import BookingActivityEditor from "../app/components/BookingActivityEditor";
+import {
+  activityTimeLabel,
+  type ActivityRecord,
+} from "../app/activityAvailability";
 import { displayRecordId } from "../app/bookingAvailability";
 import { customerNotifier } from "../app/activitylogss";
 import { useRecordRevision } from "../app/useBookingInventory";
@@ -9,9 +14,9 @@ import { bookingRoomLabel } from "../app/bookingAvailability";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { Search, Edit2, X, Check, Eye } from "lucide-react";
 import { useEffect, useState } from "react";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth, db } from "../app/firebase";
+import { auth, db, customerDb } from "../app/firebase";
 import { createActivityLog } from "../app/activitylogss";
 
 type BookingStatus =
@@ -19,9 +24,10 @@ type BookingStatus =
   | "checked-in"
   | "checked-out"
   | "cancelled"
-  | "pending";
+  | "pending"
+  | "pending-payment-verification";
 
-interface Booking {
+interface Booking extends ActivityRecord {
   bookingType?: string;
   itemType?: string;
   bookingDate?: string;
@@ -54,6 +60,8 @@ interface Booking {
   checkedOutByUid?: string;
   cancelledBy?: string;
   cancelledByUid?: string;
+  modificationRequest?: { checkIn: string; checkOut: string };
+  cancellationReason?: string;
   assignedRoomIds?: string[];
   assignedRoomNumbers?: string[];
 }
@@ -66,21 +74,44 @@ const STATUS: Record<
   "checked-in": { label: "Checked In", color: "#0d7377", bg: "#e2f3f2" },
   "checked-out": { label: "Checked Out", color: "#4a7a7a", bg: "#f0f9f8" },
   cancelled: { label: "Cancelled", color: "#d4183d", bg: "#fef2f2" },
+  "pending-payment-verification": {
+    label: "Pending Payment Verification",
+    color: "#f97316",
+    bg: "#fff7ed",
+  },
   pending: { label: "Pending", color: "#f97316", bg: "#fff7ed" },
 };
 
 function bookingSubject(booking: Booking) {
-  const kinds = [booking.bookingType, booking.itemType]
-    .map((value) => String(value || "").trim().toLowerCase());
-  const kind = ["package", "service", "activity"].find((value) => kinds.includes(value));
+  const kinds = [booking.bookingType, booking.itemType].map((value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase(),
+  );
+  const kind = ["package", "service", "activity"].find((value) =>
+    kinds.includes(value),
+  );
   if (kind) {
-    const label = kind === "activity" ? "Service" : kind.charAt(0).toUpperCase() + kind.slice(1);
+    const label =
+      kind === "activity"
+        ? "Service"
+        : kind.charAt(0).toUpperCase() + kind.slice(1);
     return {
       label,
-      name: booking.packageName || booking.serviceName || booking.activityName || booking.itemName || label,
+      name:
+        booking.packageName ||
+        booking.serviceName ||
+        booking.activityName ||
+        booking.itemName ||
+        label,
     };
   }
-  return { label: "Room", name: booking.roomType || (booking.room && booking.room !== "0" ? booking.room : "Room stay") };
+  return {
+    label: "Room",
+    name:
+      booking.roomType ||
+      (booking.room && booking.room !== "0" ? booking.room : "Room stay"),
+  };
 }
 
 function BookingModal({
@@ -99,7 +130,7 @@ function BookingModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl max-h-[90vh] overflow-y-auto">
         <div
           className="flex items-center justify-between px-6 py-4 border-b"
           style={{ borderColor: "rgba(13,115,119,0.1)" }}
@@ -173,6 +204,10 @@ function BookingModal({
             ))}
           </div>
 
+          <BookingActivityEditor
+            booking={form}
+            onChange={(value) => setForm(value as Partial<Booking>)}
+          />
           <div>
             <label className="block text-xs mb-1" style={{ color: "#4a7a7a" }}>
               Notes
@@ -232,6 +267,57 @@ export default function Reservations() {
     setSearch(params.get("search") || "");
   }, [params]);
   const [detail, setDetail] = useState<Booking | null>(null);
+  const [cancellationAudit, setCancellationAudit] = useState({
+    id: "",
+    reason: "",
+    error: "",
+    loading: false,
+  });
+  useEffect(() => {
+    const id = detail?.id || "",
+      legacy = detail?.cancellationReason || "";
+    const eligible =
+      detail?.status === "cancelled" &&
+      detail.bookingStore !== "staff" &&
+      Boolean(detail.userId);
+    setCancellationAudit({ id, reason: legacy, error: "", loading: eligible });
+    if (!eligible || !detail?.userId) return;
+    let active = true;
+    const stop = onSnapshot(
+      doc(customerDb, "Users", detail.userId, "bookingCancellations", id),
+      (snapshot) => {
+        if (active)
+          setCancellationAudit({
+            id,
+            reason: snapshot.exists()
+              ? String(snapshot.data().cancellationReason || "")
+              : legacy,
+            error: "",
+            loading: false,
+          });
+      },
+      () => {
+        if (active)
+          setCancellationAudit({
+            id,
+            reason: legacy,
+            error:
+              "Unable to load private cancellation remarks. Check staff access to the customer project.",
+            loading: false,
+          });
+      },
+    );
+    return () => {
+      active = false;
+      stop();
+    };
+  }, [
+    detail?.id,
+    detail?.status,
+    detail?.bookingStore,
+    detail?.userId,
+    detail?.cancellationReason,
+  ]);
   const [receptionistName, setReceptionistName] = useState("Receptionist");
   const [receptionistUid, setReceptionistUid] = useState("");
 
@@ -286,10 +372,15 @@ export default function Reservations() {
         else if (normalizedStatus === "checked-out") status = "checked-out";
         else if (normalizedStatus === "cancelled") status = "cancelled";
         else if (normalizedStatus === "pending") status = "pending";
+        else if (normalizedStatus === "pending-payment-verification")
+          status = "pending-payment-verification";
 
         return {
+          ...data,
           id: bookingDoc.id,
           bookingStore: data._bookingStore,
+          modificationRequest: data.modificationRequest,
+          cancellationReason: data.cancellationReason,
           bookingId: displayRecordId(bookingDoc.id),
           userId: data.userId || "",
           guest: data.customerName || data.guestName || "Unknown Guest",
@@ -323,14 +414,26 @@ export default function Reservations() {
           ),
           paid: Number(data.amountPaid ?? data.paid ?? 0),
           notes: data.notes || data.specialRequests || "",
-          acceptedBy: data.acceptedBy ||
-            ([data.bookingType, data.bookingSource].some((value: unknown) =>
-              String(value || "").trim().toLowerCase() === "walk-in")
-              ? data.createdBy || "" : ""),
-          acceptedByUid: data.acceptedByUid ||
-            ([data.bookingType, data.bookingSource].some((value: unknown) =>
-              String(value || "").trim().toLowerCase() === "walk-in")
-              ? data.createdByUid || "" : ""),
+          acceptedBy:
+            data.acceptedBy ||
+            ([data.bookingType, data.bookingSource].some(
+              (value: unknown) =>
+                String(value || "")
+                  .trim()
+                  .toLowerCase() === "walk-in",
+            )
+              ? data.createdBy || ""
+              : ""),
+          acceptedByUid:
+            data.acceptedByUid ||
+            ([data.bookingType, data.bookingSource].some(
+              (value: unknown) =>
+                String(value || "")
+                  .trim()
+                  .toLowerCase() === "walk-in",
+            )
+              ? data.createdByUid || ""
+              : ""),
           checkedInBy: data.checkedInBy || "",
           checkedInByUid: data.checkedInByUid || "",
           checkedOutBy: data.checkedOutBy || "",
@@ -340,9 +443,16 @@ export default function Reservations() {
         };
       });
 
-      bookingData.sort((a, b) => a.bookingId.localeCompare(b.bookingId, undefined, { numeric: true }));
+      bookingData.sort((a, b) =>
+        a.bookingId.localeCompare(b.bookingId, undefined, { numeric: true }),
+      );
 
       setBookings(bookingData);
+      setDetail((current) =>
+        current
+          ? bookingData.find((booking) => booking.id === current.id) || null
+          : null,
+      );
     } catch (error) {
       console.error("Error loading bookings:", error);
     }
@@ -412,7 +522,9 @@ export default function Reservations() {
         return;
       }
       if (booking.status !== "pending") {
-        alert("Only pending bookings can be accepted.");
+        alert(
+          "Verify payment first. Only reviewed pending bookings can be accepted.",
+        );
         return;
       }
 
@@ -697,6 +809,7 @@ export default function Reservations() {
             [
               "all",
               "pending",
+              "pending-payment-verification",
               "confirmed",
               "checked-in",
               "checked-out",
@@ -769,7 +882,10 @@ export default function Reservations() {
                   const balance = b.amount - b.paid;
                   const subject = bookingSubject(b);
                   const roomNumber = b.room.trim();
-                  const hasRoomNumber = /^(?:[A-Za-z]+-)?\d+(?:\s*,\s*(?:[A-Za-z]+-)?\d+)*$/.test(roomNumber);
+                  const hasRoomNumber =
+                    /^(?:[A-Za-z]+-)?\d+(?:\s*,\s*(?:[A-Za-z]+-)?\d+)*$/.test(
+                      roomNumber,
+                    );
 
                   return (
                     <tr
@@ -823,13 +939,30 @@ export default function Reservations() {
                       </td>
 
                       <td className="px-4 py-3">
-                        <span className="inline-block rounded px-1.5 py-0.5 text-xs" style={{ background: subject.label === "Room" ? "#e2f3f2" : "#fff7ed", color: subject.label === "Room" ? "#0d7377" : "#c2410c" }}>
+                        <span
+                          className="inline-block rounded px-1.5 py-0.5 text-xs"
+                          style={{
+                            background:
+                              subject.label === "Room" ? "#e2f3f2" : "#fff7ed",
+                            color:
+                              subject.label === "Room" ? "#0d7377" : "#c2410c",
+                          }}
+                        >
                           {subject.label}
                         </span>
-                        <p className="mt-1 text-sm" style={{ color: "#0a2e2e" }}>{subject.name}</p>
-                        {subject.label === "Room" && hasRoomNumber && subject.name !== roomNumber && (
-                          <p className="text-xs" style={{ color: "#4a7a7a" }}>Room {roomNumber}</p>
-                        )}
+                        <p
+                          className="mt-1 text-sm"
+                          style={{ color: "#0a2e2e" }}
+                        >
+                          {subject.name}
+                        </p>
+                        {subject.label === "Room" &&
+                          hasRoomNumber &&
+                          subject.name !== roomNumber && (
+                            <p className="text-xs" style={{ color: "#4a7a7a" }}>
+                              Room {roomNumber}
+                            </p>
+                          )}
                       </td>
 
                       <td
@@ -977,6 +1110,35 @@ export default function Reservations() {
                 >
                   {STATUS[detail.status].label}
                 </span>
+                {(cancellationAudit.id === detail.id
+                  ? cancellationAudit.reason
+                  : detail.cancellationReason) && (
+                  <p className="text-sm mt-2">
+                    Cancellation reason:{" "}
+                    {cancellationAudit.id === detail.id
+                      ? cancellationAudit.reason
+                      : detail.cancellationReason}
+                  </p>
+                )}
+                {cancellationAudit.id === detail.id &&
+                  cancellationAudit.loading && (
+                    <p role="status" className="text-sm mt-2">
+                      Loading cancellation remarks...
+                    </p>
+                  )}
+                {cancellationAudit.id === detail.id &&
+                  cancellationAudit.error && (
+                    <p role="alert" className="text-sm mt-2 text-red-700">
+                      {cancellationAudit.error}
+                    </p>
+                  )}
+                {detail.modificationRequest && (
+                  <p className="text-sm mt-2">
+                    Requested date change: {detail.modificationRequest.checkIn}{" "}
+                    to {detail.modificationRequest.checkOut}. Review
+                    availability and use Edit to approve.
+                  </p>
+                )}
               </div>
               <AsyncButton
                 type="button"
@@ -1012,14 +1174,36 @@ export default function Reservations() {
                 },
                 {
                   label: bookingSubject(detail).label,
-                  value: bookingSubject(detail).label === "Room"
-                    ? `${bookingSubject(detail).name}${detail.room && detail.room !== "0" && detail.room !== bookingSubject(detail).name ? ` (Room ${detail.room})` : ""}`
-                    : bookingSubject(detail).name,
+                  value:
+                    bookingSubject(detail).label === "Room"
+                      ? `${bookingSubject(detail).name}${detail.room && detail.room !== "0" && detail.room !== bookingSubject(detail).name ? ` (Room ${detail.room})` : ""}`
+                      : bookingSubject(detail).name,
                 },
-                { label: bookingSubject(detail).label === "Room" ? "Check-in" : "Date", value: bookingSubject(detail).label === "Room" ? detail.checkIn : detail.bookingDate || detail.checkIn },
+                {
+                  label:
+                    bookingSubject(detail).label === "Room"
+                      ? "Check-in"
+                      : "Date",
+                  value:
+                    bookingSubject(detail).label === "Room"
+                      ? detail.checkIn
+                      : detail.bookingDate || detail.checkIn,
+                },
                 ...(bookingSubject(detail).label === "Room"
-                  ? [{ label: "Check-out", value: detail.checkOut }, { label: "Nights", value: `${detail.nights}` }]
-                  : []),
+                  ? [
+                      { label: "Check-out", value: detail.checkOut },
+                      { label: "Nights", value: `${detail.nights}` },
+                    ]
+                  : bookingSubject(detail).label === "Package"
+                    ? []
+                    : [
+                        {
+                          label: "Session",
+                          value: detail.bookingTime
+                            ? activityTimeLabel(detail.bookingTime)
+                            : "Not scheduled",
+                        },
+                      ]),
                 { label: "Guests", value: `${detail.pax} pax` },
                 { label: "Total", value: `₱${detail.amount.toLocaleString()}` },
                 { label: "Paid", value: `₱${detail.paid.toLocaleString()}` },
@@ -1032,7 +1216,8 @@ export default function Reservations() {
                 <div
                   key={f.label}
                   className={
-                    f.label === "Notes" || ["Room", "Service", "Package"].includes(f.label)
+                    f.label === "Notes" ||
+                    ["Room", "Service", "Package"].includes(f.label)
                       ? "col-span-2"
                       : ""
                   }

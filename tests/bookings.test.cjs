@@ -24,7 +24,7 @@ const online = {
   roomId: "deluxe",
   roomName: "Deluxe",
   roomCount: 1,
-  status: "pending",
+  status: "confirmed",
   checkIn: start,
   checkOut: end,
 };
@@ -62,6 +62,15 @@ test("walk-in records identify the receptionist who accepted them", () => {
   assert.equal(booking.acceptedBy, "Receptionist");
   assert.equal(booking.acceptedByUid, "reception");
   assert.equal(booking.createdBy, booking.acceptedBy);
+});
+
+test("pending requests never reserve physical capacity", () => {
+  for (const status of ["pending", "pending-payment-verification"])
+    assert.equal(
+      rules.typeAvailability(rooms, [{ ...online, status }], type, start, end)
+        .available,
+      3,
+    );
 });
 
 test("online type IDs reserve capacity without reserving every physical room", () => {

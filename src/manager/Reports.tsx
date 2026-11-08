@@ -1,3 +1,4 @@
+import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import { reportRows, exportReport } from "../app/reportData";
 import { useState, useEffect, useRef } from "react";
 import { Card } from "../app/components/ui/card";
@@ -5,6 +6,14 @@ import { Button } from "../app/components/ui/button";
 import { FileText, Download, Calendar, Filter, X } from "lucide-react";
 
 const reportTemplates = [
+  {
+    id: 7,
+    name: "Service Availability Snapshot",
+    description:
+      "Service quantities, confirmed reservations, processing holds and pending demand by date/session",
+    category: "Operational",
+    frequency: "Live",
+  },
   {
     id: 1,
     name: "Occupancy Report",
@@ -115,27 +124,59 @@ export default function Reports() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [showModal]);
 
-  async function generate(name: string, kind: string, from = "", to = "", selectedFormat = "CSV") {
+  async function generate(
+    name: string,
+    kind: string,
+    from = "",
+    to = "",
+    selectedFormat = "CSV",
+  ) {
     const rows = await reportRows(kind, from, to);
-    setRecentReports(previous => [{ name, date: new Date().toLocaleString(), size: String(rows.length - 1) + " records", status: "ready", rows, format: selectedFormat }, ...previous]);
+    setRecentReports((previous) => [
+      {
+        name,
+        date: new Date().toLocaleString(),
+        size: String(rows.length - 1) + " records",
+        status: "ready",
+        rows,
+        format: selectedFormat,
+      },
+      ...previous,
+    ]);
   }
   async function handleGenerate(templateId: number, templateName: string) {
     if (generatingId !== null) return;
     setGeneratingId(templateId);
-    try { await generate(templateName, templateName); }
-    catch (error) { alert(error instanceof Error ? error.message : "Unable to generate report."); }
-    finally { setGeneratingId(null); }
+    try {
+      await generate(templateName, templateName);
+    } catch (error) {
+      alert(
+        error instanceof Error ? error.message : "Unable to generate report.",
+      );
+    } finally {
+      setGeneratingId(null);
+    }
   }
   async function handleCustomReport() {
     if (!reportName.trim()) return;
     try {
       await generate(reportName.trim(), reportType, startDate, endDate, format);
-      setShowModal(false); setReportName("");
-    } catch (error) { alert(error instanceof Error ? error.message : "Unable to generate report."); }
+      setShowModal(false);
+      setReportName("");
+    } catch (error) {
+      alert(
+        error instanceof Error ? error.message : "Unable to generate report.",
+      );
+    }
   }
   function handleDownload(report: RecentReport) {
-    try { exportReport(report.name, report.rows, report.format); }
-    catch (error) { alert(error instanceof Error ? error.message : "Unable to export report."); }
+    try {
+      exportReport(report.name, report.rows, report.format);
+    } catch (error) {
+      alert(
+        error instanceof Error ? error.message : "Unable to export report.",
+      );
+    }
   }
 
   return (
@@ -351,6 +392,7 @@ export default function Reports() {
                   onChange={(e) => setReportType(e.target.value)}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
+                  <option>Service Availability</option>
                   <option>Occupancy</option>
                   <option>Revenue</option>
                   <option>Reservation</option>
@@ -420,6 +462,7 @@ export default function Reports() {
           </Card>
         </div>
       )}
+      <ServiceAvailabilityPanel exportable />
     </div>
   );
 }

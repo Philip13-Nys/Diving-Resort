@@ -1,8 +1,18 @@
 export type BookingRecord = Record<string, any>;
 
 const permanentReferences = new Map<string, string>();
-export function rememberRecordReference(id: string, prefix: string, reference: string) {
-  for (const alias of [id, `${prefix}-${id}`, `BK-${id}`, `CBR-${id}`, `RCP-${id}`])
+export function rememberRecordReference(
+  id: string,
+  prefix: string,
+  reference: string,
+) {
+  for (const alias of [
+    id,
+    `${prefix}-${id}`,
+    `BK-${id}`,
+    `CBR-${id}`,
+    `RCP-${id}`,
+  ])
     permanentReferences.set(`${prefix}:${alias}`, reference);
 }
 
@@ -236,8 +246,17 @@ export function matchesRoomType(
     ),
   );
 }
+export const holdsRoom = (booking: BookingRecord) =>
+  [
+    "confirmed",
+    "reserved",
+    "approved",
+    "checked-in",
+    "checkedin",
+    "occupied",
+  ].includes(normalizeBookingValue(booking.status));
 const covers = (booking: BookingRecord, date: string) =>
-  activeBooking(booking) &&
+  holdsRoom(booking) &&
   dateOnly(booking.checkIn) <= date &&
   date < dateOnly(booking.checkOut);
 
@@ -258,7 +277,7 @@ export function typeAvailability(
   const relevant = bookings.filter(
     (b) =>
       (!type.excludeBookingId || b.id !== type.excludeBookingId) &&
-      activeBooking(b) &&
+      holdsRoom(b) &&
       matchesRoomType(b, type, rooms),
   );
   const held = new Set<string>();
@@ -495,16 +514,22 @@ export function salesSummary(records: BookingRecord[], now = new Date()) {
     );
     if (month) month.revenue = (Math.round(month.revenue * 100) + cents) / 100;
     const kind = normalizeBookingValue(booking.bookingType ?? booking.itemType);
-    const activityOnly = ["service", "activity", "package"].includes(kind) ||
-      (!booking.roomTypeName && !booking.roomType && !booking.roomName && !booking.room &&
+    const activityOnly =
+      ["service", "activity", "package"].includes(kind) ||
+      (!booking.roomTypeName &&
+        !booking.roomType &&
+        !booking.roomName &&
+        !booking.room &&
         (booking.serviceName || booking.packageName || booking.activityName));
     if (!activityOnly) {
       const name = String(
         booking.roomTypeName || booking.roomType || booking.roomName || "Other",
       );
-      const roomValue = booking.roomSubtotal ?? booking.roomTotal ?? bookingTotal(booking);
+      const roomValue =
+        booking.roomSubtotal ?? booking.roomTotal ?? bookingTotal(booking);
       const group = types.get(name) ?? { name, value: 0, bookings: 0 };
-      group.value = (Math.round(group.value * 100) + moneyCents(roomValue)) / 100;
+      group.value =
+        (Math.round(group.value * 100) + moneyCents(roomValue)) / 100;
       group.bookings++;
       types.set(name, group);
     }

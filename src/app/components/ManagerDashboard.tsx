@@ -1,3 +1,9 @@
+import { useActivityAvailability } from "../useActivityAvailability";
+import {
+  activityEnabled,
+  hasAvailableActivitySession,
+} from "../activityAvailability";
+import ServiceAvailabilityPanel from "./ServiceAvailabilityPanel";
 import { useRecordRevision } from "../useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
 import { useBookingInventory } from "../useBookingInventory";
@@ -452,6 +458,7 @@ export default function ManagerDashboard() {
     "customer:Bookings,admin:reservations,admin:Staff,admin:rooms,admin:roomTypes,admin:services,admin:packages,admin:maintenanceRequests",
   );
   const availability = useBookingInventory();
+  const activities = useActivityAvailability();
   const [roomTypes, setRoomTypes] = useState<RecordData[]>([]);
   const [rooms, setRooms] = useState<RecordData[]>([]);
   const [services, setServices] = useState<RecordData[]>([]);
@@ -671,12 +678,23 @@ export default function ManagerDashboard() {
     },
   ];
 
-  const serviceAvailable = services.filter((item) =>
-    isAvailableStatus(recordStatus(item)),
+  const availableActivities =
+    activities.loading || activities.error
+      ? []
+      : activities.catalog.filter((item) =>
+          hasAvailableActivitySession(
+            item,
+            localDate(),
+            localDate(),
+            activities.catalog,
+            activities.occupied,
+          ),
+        );
+  const serviceAvailable = availableActivities.filter(
+    (item) => item.itemType === "service",
   ).length;
-
-  const packageAvailable = packages.filter((item) =>
-    isAvailableStatus(recordStatus(item)),
+  const packageAvailable = activities.catalog.filter(
+    (item) => item.itemType === "package" && activityEnabled(item),
   ).length;
 
   const staffAvailable = staff.filter((item) =>
@@ -1054,7 +1072,7 @@ export default function ManagerDashboard() {
             <p className="font-semibold text-green-900">Available Resources</p>
             <p className="mt-1 text-sm text-green-800">
               {roomCounts.available} rooms, {serviceAvailable} services, and{" "}
-              {packageAvailable} packages are currently marked available.
+              {packageAvailable} active packages. See service quantities below.
             </p>
           </div>
         </div>
@@ -1084,6 +1102,7 @@ export default function ManagerDashboard() {
           </div>
         </div>
       </section>
+      <ServiceAvailabilityPanel managePath="/manager/services" />
     </div>
   );
 }

@@ -1,7 +1,17 @@
+import StayTimeSettings from "../app/components/StayTimeSettings";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getBookingSnapshot } from "../app/bookingStore";
 import { useBookingInventory } from "../app/useBookingInventory";
-import { activeBooking, assignedRoomIds, matchesRoomType, dateOnly, localDate, normalizeBookingValue, normalizeInventory, typeAvailability } from "../app/bookingAvailability";
+import {
+  activeBooking,
+  assignedRoomIds,
+  matchesRoomType,
+  dateOnly,
+  localDate,
+  normalizeBookingValue,
+  normalizeInventory,
+  typeAvailability,
+} from "../app/bookingAvailability";
 import { requireAccess } from "../app/auth";
 import { maintenanceRoomId } from "../app/maintenanceOperations";
 import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
@@ -183,19 +193,44 @@ export default function RoomManagement() {
     roomCount: number,
     selectedDate: string,
   ) => {
-    const type = inventory.roomTypes.find(type => type.id === roomTypeId);
+    const type = inventory.roomTypes.find((type) => type.id === roomTypeId);
     if (!type) return { reserved: 0, available: 0 };
-    const end = new Date(selectedDate + "T12:00:00"); end.setDate(end.getDate() + 1);
+    const end = new Date(selectedDate + "T12:00:00");
+    end.setDate(end.getDate() + 1);
     try {
-      const result = typeAvailability(inventory.rooms, inventory.reservations, type, selectedDate, localDate(end));
-      return { reserved: Math.max(0, roomCount - result.available), available: result.available };
-    } catch { return { reserved: 0, available: 0 }; }
+      const result = typeAvailability(
+        inventory.rooms,
+        inventory.reservations,
+        type,
+        selectedDate,
+        localDate(end),
+      );
+      return {
+        reserved: Math.max(0, roomCount - result.available),
+        available: result.available,
+      };
+    } catch {
+      return { reserved: 0, available: 0 };
+    }
   };
 
   async function assertNoActiveBookings(typeName: string) {
     const snapshot = await getBookingSnapshot();
-    const type = inventory.roomTypes.find(type => type.name === typeName);
-    if (snapshot.docs.some(doc => { const b = doc.data(); return activeBooking(b) && dateOnly(b.checkOut) >= localDate() && type && matchesRoomType(b, type, inventory.rooms); })) throw new Error("This room type has active reservations. Resolve those reservations before removing or changing its inventory.");
+    const type = inventory.roomTypes.find((type) => type.name === typeName);
+    if (
+      snapshot.docs.some((doc) => {
+        const b = doc.data();
+        return (
+          activeBooking(b) &&
+          dateOnly(b.checkOut) >= localDate() &&
+          type &&
+          matchesRoomType(b, type, inventory.rooms)
+        );
+      })
+    )
+      throw new Error(
+        "This room type has active reservations. Resolve those reservations before removing or changing its inventory.",
+      );
   }
 
   useEffect(() => {
@@ -588,8 +623,13 @@ export default function RoomManagement() {
       const condition = String(data.get("condition") || "good").toLowerCase();
       const status = String(data.get("status") || "available").toLowerCase();
 
-      if (editingRoom.status === "cleaning" && ["available", "occupied", "reserved"].includes(status)) {
-        throw new Error("Use Mark Cleaned to confirm cleaning is complete before changing this room to a bookable status.");
+      if (
+        editingRoom.status === "cleaning" &&
+        ["available", "occupied", "reserved"].includes(status)
+      ) {
+        throw new Error(
+          "Use Mark Cleaned to confirm cleaning is complete before changing this room to a bookable status.",
+        );
       }
 
       if (!Number.isInteger(floor) || floor < 1) {
@@ -622,11 +662,14 @@ export default function RoomManagement() {
         return;
       }
 
-      if (newType !== oldType || roomNumber !== editingRoom.roomNumber) await assertNoActiveBookings(oldType);
+      if (newType !== oldType || roomNumber !== editingRoom.roomNumber)
+        await assertNoActiveBookings(oldType);
       await updateDoc(doc(db, "rooms", editingRoom.id), {
         roomNumber,
         type: newType,
-        roomTypeId: typesSnapshot.docs.find(type => normalizeName(type.data().name) === normalizeName(newType))!.id,
+        roomTypeId: typesSnapshot.docs.find(
+          (type) => normalizeName(type.data().name) === normalizeName(newType),
+        )!.id,
         floor,
         condition,
         status,
@@ -656,20 +699,34 @@ export default function RoomManagement() {
 
   const markRoomCleaned = async (room: Room) => {
     if (cleaningRoomId) return;
-    if (!window.confirm(`Confirm ${room.roomId} has been cleaned and is ready for guests?`)) return;
+    if (
+      !window.confirm(
+        `Confirm ${room.roomId} has been cleaned and is ready for guests?`,
+      )
+    )
+      return;
 
     setCleaningRoomId(room.id);
     try {
       const actor = await requireAccess("manager");
-      const [roomsSnapshot, requestsSnapshot, bookingsSnapshot] = await Promise.all([
-        getDocs(collection(db, "rooms")),
-        getDocs(collection(db, "maintenanceRequests")),
-        getBookingSnapshot(),
-      ]);
-      const roomRecords = roomsSnapshot.docs.map((item) => ({ ...item.data(), id: item.id }));
+      const [roomsSnapshot, requestsSnapshot, bookingsSnapshot] =
+        await Promise.all([
+          getDocs(collection(db, "rooms")),
+          getDocs(collection(db, "maintenanceRequests")),
+          getBookingSnapshot(),
+        ]);
+      const roomRecords = roomsSnapshot.docs.map((item) => ({
+        ...item.data(),
+        id: item.id,
+      }));
       const normalizedRooms = normalizeInventory(roomRecords);
       const hasOpenMaintenance = requestsSnapshot.docs.some((item) => {
-        if (!["pending", "in-progress"].includes(normalizeBookingValue(item.data().status))) return false;
+        if (
+          !["pending", "in-progress"].includes(
+            normalizeBookingValue(item.data().status),
+          )
+        )
+          return false;
         try {
           return maintenanceRoomId(item.data(), roomRecords) === room.id;
         } catch {
@@ -677,15 +734,21 @@ export default function RoomManagement() {
         }
       });
       if (hasOpenMaintenance)
-        throw new Error("This room has an open maintenance request. Complete it before marking the room cleaned.");
+        throw new Error(
+          "This room has an open maintenance request. Complete it before marking the room cleaned.",
+        );
 
       const hasCheckedInGuest = bookingsSnapshot.docs.some((item) => {
         const booking = item.data();
-        return normalizeBookingValue(booking.status) === "checked-in" &&
-          assignedRoomIds(booking, normalizedRooms).includes(room.id);
+        return (
+          normalizeBookingValue(booking.status) === "checked-in" &&
+          assignedRoomIds(booking, normalizedRooms).includes(room.id)
+        );
       });
       if (hasCheckedInGuest)
-        throw new Error("A guest is still checked in to this room. Resolve the booking before marking it cleaned.");
+        throw new Error(
+          "A guest is still checked in to this room. Resolve the booking before marking it cleaned.",
+        );
 
       await runTransaction(db, async (transaction) => {
         const roomRef = doc(db, "rooms", room.id);
@@ -693,9 +756,18 @@ export default function RoomManagement() {
         if (!current.exists()) throw new Error("This room no longer exists.");
         const data = current.data();
         if (normalizeBookingValue(data.status) !== "cleaning")
-          throw new Error("This room is no longer marked Cleaning. Refresh the room list.");
-        if (data.maintenanceBlocked || /maintenance|out-of-order|out-of-service|damaged/.test(normalizeBookingValue(data.condition)))
-          throw new Error("This room is blocked for maintenance. Resolve that before marking it available.");
+          throw new Error(
+            "This room is no longer marked Cleaning. Refresh the room list.",
+          );
+        if (
+          data.maintenanceBlocked ||
+          /maintenance|out-of-order|out-of-service|damaged/.test(
+            normalizeBookingValue(data.condition),
+          )
+        )
+          throw new Error(
+            "This room is blocked for maintenance. Resolve that before marking it available.",
+          );
         transaction.update(roomRef, {
           status: "available",
           cleanedAt: serverTimestamp(),
@@ -713,11 +785,16 @@ export default function RoomManagement() {
           status: "success",
         });
       } catch (logError) {
-        console.error("Room was marked cleaned, but its activity log was not saved:", logError);
+        console.error(
+          "Room was marked cleaned, but its activity log was not saved:",
+          logError,
+        );
       }
     } catch (error) {
       console.error("Error marking room cleaned:", error);
-      alert(error instanceof Error ? error.message : "Failed to mark room cleaned.");
+      alert(
+        error instanceof Error ? error.message : "Failed to mark room cleaned.",
+      );
     } finally {
       setCleaningRoomId(null);
     }
@@ -1233,6 +1310,8 @@ export default function RoomManagement() {
           All Rooms
         </AsyncButton>
       </div>
+
+      <StayTimeSettings />
 
       {activeTab === "types" && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">

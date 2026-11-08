@@ -126,7 +126,14 @@ export default function ReceptionistLayout() {
           ...bookingDoc.data(),
         }));
 
-        void ensureRecordReferences("BK", bookingData.map(booking => booking.id)).then(() => setBookings(bookingData)).catch(error => console.error("Booking references unavailable", error));
+        void ensureRecordReferences(
+          "BK",
+          bookingData.map((booking) => booking.id),
+        )
+          .then(() => setBookings(bookingData))
+          .catch((error) =>
+            console.error("Booking references unavailable", error),
+          );
       },
       (error) => {
         console.error("Error loading booking notifications:", error);
@@ -776,17 +783,24 @@ export default function ReceptionistLayout() {
                                       <span
                                         className="rounded-full px-1.5 py-0.5"
                                         style={{
-                                          background:
-                                            booking.status === "pending"
-                                              ? "#fff7ed"
-                                              : "#f0f9f8",
-                                          color:
-                                            booking.status === "pending"
-                                              ? "#c2410c"
-                                              : "#0d7377",
+                                          background: [
+                                            "pending",
+                                            "pending-payment-verification",
+                                          ].includes(String(booking.status))
+                                            ? "#fff7ed"
+                                            : "#f0f9f8",
+                                          color: [
+                                            "pending",
+                                            "pending-payment-verification",
+                                          ].includes(String(booking.status))
+                                            ? "#c2410c"
+                                            : "#0d7377",
                                         }}
                                       >
-                                        {booking.status}
+                                        {booking.status ===
+                                        "pending-payment-verification"
+                                          ? "Pending Payment Verification"
+                                          : booking.status}
                                       </span>
                                     )}
                                   </div>

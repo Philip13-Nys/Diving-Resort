@@ -1,3 +1,4 @@
+import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import {
   normalizeInventory,
   roomBookingsOnDate,
@@ -847,6 +848,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      <ServiceAvailabilityPanel managePath="/manager/services" />
     </div>
   );
 }

@@ -1,39 +1,97 @@
+import { readActivitySnapshot } from "./activitySnapshot";
+import {
+  activityAvailabilityRows,
+  activityDate,
+  pendingActivityReservations,
+} from "./activityAvailability";
 import { displayRecordId } from "./bookingAvailability";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { getBookingSnapshot, getPaymentSnapshot } from "./bookingStore";
 
 export function servicePackageRevenue(records: Record<string, any>[]) {
-  const totals = new Map<string, { type: "Service" | "Package"; name: string; bookings: number; collected: number }>();
+  const totals = new Map<
+    string,
+    {
+      type: "Service" | "Package";
+      name: string;
+      bookings: number;
+      collected: number;
+    }
+  >();
   for (const record of records) {
-    if (["cancelled", "canceled", "rejected"].includes(String(record.status || "").toLowerCase())) continue;
-    const total = Number(record.totalPrice ?? record.totalAmount ?? record.total ?? 0);
-    const paid = Math.max(0, Math.min(total, Number(record.amountPaid ?? record.paid ?? 0)));
+    if (
+      ["cancelled", "canceled", "rejected"].includes(
+        String(record.status || "").toLowerCase(),
+      )
+    )
+      continue;
+    const total = Number(
+      record.totalPrice ?? record.totalAmount ?? record.total ?? 0,
+    );
+    const paid = Math.max(
+      0,
+      Math.min(total, Number(record.amountPaid ?? record.paid ?? 0)),
+    );
     if (!(total > 0 && paid > 0)) continue;
-    const kind = String(record.bookingType || record.itemType || "").toLowerCase();
-    const items: { type: "Service" | "Package"; name: string; price: number }[] = [];
+    const kind = String(
+      record.bookingType || record.itemType || "",
+    ).toLowerCase();
+    const items: {
+      type: "Service" | "Package";
+      name: string;
+      price: number;
+    }[] = [];
     if (["service", "activity", "package"].includes(kind)) {
-      const name = String(record.packageName || record.serviceName || record.activityName || record.itemName || "").trim();
+      const name = String(
+        record.packageName ||
+          record.serviceName ||
+          record.activityName ||
+          record.itemName ||
+          "",
+      ).trim();
       const subtotal = Number(record.subtotal);
-      const price = Number.isFinite(subtotal) && subtotal > 0
-        ? subtotal : Math.max(0, total - Number(record.reservationFee || 0));
-      if (name && price > 0) items.push({ type: kind === "package" ? "Package" : "Service", name, price });
+      const price =
+        Number.isFinite(subtotal) && subtotal > 0
+          ? subtotal
+          : Math.max(0, total - Number(record.reservationFee || 0));
+      if (name && price > 0)
+        items.push({
+          type: kind === "package" ? "Package" : "Service",
+          name,
+          price,
+        });
     } else if (Array.isArray(record.addOns)) {
       for (const item of record.addOns) {
         const name = String(item.name || "").trim();
         const price = Number(item.price || 0);
-        if (name && price > 0) items.push({ type: String(item.type || "").toLowerCase() === "package" ? "Package" : "Service", name, price });
+        if (name && price > 0)
+          items.push({
+            type:
+              String(item.type || "").toLowerCase() === "package"
+                ? "Package"
+                : "Service",
+            name,
+            price,
+          });
       }
     }
     for (const item of items) {
       const key = `${item.type}:${item.name.toLowerCase()}`;
-      const row = totals.get(key) || { type: item.type, name: item.name, bookings: 0, collected: 0 };
+      const row = totals.get(key) || {
+        type: item.type,
+        name: item.name,
+        bookings: 0,
+        collected: 0,
+      };
       row.bookings++;
-      row.collected += Math.round(item.price / total * paid * 100) / 100;
+      row.collected += Math.round((item.price / total) * paid * 100) / 100;
       totals.set(key, row);
     }
   }
-  return [...totals.values()].sort((a, b) => b.collected - a.collected || a.name.localeCompare(b.name));
+  return [...totals.values()].sort(
+    (a, b) => b.collected - a.collected || a.name.localeCompare(b.name),
+  );
 }
 import {
   bookingRoomLabel,
@@ -53,6 +111,72 @@ export async function reportRows(
 ): Promise<unknown[][]> {
   if (start && end && end < start)
     throw new Error("End date must be on or after the start date.");
+  if (kind.includes("Service Availability")) {
+    const first = start || localDate(),
+      last = end || first;
+    const count =
+      Math.round((Date.parse(last) - Date.parse(first)) / 86400000) + 1;
+    if (!activityDate(first) || !activityDate(last) || count < 1 || count > 31)
+      throw new Error("Choose a service availability range of up to 31 days.");
+    const snapshot = await readActivitySnapshot();
+    const pending = pendingActivityReservations(
+      snapshot.catalog,
+      snapshot.bookings,
+      snapshot.allocations,
+    );
+    const rows: unknown[][] = [
+      [
+        "Date",
+        "Service",
+        "Type",
+        "Session",
+        "Capacity unit",
+        "Total",
+        "Confirmed reserved",
+        "Processing",
+        "Pending (not reserved)",
+        "Available",
+        "Status",
+        "Snapshot generated",
+      ],
+    ];
+    for (let day = 0; day < count; day++) {
+      const date = new Date(Date.parse(first) + day * 86400000)
+        .toISOString()
+        .slice(0, 10);
+      const pendingRows = activityAvailabilityRows(
+        snapshot.catalog,
+        pending,
+        date,
+        -Infinity,
+      );
+      for (const row of activityAvailabilityRows(
+        snapshot.catalog,
+        snapshot.occupied,
+        date,
+      ))
+        rows.push([
+          date,
+          row.name,
+          row.itemType,
+          row.time,
+          row.label,
+          row.total,
+          row.reserved,
+          row.held,
+          pendingRows.find(
+            (value) =>
+              value.id === row.id &&
+              value.itemType === row.itemType &&
+              value.time === row.time,
+          )?.reserved || 0,
+          row.remaining,
+          row.error || (row.remaining ? "Available" : "Fully Booked"),
+          new Date().toISOString(),
+        ]);
+    }
+    return rows;
+  }
   const inside = (value: any) => {
     const date = dateOnly(value);
     return (!start || date >= start) && (!end || (date && date <= end));

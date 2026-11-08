@@ -41,6 +41,7 @@ interface Payment {
   status: "completed" | "pending" | "rejected";
   receiptNo: string;
   referenceNumber: string;
+  proofUrl?: string;
   verificationStatus: "pending" | "verified" | "rejected";
 }
 
@@ -323,6 +324,7 @@ export default function Payments() {
                 : "completed",
           receiptNo: d.receiptNo || "",
           referenceNumber: d.referenceNumber || "",
+          proofUrl: d.proof?.url || d.proofOfPayment || "",
           verificationStatus:
             rawVerification === "rejected"
               ? "rejected"
@@ -598,8 +600,12 @@ export default function Payments() {
     (p) =>
       p.guest.toLowerCase().includes(search.toLowerCase()) ||
       p.bookingId.toLowerCase().includes(search.toLowerCase()) ||
-      displayRecordId(p.bookingId).toLowerCase().includes(search.toLowerCase()) ||
-      displayRecordId(p.receiptNo || p.id, "RCP").toLowerCase().includes(search.toLowerCase()) ||
+      displayRecordId(p.bookingId)
+        .toLowerCase()
+        .includes(search.toLowerCase()) ||
+      displayRecordId(p.receiptNo || p.id, "RCP")
+        .toLowerCase()
+        .includes(search.toLowerCase()) ||
       p.referenceNumber.toLowerCase().includes(search.toLowerCase()),
   );
 
@@ -883,6 +889,21 @@ export default function Payments() {
                       </p>
                     </div>
 
+                    {p.proofUrl &&
+                      p.proofUrl.startsWith("https://res.cloudinary.com/") && (
+                        <a
+                          href={p.proofUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block text-sm underline mt-3"
+                        >
+                          View payment receipt
+                        </a>
+                      )}
+                    <p className="text-xs mt-2" style={{ color: "#4a7a7a" }}>
+                      Check the actual GCash transaction and amount received. An
+                      uploaded receipt alone does not verify payment.
+                    </p>
                     <div className="flex gap-2 mt-3">
                       <AsyncButton
                         onClick={() => verifyGcashPayment(p)}

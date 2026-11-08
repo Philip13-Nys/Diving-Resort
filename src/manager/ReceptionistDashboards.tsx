@@ -1,3 +1,4 @@
+import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import { displayRecordId } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
@@ -51,18 +52,33 @@ interface Booking {
 }
 
 function bookingSubject(booking: Booking) {
-  const kinds = [booking.bookingType, booking.itemType]
-    .map((value) => String(value || "").trim().toLowerCase());
+  const kinds = [booking.bookingType, booking.itemType].map((value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase(),
+  );
   if (kinds.includes("package")) {
-    return { label: "Package", name: booking.packageName || booking.itemName || "Package booking" };
+    return {
+      label: "Package",
+      name: booking.packageName || booking.itemName || "Package booking",
+    };
   }
   if (kinds.includes("service") || kinds.includes("activity")) {
-    return { label: "Service", name: booking.serviceName || booking.activityName || booking.itemName || "Service booking" };
+    return {
+      label: "Service",
+      name:
+        booking.serviceName ||
+        booking.activityName ||
+        booking.itemName ||
+        "Service booking",
+    };
   }
   const room = String(booking.room || "").trim();
   return {
     label: "Room",
-    name: booking.roomType || (room && room !== "0" ? room : "Room assignment pending"),
+    name:
+      booking.roomType ||
+      (room && room !== "0" ? room : "Room assignment pending"),
   };
 }
 
@@ -111,14 +127,28 @@ export default function ReceptionistDashboards() {
             ),
             paid: Number(data.paid ?? data.amountPaid ?? 0),
             notes: data.notes,
-            acceptedBy: String(data.acceptedBy ||
-              ([data.bookingType, data.bookingSource].some((value) =>
-                String(value || "").trim().toLowerCase() === "walk-in")
-                ? data.createdBy || "" : "")),
-            acceptedByUid: String(data.acceptedByUid ||
-              ([data.bookingType, data.bookingSource].some((value) =>
-                String(value || "").trim().toLowerCase() === "walk-in")
-                ? data.createdByUid || "" : "")),
+            acceptedBy: String(
+              data.acceptedBy ||
+                ([data.bookingType, data.bookingSource].some(
+                  (value) =>
+                    String(value || "")
+                      .trim()
+                      .toLowerCase() === "walk-in",
+                )
+                  ? data.createdBy || ""
+                  : ""),
+            ),
+            acceptedByUid: String(
+              data.acceptedByUid ||
+                ([data.bookingType, data.bookingSource].some(
+                  (value) =>
+                    String(value || "")
+                      .trim()
+                      .toLowerCase() === "walk-in",
+                )
+                  ? data.createdByUid || ""
+                  : ""),
+            ),
             cancelledBy: String(data.cancelledBy ?? ""),
             cancelledByUid: String(data.cancelledByUid ?? ""),
             cancelledAt: data.cancelledAt,
@@ -142,8 +172,8 @@ export default function ReceptionistDashboards() {
 
   const totalReservations = bookings.length;
 
-  const pendingReservations = bookings.filter(
-    (booking) => booking.status === "pending",
+  const pendingReservations = bookings.filter((booking) =>
+    ["pending", "pending-payment-verification"].includes(booking.status || ""),
   ).length;
 
   const confirmedReservations = bookings.filter(
@@ -233,6 +263,7 @@ export default function ReceptionistDashboards() {
       case "cancelled":
         return "bg-red-100 text-red-700";
 
+      case "pending-payment-verification":
       case "pending":
         return "bg-yellow-100 text-yellow-700";
 
@@ -261,7 +292,7 @@ export default function ReceptionistDashboards() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <Card className="p-6">
-          <p className="text-sm text-gray-500">Total Reservations</p>
+          <p className="text-sm text-gray-500">All Booking Requests</p>
 
           <p className="text-3xl font-bold text-gray-900 mt-2">
             {loading ? "..." : totalReservations}
@@ -480,7 +511,9 @@ export default function ReceptionistDashboards() {
                       </td>
 
                       <td className="py-3 px-4 text-sm text-gray-700">
-                        <span className={`mr-2 rounded px-1.5 py-0.5 text-xs ${subject.label === "Room" ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"}`}>
+                        <span
+                          className={`mr-2 rounded px-1.5 py-0.5 text-xs ${subject.label === "Room" ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"}`}
+                        >
                           {subject.label}
                         </span>
                         {subject.name}
@@ -515,6 +548,7 @@ export default function ReceptionistDashboards() {
           </table>
         </div>
       </Card>
+      <ServiceAvailabilityPanel />
     </div>
   );
 }

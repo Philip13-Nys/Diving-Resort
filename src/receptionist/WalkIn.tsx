@@ -1,3 +1,17 @@
+import { useActivityAvailability } from "../app/useActivityAvailability";
+import ServiceAddOnAvailability from "../app/components/ServiceAddOnAvailability";
+import PackageBookingFields from "../app/components/PackageBookingFields";
+import ActivitySchedulePicker, {
+  type ActivitySchedule,
+} from "../app/components/ActivitySchedulePicker";
+import {
+  assertActivityCapacity,
+  bookingActivityReservations,
+  activityEnabled,
+  activityPolicy,
+  hasAvailableActivitySession,
+  activitySession,
+} from "../app/activityAvailability";
 import { ensureRecordReferences } from "../app/bookingStore";
 import { displayRecordId } from "../app/bookingAvailability";
 import { useSearchParams } from "react-router-dom";
@@ -17,6 +31,9 @@ import { db } from "../app/firebase";
 import { createActivityLog } from "../app/activitylogss";
 
 type AddOn = {
+  sourceId: string;
+  itemType: string;
+  [key: string]: any;
   id: string;
   name: string;
   price: number;
@@ -34,6 +51,7 @@ type FormData = {
   selectedRoomType: string;
   roomQuantity: number;
   selectedAddOns: string[];
+  activitySchedules: Record<string, ActivitySchedule>;
   commissionerName: string;
   commissionAmount: string;
   paymentMethod: string;
@@ -57,6 +75,7 @@ const initialForm = (): FormData => ({
   selectedRoomType: "",
   roomQuantity: 1,
   selectedAddOns: [],
+  activitySchedules: {},
   commissionerName: "",
   commissionAmount: "",
   paymentMethod: "cash",
@@ -68,6 +87,7 @@ const money = (value: number) =>
   `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
 
 export default function WalkIn() {
+  const activityInventory = useActivityAvailability();
   const [searchParams] = useSearchParams();
   const [step, setStep] = useState(1);
   const {
@@ -107,52 +127,48 @@ export default function WalkIn() {
   })();
 
   useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const [services, packages, fee] = await Promise.all([
-          getDocs(collection(db, "services")),
-          getDocs(collection(db, "packages")),
-          getDoc(doc(db, "settings", "reservationFee")),
-        ]);
-        if (cancelled) return;
-        const mapOptions = (
-          snapshot: typeof services,
-          category: "Service" | "Package",
-        ) =>
-          snapshot.docs.map((document) => {
-            const value = document.data();
-            return {
-              id: category.toLowerCase() + "-" + document.id,
-              name: String(value.name ?? value.title ?? category),
-              price: Number(
-                category === "Package"
-                  ? (value.packagePrice ?? value.price ?? value.rate ?? 0)
-                  : (value.price ?? value.rate ?? value.amount ?? 0),
-              ),
-              category,
-            };
-          });
-        setAddOns([
-          ...mapOptions(services, "Service"),
-          ...mapOptions(packages, "Package"),
-        ]);
-        setReservationFeePercent(Number(fee.data()?.percent ?? 5));
-      } catch (error) {
-        if (!cancelled)
+    let active = true;
+    getDoc(doc(db, "settings", "reservationFee"))
+      .then((snapshot) => {
+        if (active) {
+          setReservationFeePercent(Number(snapshot.data()?.percent ?? 5));
+          setLoadingPrices(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
           setPriceError(
             "Unable to load current prices. Refresh before creating a booking.",
           );
-        console.error(error);
-      } finally {
-        if (!cancelled) setLoadingPrices(false);
-      }
-    };
-    void load();
+          setLoadingPrices(false);
+        }
+      });
     return () => {
-      cancelled = true;
+      active = false;
     };
   }, []);
+  useEffect(() => {
+    setAddOns(
+      activityInventory.catalog
+        .filter(
+          (item) =>
+            !item.status || ["active", "available"].includes(item.status),
+        )
+        .map((item) => ({
+          ...item,
+          sourceId: item.id,
+          id: item.itemType + "-" + item.id,
+          itemType: item.itemType,
+          name: String(item.name || item.title || item.itemType),
+          price: Number(
+            item.itemType === "package"
+              ? (item.packagePrice ?? item.price ?? item.rate ?? 0)
+              : (item.price ?? item.rate ?? 0),
+          ),
+          category: item.itemType === "package" ? "Package" : "Service",
+        })),
+    );
+  }, [activityInventory.catalog]);
 
   const roomOptions = useMemo(
     () =>
@@ -220,9 +236,63 @@ export default function WalkIn() {
         : undefined;
     })();
 
-  const selectedAddOns = addOns.filter((a) =>
-    form.selectedAddOns.includes(a.id),
-  );
+  const scheduleFor = (id: string): ActivitySchedule =>
+    form.activitySchedules[id] || {
+      bookingDate: form.checkIn,
+      bookingTime: "",
+      participants: 1,
+    };
+  const selectedAddOns = addOns
+    .filter((item) => form.selectedAddOns.includes(item.id))
+    .map((item) => ({
+      ...item,
+      price: item.price * scheduleFor(item.id).participants,
+    }));
+  const activityError = (() => {
+    if (!form.selectedAddOns.length) return "";
+    if (activityInventory.loading || activityInventory.error)
+      return activityInventory.error || "Checking activity availability...";
+    if (selectedAddOns.length !== form.selectedAddOns.length)
+      return "A selected activity was removed. Choose another activity.";
+    try {
+      const addons = selectedAddOns.map((item) => ({
+        id: item.sourceId,
+        type: item.itemType,
+        ...scheduleFor(item.id),
+      }));
+      const requests = bookingActivityReservations(
+        { checkIn: form.checkIn, checkOut: form.checkOut, addOns: addons },
+        activityInventory.catalog,
+      );
+      for (const item of selectedAddOns) {
+        if (item.itemType === "package") continue;
+        const selection = scheduleFor(item.id),
+          resource = activityInventory.catalog.find(
+            (resource) =>
+              resource.id === item.sourceId &&
+              resource.itemType === item.itemType,
+          )!;
+        const current = activitySession(
+          resource,
+          selection.bookingDate,
+          selection.bookingTime,
+          activityInventory.catalog,
+          activityInventory.occupied,
+        );
+        if (current.error) return current.error;
+      }
+      assertActivityCapacity(
+        requests,
+        activityInventory.catalog,
+        activityInventory.occupied,
+      );
+      return "";
+    } catch (error) {
+      return error instanceof Error
+        ? error.message
+        : "Choose valid activity sessions.";
+    }
+  })();
 
   const pricing = (() => {
     try {
@@ -271,8 +341,10 @@ export default function WalkIn() {
   const handleSubmit = async () => {
     if (submitting || loadingRooms) return;
     setSaveError("");
-    if (inventoryError || priceError || pricing.error) {
-      setSaveError(inventoryError || priceError || pricing.error);
+    if (inventoryError || priceError || pricing.error || activityError) {
+      setSaveError(
+        inventoryError || priceError || pricing.error || activityError,
+      );
       return;
     }
     try {
@@ -375,12 +447,20 @@ export default function WalkIn() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      {(inventoryError || priceError || pricing.error || saveError) && (
+      {(inventoryError ||
+        priceError ||
+        pricing.error ||
+        activityError ||
+        saveError) && (
         <p
           role="alert"
           className="rounded-lg border border-red-300 bg-red-50 p-4 text-sm text-red-800"
         >
-          {saveError || inventoryError || priceError || pricing.error}
+          {saveError ||
+            inventoryError ||
+            priceError ||
+            pricing.error ||
+            activityError}
         </p>
       )}
       <div className="flex items-center gap-4">
@@ -740,7 +820,21 @@ export default function WalkIn() {
                       }}
                     >
                       <input
-                        disabled={submitting}
+                        disabled={
+                          submitting ||
+                          (!checked &&
+                            (activityInventory.loading ||
+                              Boolean(activityInventory.error) ||
+                              !(item.itemType === "package"
+                                ? activityEnabled(item)
+                                : hasAvailableActivitySession(
+                                    item,
+                                    form.checkIn,
+                                    form.checkOut,
+                                    activityInventory.catalog,
+                                    activityInventory.occupied,
+                                  ))))
+                        }
                         type="checkbox"
                         checked={checked}
                         onChange={(e) =>
@@ -762,6 +856,18 @@ export default function WalkIn() {
                         <span className="text-xs" style={{ color: "#4a7a7a" }}>
                           ({item.category})
                         </span>
+                        {item.itemType !== "package" && (
+                          <ServiceAddOnAvailability
+                            item={item}
+                            firstDate={form.checkIn}
+                            lastDate={form.checkOut}
+                            catalog={activityInventory.catalog}
+                            occupied={activityInventory.occupied}
+                            selected={scheduleFor(item.id)}
+                            loading={activityInventory.loading}
+                            error={activityInventory.error}
+                          />
+                        )}
                       </span>
                       <span className="text-sm" style={{ color: "#0d7377" }}>
                         {money(item.price)}
@@ -774,6 +880,63 @@ export default function WalkIn() {
           </div>
         )}
 
+        {step === 2 && selectedAddOns.length > 0 && (
+          <section className="mt-4 space-y-4 rounded-xl border p-4">
+            <h3 className="text-sm font-semibold">
+              Selected activities & packages
+            </h3>
+            {selectedAddOns.map((item) => {
+              const resource = activityInventory.catalog.find(
+                (resource) =>
+                  resource.id === item.sourceId &&
+                  resource.itemType === item.itemType,
+              )!;
+              return (
+                <div key={item.id}>
+                  <p className="text-sm font-medium">{item.name}</p>
+                  {item.itemType === "package" ? (
+                    <PackageBookingFields
+                      name={item.name}
+                      value={scheduleFor(item.id)}
+                      onChange={(value) =>
+                        update("activitySchedules", {
+                          ...form.activitySchedules,
+                          [item.id]: value,
+                        })
+                      }
+                      minDate={form.checkIn}
+                      disabled={submitting}
+                      showDate={false}
+                    />
+                  ) : (
+                    <ActivitySchedulePicker
+                      item={resource}
+                      value={scheduleFor(item.id)}
+                      onChange={(value) =>
+                        update("activitySchedules", {
+                          ...form.activitySchedules,
+                          [item.id]: value,
+                        })
+                      }
+                      catalog={activityInventory.catalog}
+                      occupied={activityInventory.occupied}
+                      loading={activityInventory.loading}
+                      error={activityInventory.error}
+                      minDate={form.checkIn}
+                      maxDate={form.checkOut}
+                      disabled={submitting}
+                    />
+                  )}
+                </div>
+              );
+            })}
+            {activityError && (
+              <p role="status" className="text-xs text-amber-700">
+                {activityError}
+              </p>
+            )}
+          </section>
+        )}
         {step === 3 && (
           <div className="space-y-4">
             <h2
@@ -984,7 +1147,9 @@ export default function WalkIn() {
             type="button"
             disabled={
               submitting ||
-              Boolean(inventoryError || priceError || pricing.error) ||
+              Boolean(
+                inventoryError || priceError || pricing.error || activityError,
+              ) ||
               (step === 2 &&
                 (!selectedRoomType || nights < 1 || form.roomQuantity < 1))
             }
@@ -1030,7 +1195,9 @@ export default function WalkIn() {
             disabled={
               submitting ||
               loadingRooms ||
-              Boolean(inventoryError || priceError || pricing.error)
+              Boolean(
+                inventoryError || priceError || pricing.error || activityError,
+              )
             }
             className="px-6 py-2.5 rounded-lg text-sm text-white disabled:opacity-50"
             style={{ background: "#0d7377" }}

@@ -1,3 +1,4 @@
+import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import { displayRecordId } from "../app/bookingAvailability";
 import {
   assignedRoomIds,
@@ -225,6 +226,9 @@ function getBookingBars(
 }
 
 export default function CalendarView() {
+  const [availabilityTab, setAvailabilityTab] = useState<"rooms" | "services">(
+    "rooms",
+  );
   const recordRevision = useRecordRevision(
     "customer:Bookings,admin:reservations,admin:rooms,admin:roomTypes",
   );
@@ -263,7 +267,10 @@ export default function CalendarView() {
 
       const bookingData: Booking[] = [];
       const roomMap = new Map<string, string>(
-        inventory.map((room) => [String(room.roomId || room.roomNumber), room.type]),
+        inventory.map((room) => [
+          String(room.roomId || room.roomNumber),
+          room.type,
+        ]),
       );
 
       snapshot.docs.forEach((docSnap, index) => {
@@ -279,12 +286,10 @@ export default function CalendarView() {
 
         const assigned = assignedRoomIds(data, inventory);
         const labels = assigned.length
-          ? assigned.map(
-              (id) => {
-                const room = inventory.find((item) => item.id === id)!;
-                return String(room.roomId || room.roomNumber);
-              },
-            )
+          ? assigned.map((id) => {
+              const room = inventory.find((item) => item.id === id)!;
+              return String(room.roomId || room.roomNumber);
+            })
           : [
               "Unassigned: " +
                 String(data.roomName || data.roomType || docSnap.id) +
@@ -371,7 +376,10 @@ export default function CalendarView() {
       group.push(room);
       groups.set(room.type, group);
     }
-    return Array.from(groups, ([type, groupRooms]) => ({ type, rooms: groupRooms }));
+    return Array.from(groups, ([type, groupRooms]) => ({
+      type,
+      rooms: groupRooms,
+    }));
   }, [rooms, filterRoom]);
 
   const toggleType = (type: string) => {
@@ -462,413 +470,492 @@ export default function CalendarView() {
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full">
-      {error && (
-        <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
       <div
-        className="bg-white rounded-xl border mb-3 px-4 py-2 flex items-center gap-3 flex-wrap shrink-0"
-        style={{
-          borderColor: "rgba(13,115,119,0.1)",
-        }}
+        className="mb-4 flex gap-2"
+        role="group"
+        aria-label="Booking calendar type"
       >
-        <div className="flex items-center gap-2">
-          <h2
-            className="text-base font-medium"
+        <button
+          type="button"
+          aria-pressed={availabilityTab === "rooms"}
+          onClick={() => setAvailabilityTab("rooms")}
+          className="rounded-lg border px-4 py-2 text-sm"
+        >
+          Room calendar
+        </button>
+        <button
+          type="button"
+          aria-pressed={availabilityTab === "services"}
+          onClick={() => setAvailabilityTab("services")}
+          className="rounded-lg border px-4 py-2 text-sm"
+        >
+          Service calendar
+        </button>
+      </div>
+      {availabilityTab === "services" ? (
+        <ServiceAvailabilityPanel title="Service booking calendar" exportable />
+      ) : (
+        <>
+          {error && (
+            <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
+              {error}
+            </div>
+          )}
+
+          <div
+            className="bg-white rounded-xl border mb-3 px-4 py-2 flex items-center gap-3 flex-wrap shrink-0"
             style={{
-              color: "#0a2e2e",
-              fontFamily: "Georgia, serif",
+              borderColor: "rgba(13,115,119,0.1)",
             }}
           >
-            Booking Calendar
-          </h2>
+            <div className="flex items-center gap-2">
+              <h2
+                className="text-base font-medium"
+                style={{
+                  color: "#0a2e2e",
+                  fontFamily: "Georgia, serif",
+                }}
+              >
+                Booking Calendar
+              </h2>
 
-          <span className="text-sm" style={{ color: "#4a7a7a" }}>
-            {monthLabel}
-          </span>
-        </div>
+              <span className="text-sm" style={{ color: "#4a7a7a" }}>
+                {monthLabel}
+              </span>
+            </div>
 
-        <div className="flex items-center gap-1 ml-2">
-          <AsyncButton
-            onClick={() => setAnchor(addDays(anchor, -7))}
-            className="w-8 h-8 flex items-center justify-center rounded-lg border"
-            style={{
-              borderColor: "rgba(13,115,119,0.2)",
-              color: "#4a7a7a",
-            }}
-            aria-label="Previous week"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </AsyncButton>
+            <div className="flex items-center gap-1 ml-2">
+              <AsyncButton
+                onClick={() => setAnchor(addDays(anchor, -7))}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border"
+                style={{
+                  borderColor: "rgba(13,115,119,0.2)",
+                  color: "#4a7a7a",
+                }}
+                aria-label="Previous week"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </AsyncButton>
 
-          <span className="text-sm px-2" style={{ color: "#0a2e2e" }}>
-            {rangeLabel}
-          </span>
+              <span className="text-sm px-2" style={{ color: "#0a2e2e" }}>
+                {rangeLabel}
+              </span>
 
-          <AsyncButton
-            onClick={() => setAnchor(addDays(anchor, 7))}
-            className="w-8 h-8 flex items-center justify-center rounded-lg border"
-            style={{
-              borderColor: "rgba(13,115,119,0.2)",
-              color: "#4a7a7a",
-            }}
-            aria-label="Next week"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </AsyncButton>
+              <AsyncButton
+                onClick={() => setAnchor(addDays(anchor, 7))}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border"
+                style={{
+                  borderColor: "rgba(13,115,119,0.2)",
+                  color: "#4a7a7a",
+                }}
+                aria-label="Next week"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </AsyncButton>
 
-          <AsyncButton
-            onClick={() => setAnchor(today)}
-            className="px-2 py-1 rounded-lg text-xs border"
-            style={{
-              borderColor: "rgba(13,115,119,0.2)",
-              color: "#0d7377",
-            }}
-          >
-            Today
-          </AsyncButton>
-        </div>
+              <AsyncButton
+                onClick={() => setAnchor(today)}
+                className="px-2 py-1 rounded-lg text-xs border"
+                style={{
+                  borderColor: "rgba(13,115,119,0.2)",
+                  color: "#0d7377",
+                }}
+              >
+                Today
+              </AsyncButton>
+            </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <div className="relative">
-            <AsyncButton
-              onClick={() => setFilterOpen((open) => !open)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
-              style={{
-                borderColor: "rgba(13,115,119,0.2)",
-                color: "#4a7a7a",
-              }}
-            >
-              <Filter className="w-3.5 h-3.5" />
-              {filterRoom === "All" ? "All" : `Room ${filterRoom}`}
-            </AsyncButton>
-
-            {filterOpen && (
-              <div className="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-30 min-w-36">
+            <div className="ml-auto flex items-center gap-2">
+              <div className="relative">
                 <AsyncButton
-                  onClick={() => {
-                    setFilterRoom("All");
-                    setFilterOpen(false);
+                  onClick={() => setFilterOpen((open) => !open)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
+                  style={{
+                    borderColor: "rgba(13,115,119,0.2)",
+                    color: "#4a7a7a",
                   }}
-                  className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
                 >
-                  All Rooms
+                  <Filter className="w-3.5 h-3.5" />
+                  {filterRoom === "All" ? "All" : `Room ${filterRoom}`}
                 </AsyncButton>
 
-                {rooms.map((room) => (
-                  <AsyncButton
-                    key={room.id}
-                    onClick={() => {
-                      setFilterRoom(room.id);
-                      setFilterOpen(false);
-                    }}
-                    className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
-                  >
-                    #{room.id}
-                  </AsyncButton>
-                ))}
+                {filterOpen && (
+                  <div className="absolute right-0 top-full mt-1 bg-white border rounded-lg shadow-lg z-30 min-w-36">
+                    <AsyncButton
+                      onClick={() => {
+                        setFilterRoom("All");
+                        setFilterOpen(false);
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                    >
+                      All Rooms
+                    </AsyncButton>
+
+                    {rooms.map((room) => (
+                      <AsyncButton
+                        key={room.id}
+                        onClick={() => {
+                          setFilterRoom(room.id);
+                          setFilterOpen(false);
+                        }}
+                        className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-50"
+                      >
+                        #{room.id}
+                      </AsyncButton>
+                    ))}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          <AsyncButton
-            onClick={exportCalendar}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
-            style={{
-              borderColor: "rgba(13,115,119,0.2)",
-              color: "#4a7a7a",
-            }}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export
-          </AsyncButton>
-        </div>
-      </div>
-
-      <div
-        className="bg-white rounded-xl border flex-1 min-h-0 overflow-hidden"
-        style={{
-          borderColor: "rgba(13,115,119,0.1)",
-        }}
-      >
-        {rooms.length === 0 ? (
-          <div className="flex items-center justify-center py-20 text-sm text-gray-500">
-            No room records were found in your Bookings collection.
-          </div>
-        ) : (
-          <div
-            className="w-full h-full overflow-auto"
-            style={{
-              maxHeight: "calc(100vh - 220px)",
-            }}
-          >
-            <div
-              style={{
-                width: "100%",
-                minWidth: ROOM_COL_W + 700,
-              }}
-            >
-              <div
-                className="flex sticky top-0 z-20 bg-white border-b"
+              <AsyncButton
+                onClick={exportCalendar}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm"
                 style={{
-                  borderColor: "rgba(13,115,119,0.1)",
+                  borderColor: "rgba(13,115,119,0.2)",
+                  color: "#4a7a7a",
+                }}
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export
+              </AsyncButton>
+            </div>
+          </div>
+
+          <div
+            className="bg-white rounded-xl border flex-1 min-h-0 overflow-hidden"
+            style={{
+              borderColor: "rgba(13,115,119,0.1)",
+            }}
+          >
+            {rooms.length === 0 ? (
+              <div className="flex items-center justify-center py-20 text-sm text-gray-500">
+                No room records were found in your Bookings collection.
+              </div>
+            ) : (
+              <div
+                className="w-full h-full overflow-auto"
+                style={{
+                  maxHeight: "calc(100vh - 220px)",
                 }}
               >
                 <div
-                  className="flex-shrink-0 px-3 py-2 text-xs font-medium border-r"
                   style={{
-                    width: ROOM_COL_W,
-                    color: "#4a7a7a",
-                    borderColor: "rgba(13,115,119,0.1)",
+                    width: "100%",
+                    minWidth: ROOM_COL_W + 700,
                   }}
                 >
-                  Room
-                </div>
+                  <div
+                    className="flex sticky top-0 z-20 bg-white border-b"
+                    style={{
+                      borderColor: "rgba(13,115,119,0.1)",
+                    }}
+                  >
+                    <div
+                      className="flex-shrink-0 px-3 py-2 text-xs font-medium border-r"
+                      style={{
+                        width: ROOM_COL_W,
+                        color: "#4a7a7a",
+                        borderColor: "rgba(13,115,119,0.1)",
+                      }}
+                    >
+                      Room
+                    </div>
 
-                <div className="flex-1 grid grid-cols-7 min-w-0">
-                  {weekDays.map((day) => {
-                    const isToday = isSameDay(day, today);
+                    <div className="flex-1 grid grid-cols-7 min-w-0">
+                      {weekDays.map((day) => {
+                        const isToday = isSameDay(day, today);
+
+                        return (
+                          <div
+                            key={day.toISOString()}
+                            className="text-center py-1 border-r"
+                            style={{
+                              borderColor: "rgba(13,115,119,0.08)",
+                              background: isToday ? "#f0fffe" : undefined,
+                            }}
+                          >
+                            <div
+                              className="text-xs"
+                              style={{ color: "#4a7a7a" }}
+                            >
+                              {DAYS_SHORT[day.getDay()]}
+                            </div>
+
+                            <div
+                              className="w-7 h-7 mx-auto flex items-center justify-center rounded-full text-sm"
+                              style={{
+                                background: isToday ? "#0d7377" : "transparent",
+                                color: isToday ? "#fff" : "#0a2e2e",
+                                fontWeight: isToday ? 600 : 400,
+                              }}
+                            >
+                              {format(day, "d")}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {roomGroups.map((group) => {
+                    const expanded =
+                      filterRoom !== "All" || expandedTypes.has(group.type);
+                    const roomIds = new Set(group.rooms.map((room) => room.id));
 
                     return (
-                      <div
-                        key={day.toISOString()}
-                        className="text-center py-1 border-r"
-                        style={{
-                          borderColor: "rgba(13,115,119,0.08)",
-                          background: isToday ? "#f0fffe" : undefined,
-                        }}
-                      >
-                        <div className="text-xs" style={{ color: "#4a7a7a" }}>
-                          {DAYS_SHORT[day.getDay()]}
-                        </div>
+                      <Fragment key={group.type}>
+                        {filterRoom === "All" && (
+                          <div
+                            className="flex border-b bg-[#f0fffe]"
+                            style={{ borderColor: "rgba(13,115,119,0.1)" }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleType(group.type)}
+                              aria-expanded={expanded}
+                              className="flex flex-shrink-0 items-center gap-1.5 px-3 py-2 text-left text-sm font-medium"
+                              style={{ width: ROOM_COL_W, color: "#0a2e2e" }}
+                            >
+                              {expanded ? (
+                                <ChevronDown className="h-4 w-4 flex-shrink-0" />
+                              ) : (
+                                <ChevronRight className="h-4 w-4 flex-shrink-0" />
+                              )}
+                              <span
+                                className="min-w-0 truncate"
+                                title={group.type}
+                              >
+                                {group.type}
+                              </span>
+                              <span
+                                className="text-xs font-normal"
+                                style={{ color: "#4a7a7a" }}
+                              >
+                                ({group.rooms.length})
+                              </span>
+                            </button>
+                            <div className="grid min-w-0 flex-1 grid-cols-7">
+                              {weekDays.map((day) => {
+                                const nextDay = addDays(day, 1);
+                                const occupied = new Set(
+                                  filteredBookings
+                                    .filter(
+                                      (booking) =>
+                                        roomIds.has(booking.room) &&
+                                        booking.checkIn < nextDay &&
+                                        booking.checkOut > day,
+                                    )
+                                    .map((booking) => booking.room),
+                                ).size;
+                                return (
+                                  <div
+                                    key={day.toISOString()}
+                                    className="flex items-center justify-center border-l py-2 text-xs"
+                                    style={{
+                                      borderColor: "rgba(13,115,119,0.08)",
+                                      color: occupied ? "#0d7377" : "#4a7a7a",
+                                    }}
+                                    title={`${occupied} of ${group.rooms.length} rooms booked`}
+                                  >
+                                    {occupied
+                                      ? `${occupied}/${group.rooms.length} booked`
+                                      : "Available"}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {expanded &&
+                          group.rooms.map((room, roomIndex) => {
+                            const bars = getBookingBars(
+                              filteredBookings,
+                              room.id,
+                              weekDays,
+                            );
 
-                        <div
-                          className="w-7 h-7 mx-auto flex items-center justify-center rounded-full text-sm"
-                          style={{
-                            background: isToday ? "#0d7377" : "transparent",
-                            color: isToday ? "#fff" : "#0a2e2e",
-                            fontWeight: isToday ? 600 : 400,
-                          }}
-                        >
-                          {format(day, "d")}
-                        </div>
-                      </div>
+                            return (
+                              <div
+                                key={room.id}
+                                className="flex border-b"
+                                style={{
+                                  borderColor: "rgba(13,115,119,0.08)",
+                                  background:
+                                    roomIndex % 2 === 0 ? "#fff" : "#fafefe",
+                                }}
+                              >
+                                <div
+                                  className="flex-shrink-0 px-3 py-1 border-r flex flex-col justify-center"
+                                  style={{
+                                    width: ROOM_COL_W,
+                                    borderColor: "rgba(13,115,119,0.1)",
+                                    minHeight: 52,
+                                  }}
+                                >
+                                  <span
+                                    className="text-sm font-medium"
+                                    style={{ color: "#0a2e2e" }}
+                                  >
+                                    #{room.id}
+                                  </span>
+
+                                  <span
+                                    className="text-xs"
+                                    style={{ color: "#4a7a7a" }}
+                                  >
+                                    {room.type}
+                                  </span>
+                                </div>
+
+                                <div
+                                  className="relative flex-1 grid grid-cols-7 min-w-0"
+                                  style={{ minHeight: 52 }}
+                                >
+                                  {weekDays.map((day) => {
+                                    const isToday = isSameDay(day, today);
+
+                                    return (
+                                      <div
+                                        key={day.toISOString()}
+                                        className="border-r"
+                                        style={{
+                                          borderColor: "rgba(13,115,119,0.08)",
+                                          background: isToday
+                                            ? "rgba(13,115,119,0.03)"
+                                            : "transparent",
+                                        }}
+                                      />
+                                    );
+                                  })}
+
+                                  <div
+                                    className="absolute inset-0"
+                                    style={{
+                                      pointerEvents: "none",
+                                    }}
+                                  >
+                                    {bars.map(
+                                      ({
+                                        booking,
+                                        colStart,
+                                        colSpan,
+                                        startsBeforeWeek,
+                                        endsAfterWeek,
+                                      }) => {
+                                        const left = `${(colStart / 7) * 100}%`;
+                                        const width = `${(colSpan / 7) * 100}%`;
+                                        const isHovered =
+                                          hovered === booking.id;
+                                        const isCancelled =
+                                          booking.status.toLowerCase() ===
+                                          "cancelled";
+
+                                        const hoverText = [
+                                          booking.guest,
+                                          `Room: #${booking.room} ${booking.roomType}`,
+                                          `Check-in: ${format(
+                                            booking.checkIn,
+                                            "MMM d, yyyy",
+                                          )}`,
+                                          `Check-out: ${format(
+                                            booking.checkOut,
+                                            "MMM d, yyyy",
+                                          )}`,
+                                          `Status: ${booking.status}`,
+                                          `Services: ${
+                                            booking.services.join(", ") ||
+                                            "None"
+                                          }`,
+                                          `Packages: ${
+                                            booking.packages.join(", ") ||
+                                            "None"
+                                          }`,
+                                          ...(booking.addOns.length
+                                            ? [
+                                                `Other add-ons: ${booking.addOns.join(
+                                                  ", ",
+                                                )}`,
+                                              ]
+                                            : []),
+                                        ].join("\n");
+
+                                        return (
+                                          <div
+                                            key={booking.id}
+                                            style={{
+                                              position: "absolute",
+                                              left,
+                                              width,
+                                              top: "50%",
+                                              transform: "translateY(-50%)",
+                                              height: 30,
+                                              boxSizing: "border-box",
+                                              background: booking.color,
+                                              borderRadius: startsBeforeWeek
+                                                ? "0 6px 6px 0"
+                                                : endsAfterWeek
+                                                  ? "6px 0 0 6px"
+                                                  : 6,
+                                              display: "flex",
+                                              alignItems: "center",
+                                              paddingLeft: 10,
+                                              paddingRight: 8,
+                                              overflow: "hidden",
+                                              cursor: "pointer",
+                                              opacity: isCancelled
+                                                ? 0.35
+                                                : isHovered
+                                                  ? 0.88
+                                                  : 1,
+                                              textDecoration: isCancelled
+                                                ? "line-through"
+                                                : "none",
+                                              boxShadow: isHovered
+                                                ? "0 2px 8px rgba(0,0,0,0.18)"
+                                                : "0 1px 3px rgba(0,0,0,0.12)",
+                                              transition:
+                                                "opacity 0.15s, box-shadow 0.15s",
+                                              pointerEvents: "auto",
+                                              zIndex: isHovered ? 50 : 1,
+                                            }}
+                                            onMouseEnter={() =>
+                                              setHovered(booking.id)
+                                            }
+                                            onMouseLeave={() =>
+                                              setHovered(null)
+                                            }
+                                            title={hoverText}
+                                          >
+                                            <span
+                                              className="text-xs font-medium text-white"
+                                              style={{
+                                                userSelect: "none",
+                                                whiteSpace: "nowrap",
+                                                overflow: "hidden",
+                                                textOverflow: "ellipsis",
+                                                maxWidth: "100%",
+                                              }}
+                                            >
+                                              {booking.guest}
+                                            </span>
+                                          </div>
+                                        );
+                                      },
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </Fragment>
                     );
                   })}
                 </div>
               </div>
-
-              {roomGroups.map((group) => {
-                const expanded = filterRoom !== "All" || expandedTypes.has(group.type);
-                const roomIds = new Set(group.rooms.map((room) => room.id));
-
-                return (
-                  <Fragment key={group.type}>
-                    {filterRoom === "All" && <div className="flex border-b bg-[#f0fffe]" style={{ borderColor: "rgba(13,115,119,0.1)" }}>
-                      <button
-                        type="button"
-                        onClick={() => toggleType(group.type)}
-                        aria-expanded={expanded}
-                        className="flex flex-shrink-0 items-center gap-1.5 px-3 py-2 text-left text-sm font-medium"
-                        style={{ width: ROOM_COL_W, color: "#0a2e2e" }}
-                      >
-                        {expanded ? <ChevronDown className="h-4 w-4 flex-shrink-0" /> : <ChevronRight className="h-4 w-4 flex-shrink-0" />}
-                        <span className="min-w-0 truncate" title={group.type}>{group.type}</span>
-                        <span className="text-xs font-normal" style={{ color: "#4a7a7a" }}>({group.rooms.length})</span>
-                      </button>
-                      <div className="grid min-w-0 flex-1 grid-cols-7">
-                        {weekDays.map((day) => {
-                          const nextDay = addDays(day, 1);
-                          const occupied = new Set(
-                            filteredBookings
-                              .filter((booking) => roomIds.has(booking.room) && booking.checkIn < nextDay && booking.checkOut > day)
-                              .map((booking) => booking.room),
-                          ).size;
-                          return (
-                            <div key={day.toISOString()} className="flex items-center justify-center border-l py-2 text-xs" style={{ borderColor: "rgba(13,115,119,0.08)", color: occupied ? "#0d7377" : "#4a7a7a" }} title={`${occupied} of ${group.rooms.length} rooms booked`}>
-                              {occupied ? `${occupied}/${group.rooms.length} booked` : "Available"}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>}
-                    {expanded && group.rooms.map((room, roomIndex) => {
-                  const bars = getBookingBars(
-                    filteredBookings,
-                    room.id,
-                    weekDays,
-                  );
-
-                  return (
-                    <div
-                      key={room.id}
-                      className="flex border-b"
-                      style={{
-                        borderColor: "rgba(13,115,119,0.08)",
-                        background: roomIndex % 2 === 0 ? "#fff" : "#fafefe",
-                      }}
-                    >
-                      <div
-                        className="flex-shrink-0 px-3 py-1 border-r flex flex-col justify-center"
-                        style={{
-                          width: ROOM_COL_W,
-                          borderColor: "rgba(13,115,119,0.1)",
-                          minHeight: 52,
-                        }}
-                      >
-                        <span
-                          className="text-sm font-medium"
-                          style={{ color: "#0a2e2e" }}
-                        >
-                          #{room.id}
-                        </span>
-
-                        <span className="text-xs" style={{ color: "#4a7a7a" }}>
-                          {room.type}
-                        </span>
-                      </div>
-
-                      <div
-                        className="relative flex-1 grid grid-cols-7 min-w-0"
-                        style={{ minHeight: 52 }}
-                      >
-                        {weekDays.map((day) => {
-                          const isToday = isSameDay(day, today);
-
-                          return (
-                            <div
-                              key={day.toISOString()}
-                              className="border-r"
-                              style={{
-                                borderColor: "rgba(13,115,119,0.08)",
-                                background: isToday
-                                  ? "rgba(13,115,119,0.03)"
-                                  : "transparent",
-                              }}
-                            />
-                          );
-                        })}
-
-                        <div
-                          className="absolute inset-0"
-                          style={{
-                            pointerEvents: "none",
-                          }}
-                        >
-                          {bars.map(
-                            ({
-                              booking,
-                              colStart,
-                              colSpan,
-                              startsBeforeWeek,
-                              endsAfterWeek,
-                            }) => {
-                              const left = `${(colStart / 7) * 100}%`;
-                              const width = `${(colSpan / 7) * 100}%`;
-                              const isHovered = hovered === booking.id;
-                              const isCancelled =
-                                booking.status.toLowerCase() === "cancelled";
-
-                              const hoverText = [
-                                booking.guest,
-                                `Room: #${booking.room} ${booking.roomType}`,
-                                `Check-in: ${format(
-                                  booking.checkIn,
-                                  "MMM d, yyyy",
-                                )}`,
-                                `Check-out: ${format(
-                                  booking.checkOut,
-                                  "MMM d, yyyy",
-                                )}`,
-                                `Status: ${booking.status}`,
-                                `Services: ${
-                                  booking.services.join(", ") || "None"
-                                }`,
-                                `Packages: ${
-                                  booking.packages.join(", ") || "None"
-                                }`,
-                                ...(booking.addOns.length
-                                  ? [
-                                      `Other add-ons: ${booking.addOns.join(
-                                        ", ",
-                                      )}`,
-                                    ]
-                                  : []),
-                              ].join("\n");
-
-                              return (
-                                <div
-                                  key={booking.id}
-                                  style={{
-                                    position: "absolute",
-                                    left,
-                                    width,
-                                    top: "50%",
-                                    transform: "translateY(-50%)",
-                                    height: 30,
-                                    boxSizing: "border-box",
-                                    background: booking.color,
-                                    borderRadius: startsBeforeWeek
-                                      ? "0 6px 6px 0"
-                                      : endsAfterWeek
-                                        ? "6px 0 0 6px"
-                                        : 6,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    paddingLeft: 10,
-                                    paddingRight: 8,
-                                    overflow: "hidden",
-                                    cursor: "pointer",
-                                    opacity: isCancelled
-                                      ? 0.35
-                                      : isHovered
-                                        ? 0.88
-                                        : 1,
-                                    textDecoration: isCancelled
-                                      ? "line-through"
-                                      : "none",
-                                    boxShadow: isHovered
-                                      ? "0 2px 8px rgba(0,0,0,0.18)"
-                                      : "0 1px 3px rgba(0,0,0,0.12)",
-                                    transition:
-                                      "opacity 0.15s, box-shadow 0.15s",
-                                    pointerEvents: "auto",
-                                    zIndex: isHovered ? 50 : 1,
-                                  }}
-                                  onMouseEnter={() => setHovered(booking.id)}
-                                  onMouseLeave={() => setHovered(null)}
-                                  title={hoverText}
-                                >
-                                  <span
-                                    className="text-xs font-medium text-white"
-                                    style={{
-                                      userSelect: "none",
-                                      whiteSpace: "nowrap",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      maxWidth: "100%",
-                                    }}
-                                  >
-                                    {booking.guest}
-                                  </span>
-                                </div>
-                              );
-                            },
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                    })}
-                  </Fragment>
-                );
-              })}
-            </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

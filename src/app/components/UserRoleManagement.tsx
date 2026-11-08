@@ -190,7 +190,8 @@ export default function UserRoleManagement() {
       )
         throw new Error("This username is already in use.");
       if (
-        editUser?.id === auth.currentUser?.uid &&
+        editUser &&
+        editUser.id === auth.currentUser?.uid &&
         (form.role !== editUser.role || form.status === "Disabled")
       )
         throw new Error("You cannot remove your own administrator access.");

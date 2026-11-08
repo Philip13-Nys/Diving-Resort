@@ -1,3 +1,8 @@
+import {
+  holdActivityPlaces,
+  finishActivityHold,
+  reconcileActivityHold,
+} from "./activityInventory";
 import { requireAccess } from "./auth";
 import {
   collection,
@@ -29,6 +34,15 @@ export type WalkInInput = {
   selectedRoomType: string;
   roomQuantity: number;
   selectedAddOns: string[];
+  activitySchedules?: Record<
+    string,
+    {
+      bookingDate: string;
+      bookingTime: string;
+      participants: number;
+      quantity?: number;
+    }
+  >;
   commissionerName: string;
   commissionAmount: string;
   paymentMethod: string;
@@ -153,6 +167,14 @@ export function buildWalkInBooking(
       name: item.name,
       price: item.price,
       services: item.services || [],
+      participants: Number(item.participants || 1),
+      ...(item.quantity !== undefined
+        ? { quantity: Number(item.quantity) }
+        : {}),
+      unitPrice: Number(item.unitPrice ?? item.price),
+      ...(item.bookingDate
+        ? { bookingDate: item.bookingDate, bookingTime: item.bookingTime }
+        : {}),
     })),
     ...totals,
     totalPrice: totals.total,
@@ -200,135 +222,193 @@ export async function saveWalkIn(
   const bookingRef = doc(db, "reservations", bookingId);
   const paymentRef = doc(db, "Payments", `walkin-${bookingId}`);
   const lockRef = doc(db, "BookingLocks", input.selectedRoomType);
-  return runTransaction(db, async (transaction) => {
-    const existing = await transaction.get(bookingRef);
-    if (existing.exists())
-      return {
-        reference: String(existing.data().bookingRef),
-        roomNumbers: existing.data().assignedRoomNumbers || [],
-      };
-    const lock = await transaction.get(lockRef);
-    // Queries are repeated on each retry of the shared Walk-in lock. Staff
-    // reservation documents are also transaction reads, so edits force a retry.
-    // The separate customer app does not yet participate in this lock protocol.
-    const [rooms, types, bookings, legacy, services, packages, fee] =
-      await Promise.all([
-        getDocs(collection(db, "rooms")),
-        getDocs(collection(db, "roomTypes")),
-        getDocs(collection(customerDb, "Bookings")),
-        getDocs(collection(db, "reservations")),
-        getDocs(collection(db, "services")),
-        getDocs(collection(db, "packages")),
-        getDoc(doc(db, "settings", "reservationFee")),
-      ]);
-    const currentStaffReservations = await Promise.all(
-      legacy.docs.map((document) => transaction.get(document.ref)),
-    );
-    const customerRecords = bookings.docs.map((document) => ({
-      ...document.data(),
-      id: document.id,
-    }));
-    const staffRecords = currentStaffReservations
-      .filter((document) => document.exists())
-      .map((document) => ({ ...document.data(), id: document.id }));
-    const type = types.docs.find(
-      (document) => document.id === input.selectedRoomType,
-    );
-    if (!type)
-      throw new Error("This room type no longer exists. Refresh the form.");
-    const selectedType = { ...type.data(), id: type.id };
-    const inventory = normalizeInventory(
-      rooms.docs.map((document) => ({ ...document.data(), id: document.id })),
-      types.docs.map((document) => ({ ...document.data(), id: document.id })),
-    );
-    const reservations = mergeReservations(customerRecords, staffRecords);
-    const assigned = allocateRooms(
-      inventory,
-      reservations,
-      selectedType,
-      input.checkIn,
-      input.checkOut,
-      input.roomQuantity,
-      input.pax,
-    );
-    const options: BookingRecord[] = [
-      ...services.docs.map((document) => ({
-        ...document.data(),
-        sourceId: document.id,
-        id: `service-${document.id}`,
-        category: "Service",
-      })),
-      ...packages.docs.map((document) => ({
-        ...document.data(),
-        sourceId: document.id,
-        id: `package-${document.id}`,
-        category: "Package",
-      })),
-    ];
-    const addOns = input.selectedAddOns.map((id) => {
-      const item = options.find((option) => option.id === id);
-      if (!item)
-        throw new Error(
-          "A selected add-on no longer exists. Refresh the form.",
-        );
-      return {
-        ...item,
-        name: String(item.name || item.title || item.category),
-        price: Number(
-          item.category === "Package"
-            ? (item.packagePrice ?? item.price ?? item.rate ?? 0)
-            : (item.price ?? item.rate ?? item.amount ?? 0),
-        ),
-      };
-    });
-    const booking = buildWalkInBooking(
-      input,
-      selectedType,
-      assigned,
-      addOns,
-      Number(fee.data()?.percent ?? 5),
-      bookingId,
-      staff,
-    );
-    if (moneyCents(booking.totalPrice) !== moneyCents(expectedTotal))
-      throw new Error(
-        "Prices have changed. Refresh the form and review the new total before confirming.",
-      );
-    transaction.set(bookingRef, {
-      ...booking,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      ...(booking.status === "checked-in"
-        ? { checkedInAt: serverTimestamp() }
-        : {}),
-    });
-    if (booking.amountPaid > 0)
-      transaction.set(paymentRef, {
-        bookingId,
-        bookingRef: booking.bookingRef,
-        guest: booking.customerName,
-        customerName: booking.customerName,
-        room: booking.assignedRoomNumbers.join(", "),
-        roomName: booking.roomName,
-        amount: booking.amountPaid,
-        method: input.paymentMethod,
-        type: booking.remainingBalance === 0 ? "full" : "partial",
-        status: "completed",
-        verificationStatus: "verified",
-        receiptNo: `RCP-${bookingId}`,
-        referenceNumber: "",
-        bookingType: "Walk-in",
-        receivedByUid: user.uid,
-        createdAt: serverTimestamp(),
-        verifiedAt: serverTimestamp(),
-      });
-    transaction.set(lockRef, {
-      revision: Number(lock.data()?.revision || 0) + 1,
-      updatedAt: serverTimestamp(),
-    });
+  const prior = await getDoc(bookingRef);
+  if (prior.exists())
     return {
-      reference: booking.bookingRef,
-      roomNumbers: booking.assignedRoomNumbers,
+      reference: String(prior.data().bookingRef),
+      roomNumbers: prior.data().assignedRoomNumbers || [],
     };
+  const hold = await holdActivityPlaces({
+    id: bookingId,
+    _bookingStore: "staff",
+    checkIn: input.checkIn,
+    checkOut: input.checkOut,
+    addOns: input.selectedAddOns.map((id) => ({
+      id: id.replace(/^(service|package)-/, ""),
+      type: id.startsWith("package-") ? "package" : "service",
+      ...input.activitySchedules?.[id],
+    })),
   });
+  try {
+    const result = await runTransaction(db, async (transaction) => {
+      const existing = await transaction.get(bookingRef);
+      if (existing.exists())
+        return {
+          reference: String(existing.data().bookingRef),
+          roomNumbers: existing.data().assignedRoomNumbers || [],
+        };
+      const lock = await transaction.get(lockRef);
+      // Queries are repeated on each retry of the shared Walk-in lock. Staff
+      // reservation documents are also transaction reads, so edits force a retry.
+      // The separate customer app does not yet participate in this lock protocol.
+      const [rooms, types, bookings, legacy, services, packages, fee] =
+        await Promise.all([
+          getDocs(collection(db, "rooms")),
+          getDocs(collection(db, "roomTypes")),
+          getDocs(collection(customerDb, "Bookings")),
+          getDocs(collection(db, "reservations")),
+          getDocs(collection(db, "services")),
+          getDocs(collection(db, "packages")),
+          getDoc(doc(db, "settings", "reservationFee")),
+        ]);
+      const currentStaffReservations = await Promise.all(
+        legacy.docs.map((document) => transaction.get(document.ref)),
+      );
+      const customerRecords = bookings.docs.map((document) => ({
+        ...document.data(),
+        id: document.id,
+      }));
+      const staffRecords = currentStaffReservations
+        .filter((document) => document.exists())
+        .map((document) => ({ ...document.data(), id: document.id }));
+      const type = types.docs.find(
+        (document) => document.id === input.selectedRoomType,
+      );
+      if (!type)
+        throw new Error("This room type no longer exists. Refresh the form.");
+      const selectedType = { ...type.data(), id: type.id };
+      const inventory = normalizeInventory(
+        rooms.docs.map((document) => ({ ...document.data(), id: document.id })),
+        types.docs.map((document) => ({ ...document.data(), id: document.id })),
+      );
+      const reservations = mergeReservations(customerRecords, staffRecords);
+      const assigned = allocateRooms(
+        inventory,
+        reservations,
+        selectedType,
+        input.checkIn,
+        input.checkOut,
+        input.roomQuantity,
+        input.pax,
+      );
+      const options: BookingRecord[] = [
+        ...services.docs.map((document) => ({
+          ...document.data(),
+          sourceId: document.id,
+          id: `service-${document.id}`,
+          category: "Service",
+        })),
+        ...packages.docs.map((document) => ({
+          ...document.data(),
+          sourceId: document.id,
+          id: `package-${document.id}`,
+          category: "Package",
+        })),
+      ];
+      const addOns = input.selectedAddOns.map((id) => {
+        const item = options.find((option) => option.id === id);
+        if (!item)
+          throw new Error(
+            "A selected add-on no longer exists. Refresh the form.",
+          );
+        const participantCount = Number(
+          input.activitySchedules?.[id]?.participants ?? 1,
+        );
+        if (
+          !Number.isInteger(participantCount) ||
+          participantCount < 1 ||
+          participantCount > 10000
+        )
+          throw new Error("Choose a valid whole number of participants.");
+        return {
+          ...item,
+          ...(item.category === "Package"
+            ? {
+                participants: participantCount,
+                bookingDate: input.checkIn,
+                bookingTime: "",
+              }
+            : input.activitySchedules?.[id] || {}),
+          unitPrice: Number(
+            item.category === "Package"
+              ? (item.packagePrice ?? item.price ?? item.rate ?? 0)
+              : (item.price ?? item.rate ?? item.amount ?? 0),
+          ),
+          name: String(item.name || item.title || item.category),
+          price:
+            Number(
+              item.category === "Package"
+                ? (item.packagePrice ?? item.price ?? item.rate ?? 0)
+                : (item.price ?? item.rate ?? item.amount ?? 0),
+            ) * participantCount,
+        };
+      });
+      const booking = buildWalkInBooking(
+        input,
+        selectedType,
+        assigned,
+        addOns,
+        Number(fee.data()?.percent ?? 5),
+        bookingId,
+        staff,
+      );
+      if (moneyCents(booking.totalPrice) !== moneyCents(expectedTotal))
+        throw new Error(
+          "Prices have changed. Refresh the form and review the new total before confirming.",
+        );
+      transaction.set(bookingRef, {
+        ...booking,
+        ...(hold ? { activityReservations: hold.requests } : {}),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        ...(booking.status === "checked-in"
+          ? { checkedInAt: serverTimestamp() }
+          : {}),
+      });
+      if (booking.amountPaid > 0)
+        transaction.set(paymentRef, {
+          bookingId,
+          bookingRef: booking.bookingRef,
+          guest: booking.customerName,
+          customerName: booking.customerName,
+          room: booking.assignedRoomNumbers.join(", "),
+          roomName: booking.roomName,
+          amount: booking.amountPaid,
+          method: input.paymentMethod,
+          type: booking.remainingBalance === 0 ? "full" : "partial",
+          status: "completed",
+          verificationStatus: "verified",
+          receiptNo: `RCP-${bookingId}`,
+          referenceNumber: "",
+          bookingType: "Walk-in",
+          receivedByUid: user.uid,
+          createdAt: serverTimestamp(),
+          verifiedAt: serverTimestamp(),
+        });
+      transaction.set(lockRef, {
+        revision: Number(lock.data()?.revision || 0) + 1,
+        updatedAt: serverTimestamp(),
+      });
+      return {
+        reference: booking.bookingRef,
+        roomNumbers: booking.assignedRoomNumbers,
+      };
+    });
+    try {
+      await finishActivityHold(hold, true);
+    } catch (error) {
+      console.error("Activity places remain safely held:", error);
+    }
+    return result;
+  } catch (error) {
+    try {
+      await reconcileActivityHold(hold, bookingRef);
+    } catch (reconcileError) {
+      console.error(
+        "Activity allocation needs reconciliation:",
+        reconcileError,
+      );
+    }
+    throw error;
+  }
 }

@@ -1,3 +1,4 @@
+import ServiceAvailabilityPanel from "./ServiceAvailabilityPanel";
 import { displayRecordId } from "../bookingAvailability";
 import { useRecordRevision } from "../useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
@@ -236,7 +237,9 @@ function EmptyState({
 }
 
 export default function ManagerDashboard() {
-  const recordRevision = useRecordRevision("customer:Bookings,admin:reservations");
+  const recordRevision = useRecordRevision(
+    "customer:Bookings,admin:reservations",
+  );
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -706,6 +709,7 @@ export default function ManagerDashboard() {
           )}
         </section>
       </div>
+      <ServiceAvailabilityPanel />
     </main>
   );
 }

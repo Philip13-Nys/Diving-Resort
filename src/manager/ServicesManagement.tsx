@@ -1,3 +1,15 @@
+import { saveServiceConfiguration } from "../app/serviceConfiguration";
+import { useActivityAvailability } from "../app/useActivityAvailability";
+import ActivityAvailabilityFields, {
+  ActivityAvailabilitySummary,
+} from "../app/components/ActivityAvailabilityFields";
+import {
+  activityPolicy,
+  readActivityPolicy,
+  activityCapacityLabel,
+  type ActivityPolicy,
+} from "../app/activityAvailability";
+import { requireAccess } from "../app/auth";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
@@ -26,6 +38,7 @@ import { createActivityLog } from "../app/activitylogss";
 import { db } from "../app/firebase";
 
 type Service = {
+  availability?: ActivityPolicy;
   id: string;
   name: string;
   category: string;
@@ -38,6 +51,8 @@ type Service = {
 };
 
 type Package = {
+  availability?: ActivityPolicy;
+  serviceIds?: string[];
   id: string;
   name: string;
   description: string;
@@ -78,6 +93,10 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
 };
 
 export default function ServicesManagement() {
+  const activityInventory = useActivityAvailability();
+  const [availabilityDate, setAvailabilityDate] = useState(() =>
+    new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10),
+  );
   const recordRevision = useRecordRevision("admin:services,admin:packages");
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"services" | "packages">(
@@ -114,6 +133,7 @@ export default function ServicesManagement() {
           name: data.name || "",
           category: data.category || "",
           description: data.description || "",
+          availability: data.availability,
           duration: data.duration || "",
           price: Number(data.price || 0),
           maxParticipants: Number(data.maxParticipants || 0),
@@ -140,6 +160,8 @@ export default function ServicesManagement() {
           name: data.name || "",
           description: data.description || "",
           services: Array.isArray(data.services) ? data.services : [],
+          availability: data.availability,
+          serviceIds: data.serviceIds,
           originalPrice: Number(data.originalPrice || 0),
           packagePrice: Number(data.packagePrice || 0),
           discount: Number(data.discount || 0),
@@ -199,6 +221,7 @@ export default function ServicesManagement() {
     try {
       const service = services.find((item) => item.id === id);
 
+      await requireAccess("manager");
       await deleteDoc(doc(db, "services", id));
 
       if (service) {
@@ -218,18 +241,21 @@ export default function ServicesManagement() {
 
   const handleAddService = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const data = new FormData(e.currentTarget);
 
     try {
+      await requireAccess("manager");
       setUploading(true);
-
-      const form = e.currentTarget;
-      const data = new FormData(form);
 
       const serviceName = (data.get("name") as string).trim();
       const category = data.get("category") as string;
       const price = Number(data.get("price"));
-      const maxParticipants = Number(data.get("maxParticipants"));
-      const duration = (data.get("duration") as string).trim();
+      const availability = readActivityPolicy(data);
+      const maxParticipants =
+        availability.capacityType === "units"
+          ? availability.capacity * availability.participantsPerUnit!
+          : availability.capacity;
+      const duration = `${availability.durationMinutes} minutes`;
       const status = (data.get("status") as string).toLowerCase();
       const description = (data.get("description") as string).trim();
 
@@ -244,12 +270,13 @@ export default function ServicesManagement() {
         imageUrl = await uploadToCloudinary(selectedImage);
       }
 
-      await addDoc(collection(db, "services"), {
+      await saveServiceConfiguration("services", undefined, {
         name: serviceName,
         category,
         description,
         price,
         maxParticipants,
+        availability,
         duration,
         status,
         image: imageUrl,
@@ -277,21 +304,24 @@ export default function ServicesManagement() {
 
   const handleSaveService = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const data = new FormData(e.currentTarget);
 
     if (!editingService) return;
 
     try {
+      await requireAccess("manager");
       setUploading(true);
-
-      const form = e.currentTarget;
-      const data = new FormData(form);
 
       const name = (data.get("name") as string).trim();
       const category = data.get("category") as string;
       const description = (data.get("description") as string).trim();
       const price = Number(data.get("price"));
-      const maxParticipants = Number(data.get("maxParticipants"));
-      const duration = (data.get("duration") as string).trim();
+      const availability = readActivityPolicy(data);
+      const maxParticipants =
+        availability.capacityType === "units"
+          ? availability.capacity * availability.participantsPerUnit!
+          : availability.capacity;
+      const duration = `${availability.durationMinutes} minutes`;
       const status = (data.get("status") as string).toLowerCase();
 
       if (!name) {
@@ -306,12 +336,13 @@ export default function ServicesManagement() {
         imageUrl = await uploadToCloudinary(selectedImage);
       }
 
-      await updateDoc(doc(db, "services", editingService.id), {
+      await saveServiceConfiguration("services", editingService.id, {
         name,
         category,
         description,
         price,
         maxParticipants,
+        availability,
         duration,
         status,
         image: imageUrl,
@@ -348,6 +379,7 @@ export default function ServicesManagement() {
     try {
       const pkg = packages.find((item) => item.id === id);
 
+      await requireAccess("manager");
       await deleteDoc(doc(db, "packages", id));
 
       if (pkg) {
@@ -367,12 +399,12 @@ export default function ServicesManagement() {
 
   const handleSavePackage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const data = new FormData(e.currentTarget);
 
     if (!editingPackage) return;
 
     try {
-      const form = e.currentTarget;
-      const data = new FormData(form);
+      await requireAccess("manager");
 
       const packageName = (data.get("name") as string).trim();
       const packagePrice = Number(data.get("packagePrice"));
@@ -389,7 +421,7 @@ export default function ServicesManagement() {
           "Enter a package name, nonnegative price, and discount from 0 to 100.",
         );
 
-      await updateDoc(doc(db, "packages", editingPackage.id), {
+      await saveServiceConfiguration("packages", editingPackage.id, {
         name: packageName,
         description: data.get("description") as string,
         services: (data.get("services") as string)
@@ -419,9 +451,10 @@ export default function ServicesManagement() {
 
   const handleAddPackage = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const data = new FormData(e.currentTarget);
 
     try {
-      const data = new FormData(e.currentTarget);
+      await requireAccess("manager");
 
       const packageName = (data.get("name") as string).trim();
       const packagePrice = Number(data.get("packagePrice"));
@@ -438,7 +471,7 @@ export default function ServicesManagement() {
           "Enter a package name, nonnegative price, and discount from 0 to 100.",
         );
 
-      await addDoc(collection(db, "packages"), {
+      await saveServiceConfiguration("packages", undefined, {
         name: packageName,
         description: data.get("description") as string,
         services: (data.get("services") as string)
@@ -618,33 +651,9 @@ export default function ServicesManagement() {
                       placeholder="0"
                     />
                   </div>
-
-                  <div>
-                    <label className="text-sm font-medium text-gray-700 block mb-1">
-                      Max Participants
-                    </label>
-                    <input
-                      name="maxParticipants"
-                      type="number"
-                      min="1"
-                      required
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="4"
-                    />
-                  </div>
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Duration
-                  </label>
-                  <input
-                    name="duration"
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g. 2 hours"
-                  />
-                </div>
+                <ActivityAvailabilityFields />
 
                 <div>
                   <label className="text-sm font-medium text-gray-700 block mb-1">
@@ -898,32 +907,9 @@ export default function ServicesManagement() {
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
-
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Max Participants
-                  </label>
-                  <input
-                    name="maxParticipants"
-                    type="number"
-                    min="1"
-                    defaultValue={editingService.maxParticipants}
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
               </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 block mb-1">
-                  Duration
-                </label>
-                <input
-                  name="duration"
-                  defaultValue={editingService.duration}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
+              <ActivityAvailabilityFields item={editingService} />
 
               <div>
                 <label className="text-sm font-medium text-gray-700 block mb-1">
@@ -1108,6 +1094,27 @@ export default function ServicesManagement() {
         </AsyncButton>
       </div>
 
+      {activeTab === "services" && (
+        <label className="mb-5 flex flex-wrap items-center gap-3 text-sm font-medium text-gray-700">
+          Activity availability date
+          <input
+            aria-label="Activity availability date"
+            type="date"
+            value={availabilityDate}
+            onChange={(event) => setAvailabilityDate(event.target.value)}
+            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
+          />
+          <span className="text-xs font-normal text-gray-500">
+            Confirmed reservations and confirmations in progress reserve
+            participant places.
+          </span>
+        </label>
+      )}
+      {activityInventory.error && (
+        <p role="alert" className="mb-4 text-sm text-red-700">
+          {activityInventory.error}
+        </p>
+      )}
       {/* Services Tab */}
       {activeTab === "services" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1160,6 +1167,11 @@ export default function ServicesManagement() {
                   </div>
                 </div>
 
+                <ActivityAvailabilitySummary
+                  item={{ ...service, itemType: "service" }}
+                  date={availabilityDate}
+                  inventory={activityInventory}
+                />
                 <div className="space-y-2">
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-500">Category</span>
@@ -1176,7 +1188,9 @@ export default function ServicesManagement() {
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-500">Max Participants</span>
                     <span className="text-gray-900">
-                      {service.maxParticipants} people
+                      {activityPolicy(service)?.capacity ??
+                        service.maxParticipants}{" "}
+                      {activityCapacityLabel(service)} per session
                     </span>
                   </div>
 

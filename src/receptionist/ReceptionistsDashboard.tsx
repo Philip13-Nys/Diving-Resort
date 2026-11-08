@@ -1,3 +1,4 @@
+import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import {
   assignedRoomIds,
   normalizeInventory,
@@ -272,7 +273,7 @@ export default function ReceptionistsDashboard() {
     return bookings.filter((booking) => {
       const status = getBookingStatus(booking);
 
-      if (status === "cancelled" || status === "checked-out") {
+      if (status !== "confirmed" && status !== "checked-in") {
         return false;
       }
 
@@ -286,7 +287,7 @@ export default function ReceptionistsDashboard() {
     return bookings.filter((booking) => {
       const status = getBookingStatus(booking);
 
-      if (status === "cancelled") {
+      if (status !== "confirmed" && status !== "checked-in") {
         return false;
       }
 
@@ -628,8 +629,8 @@ export default function ReceptionistsDashboard() {
             </div>
           </div>
         </div>
-
       </div>
+      <ServiceAvailabilityPanel />
     </div>
   );
 }
