@@ -441,34 +441,6 @@ integration(
   },
 );
 integration(
-  "maintenance blocks room inventory until every open request is resolved",
-  async () => {
-    await sdk.updateDoc(sdk.doc(db, "Users/reception"), { role: "Manager" });
-    await sdk.updateDoc(sdk.doc(db, "rooms/room1"), { roomId: "R-001" });
-    const { saveMaintenance } = operations("src/app/maintenanceOperations.ts");
-    await saveMaintenance("m1", {
-      roomId: "R-001",
-      issue: "Test one",
-      status: "pending",
-    });
-    await saveMaintenance("m2", {
-      roomId: "room1",
-      issue: "Test two",
-      status: "pending",
-    });
-    await saveMaintenance("m1", { status: "completed" });
-    assert.equal(
-      (await sdk.getDoc(sdk.doc(db, "rooms/room1"))).data().condition,
-      "maintenance",
-    );
-    await saveMaintenance("m2", { status: "completed" });
-    assert.equal(
-      (await sdk.getDoc(sdk.doc(db, "rooms/room1"))).data().condition,
-      "good",
-    );
-  },
-);
-integration(
   "saving a standalone guest creates a profile, not a fake reservation",
   async () => {
     const { saveGuestProfile, getGuests } = operations(

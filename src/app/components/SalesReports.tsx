@@ -1,4 +1,4 @@
-import { toCsv, servicePackageRevenue } from "../reportData";
+import { exportWorkbook, servicePackageRevenue } from "../reportData";
 import { completedPayment, cancelled, displayRecordId } from "../bookingAvailability";
 import { useRecordRevision } from "../useBookingInventory";
 import {
@@ -348,33 +348,25 @@ export default function SalesReports() {
     setReportReady(true);
   };
 
-  const createCsv = () =>
-    toCsv([
-      ["Financial Report", reportLabel],
-      ["Collections", totalRevenue],
-      ["Expenses", "Not recorded"],
-      ["Profit", "Unavailable: expenses are not tracked"],
-      [],
-      ["Type", "Service / Package", "Bookings", "Collected revenue"],
-      ...itemRevenue.map((row) => [row.type, row.name, row.bookings, row.collected]),
-      [],
+  const downloadExcel = (name: string) => exportWorkbook(name, [
+    { name: "Summary", rows: [
+      ["Collections", "Bookings", "Average revenue per booking"],
+      [totalRevenue, reportBookings.length, averageRevenue],
+    ] },
+    { name: "Services", rows: [
+      ["Service", "Bookings", "Collected revenue"],
+      ...itemRevenue.filter((row) => row.type === "Service").map((row) => [row.name, row.bookings, row.collected]),
+    ] },
+    { name: "Packages", rows: [
+      ["Package", "Bookings", "Collected revenue"],
+      ...itemRevenue.filter((row) => row.type === "Package").map((row) => [row.name, row.bookings, row.collected]),
+    ] },
+    { name: "Payment Methods", rows: [
       ["Payment method", "Collected", "Transactions"],
-      ...paymentMethods.map((row) => [
-        row.method,
-        row.amount,
-        row.transactions,
-      ]),
-      [],
-      [
-        "Booking",
-        "Guest",
-        "Room",
-        "Arrival",
-        "Departure",
-        "Booking value",
-        "Collected",
-        "Status",
-      ],
+      ...paymentMethods.map((row) => [row.method, row.amount, row.transactions]),
+    ] },
+    { name: "Bookings", rows: [
+      ["Booking", "Guest", "Room / Item", "Arrival", "Departure", "Booking value", "Collected", "Status"],
       ...reportBookings.map((booking) => [
         displayRecordId(booking.id),
         booking.guest,
@@ -387,33 +379,11 @@ export default function SalesReports() {
         collected(booking),
         booking.status,
       ]),
-    ]);
-
-  const downloadCsv = (filename: string) => {
-    const blob = new Blob([createCsv()], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = filename;
-
-    document.body.appendChild(link);
-
-    link.click();
-
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
-  };
+    ] },
+  ], reportLabel);
 
   const handleDownloadReport = () => {
-    downloadCsv(
-      `financial-report-${reportLabel.toLowerCase().replace(/\s+/g, "-")}.csv`,
-    );
+    downloadExcel(`Financial Report ${reportLabel}`);
 
     setShowReportModal(false);
 
@@ -425,9 +395,9 @@ export default function SalesReports() {
   };
 
   const handleExportData = () => {
-    downloadCsv("sales-financial-data.csv");
+    downloadExcel(`Sales Financial Data ${reportLabel}`);
 
-    setSuccessMsg("Financial data exported to CSV.");
+    setSuccessMsg("Financial data exported to Excel.");
 
     setTimeout(() => setSuccessMsg(""), 3500);
   };
@@ -975,7 +945,7 @@ export default function SalesReports() {
                       className="flex items-center gap-2 px-4 py-2 bg-blue-700 text-white rounded-lg"
                     >
                       <Download className="size-4" />
-                      Download CSV
+                      Download Excel
                     </AsyncButton>
                   </div>
                 </div>

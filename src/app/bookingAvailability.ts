@@ -158,6 +158,7 @@ export function blockedRoom(room: BookingRecord): boolean {
     room.deleted === true ||
     room.isActive === false ||
     room.disabled === true ||
+    room.maintenanceBlocked === true ||
     [room.status, room.condition].some((value) =>
       /maintenance|cleaning|out-of-order|out-of-service|unavailable|damaged|inactive/.test(
         normalizeBookingValue(value),
@@ -392,7 +393,7 @@ export function roomStatusOnDate(
   date: string,
   today = localDate(),
 ) {
-  if (blockedRoom(room)) return "maintenance";
+  if (blockedRoom(room)) return "unavailable";
   if (
     date === today &&
     ["occupied", "checked-in"].includes(normalizeBookingValue(room.status))
@@ -483,6 +484,31 @@ export function completedPayment(record: BookingRecord) {
     )
   );
 }
+export function collectedRoomRevenueByType(records: BookingRecord[]) {
+  const types = new Map<string, { name: string; value: number; bookings: number }>();
+  for (const booking of records) {
+    if (cancelled(booking)) continue;
+    const kind = normalizeBookingValue(booking.bookingType ?? booking.itemType);
+    const activityOnly =
+      ["service", "activity", "package"].includes(kind) ||
+      (!booking.roomTypeName && !booking.roomType && !booking.roomName && !booking.room &&
+        (booking.serviceName || booking.packageName || booking.activityName));
+    if (activityOnly) continue;
+    const total = bookingTotal(booking);
+    const paid = Math.max(0, Math.min(total, bookingPaid(booking)));
+    const subtotal = Number(booking.roomSubtotal ?? booking.roomTotal ?? total);
+    const roomShare = total > 0 && Number.isFinite(subtotal)
+      ? Math.min(total, Math.max(0, subtotal)) / total
+      : 0;
+    const name = String(booking.roomTypeName || booking.roomType || booking.roomName || "Other");
+    const group = types.get(name) ?? { name, value: 0, bookings: 0 };
+    group.value = (Math.round(group.value * 100) + Math.round(paid * roomShare * 100)) / 100;
+    group.bookings++;
+    types.set(name, group);
+  }
+  return [...types.values()].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+}
+
 export function salesSummary(records: BookingRecord[], now = new Date()) {
   const bookings = records.filter((record) => !cancelled(record));
   const monthly = Array.from({ length: 12 }, (_, i) => {

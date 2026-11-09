@@ -279,19 +279,26 @@ export function aggregateGuests(
       };
       map.set(key, guest);
     }
-    if (cancelled(booking)) continue;
-    const date = dateOnly(booking.checkIn);
-    guest.visits++;
-    guest.totalSpent =
-      (Math.round(guest.totalSpent * 100) +
-        Math.round(bookingPaid(booking) * 100)) /
-      100;
-    if (date > guest.lastVisit) guest.lastVisit = date;
+    const isCancelled = cancelled(booking);
+    const date = dateOnly(booking.checkIn || booking.bookingDate || booking.createdAt);
+    if (!isCancelled) {
+      guest.visits++;
+      guest.totalSpent =
+        (Math.round(guest.totalSpent * 100) +
+          Math.round(bookingPaid(booking) * 100)) /
+        100;
+      if (date > guest.lastVisit) guest.lastVisit = date;
+    }
     guest.history.push({
+      id: booking.id,
       date,
-      room: bookingRoomLabel(booking),
+      room: bookingRoomLabel(booking) || booking.serviceName || booking.packageName || booking.itemName || "—",
       nights: Number(booking.nights || 0),
       amount: bookingPaid(booking),
+      status: isCancelled ? "cancelled" : normalizeBookingValue(booking.status || "pending"),
+      cancellationReason: String(booking.cancellationReason || ""),
+      userId: String(booking.userId || ""),
+      bookingStore: booking._bookingStore,
     });
   }
   for (const profile of profiles) {

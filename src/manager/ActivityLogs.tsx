@@ -1,4 +1,5 @@
 import { useRecordRevision } from "../app/useBookingInventory";
+import { exportReport } from "../app/reportData";
 import { useState, useEffect, useRef } from "react";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -120,19 +121,7 @@ export default function ActivityLogs() {
       log.details,
       log.status,
     ]);
-    const csvContent = [headers, ...rows]
-      .map((row) =>
-        row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(","),
-      )
-      .join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "activity-log-export.csv";
-    anchor.click();
-    URL.revokeObjectURL(url);
+    exportReport("Activity Logs", [headers, ...rows]);
   }
 
   return (
@@ -203,34 +192,24 @@ export default function ActivityLogs() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card className="p-6">
           <p className="text-sm text-gray-500">Total Activities</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">
             {activityLogs.length}
           </p>
-          <p className="text-xs text-gray-500 mt-1">Today</p>
         </Card>
         <Card className="p-6">
           <p className="text-sm text-gray-500">Successful Actions</p>
           <p className="text-2xl font-bold text-green-600 mt-1">
             {activityLogs.filter((log) => log.status === "success").length}
           </p>
-          <p className="text-xs text-gray-500 mt-1">Today</p>
-        </Card>
-        <Card className="p-6">
-          <p className="text-sm text-gray-500">Warnings</p>
-          <p className="text-2xl font-bold text-yellow-600 mt-1">
-            {activityLogs.filter((log) => log.status === "warning").length}
-          </p>
-          <p className="text-xs text-gray-500 mt-1">Today</p>
         </Card>
         <Card className="p-6">
           <p className="text-sm text-gray-500">Active Users</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">
             {new Set(activityLogs.map((log) => log.user)).size}
           </p>
-          <p className="text-xs text-gray-500 mt-1">Today</p>
         </Card>
       </div>
 

@@ -1,4 +1,3 @@
-import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import { displayRecordId } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
@@ -548,7 +547,6 @@ export default function ReceptionistDashboards() {
           </table>
         </div>
       </Card>
-      <ServiceAvailabilityPanel />
     </div>
   );
 }

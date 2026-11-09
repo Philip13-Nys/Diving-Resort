@@ -154,13 +154,13 @@ test("legacy physical-room reservations block that physical room", () => {
   const selected = rules.allocateRooms(rooms, [legacy], type, start, end, 2, 4);
   assert.ok(selected.every((room) => room.id !== "r2"));
 });
-test("maintenance, cleaning and deleted rooms cannot be allocated", () => {
+test("unavailable, cleaning and deleted rooms cannot be allocated", () => {
   const blocked = rooms.map((room, i) => ({
     ...room,
     ...(i === 0
       ? { status: "Cleaning" }
       : i === 1
-        ? { condition: "maintenance" }
+        ? { condition: "unavailable" }
         : { deleted: true }),
   }));
   assert.equal(
@@ -168,6 +168,11 @@ test("maintenance, cleaning and deleted rooms cannot be allocated", () => {
     0,
   );
   assert.throws(() => rules.allocateRooms(blocked, [], type, start, end, 1, 2));
+});
+test("legacy blocked room statuses remain unavailable to booking", () => {
+  const room = { ...rooms[0], status: "maintenance" };
+  assert.equal(rules.roomStatusOnDate(room, undefined, start), "unavailable");
+  assert.equal(rules.typeAvailability([room], [], type, start, end).available, 0);
 });
 test("four guests can occupy two two-person rooms, with stable physical IDs", () => {
   const selected = rules.allocateRooms(rooms, [], type, start, end, 2, 4);

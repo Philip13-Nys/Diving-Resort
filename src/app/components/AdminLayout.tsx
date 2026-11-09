@@ -37,7 +37,6 @@ const navigation = [
     path: "/admin/receptionist",
     icon: Users,
   },
-  { name: "Activity Logs", path: "/admin/audit-logs", icon: BarChart3 },
   {
     name: "Payment Configuration",
     path: "/admin/payment-configuration",

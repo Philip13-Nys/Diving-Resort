@@ -1,9 +1,3 @@
-import { readActivitySnapshot } from "./activitySnapshot";
-import {
-  activityAvailabilityRows,
-  activityDate,
-  pendingActivityReservations,
-} from "./activityAvailability";
 import { displayRecordId } from "./bookingAvailability";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
@@ -111,113 +105,10 @@ export async function reportRows(
 ): Promise<unknown[][]> {
   if (start && end && end < start)
     throw new Error("End date must be on or after the start date.");
-  if (kind.includes("Service Availability")) {
-    const first = start || localDate(),
-      last = end || first;
-    const count =
-      Math.round((Date.parse(last) - Date.parse(first)) / 86400000) + 1;
-    if (!activityDate(first) || !activityDate(last) || count < 1 || count > 31)
-      throw new Error("Choose a service availability range of up to 31 days.");
-    const snapshot = await readActivitySnapshot();
-    const pending = pendingActivityReservations(
-      snapshot.catalog,
-      snapshot.bookings,
-      snapshot.allocations,
-    );
-    const rows: unknown[][] = [
-      [
-        "Date",
-        "Service",
-        "Type",
-        "Session",
-        "Capacity unit",
-        "Total",
-        "Confirmed reserved",
-        "Processing",
-        "Pending (not reserved)",
-        "Available",
-        "Status",
-        "Snapshot generated",
-      ],
-    ];
-    for (let day = 0; day < count; day++) {
-      const date = new Date(Date.parse(first) + day * 86400000)
-        .toISOString()
-        .slice(0, 10);
-      const pendingRows = activityAvailabilityRows(
-        snapshot.catalog,
-        pending,
-        date,
-        -Infinity,
-      );
-      for (const row of activityAvailabilityRows(
-        snapshot.catalog,
-        snapshot.occupied,
-        date,
-      ))
-        rows.push([
-          date,
-          row.name,
-          row.itemType,
-          row.time,
-          row.label,
-          row.total,
-          row.reserved,
-          row.held,
-          pendingRows.find(
-            (value) =>
-              value.id === row.id &&
-              value.itemType === row.itemType &&
-              value.time === row.time,
-          )?.reserved || 0,
-          row.remaining,
-          row.error || (row.remaining ? "Available" : "Fully Booked"),
-          new Date().toISOString(),
-        ]);
-    }
-    return rows;
-  }
   const inside = (value: any) => {
     const date = dateOnly(value);
     return (!start || date >= start) && (!end || (date && date <= end));
   };
-  if (kind.includes("Maintenance")) {
-    const docs = await getDocs(collection(db, "maintenanceRequests"));
-    return [
-      ["Request", "Room", "Issue", "Status", "Assigned to", "Created"],
-      ...docs.docs
-        .filter((doc) => inside(doc.data().createdAt))
-        .map((doc) => {
-          const d = doc.data();
-          return [
-            d.requestNumber || doc.id,
-            d.roomId,
-            d.issue,
-            d.status,
-            d.assignedTo,
-            dateOnly(d.createdAt),
-          ];
-        }),
-    ];
-  }
-  if (kind.includes("Staff")) {
-    const docs = await getDocs(collection(db, "ActivityLogs"));
-    return [
-      ["Staff", "Action", "Details", "Status", "Date"],
-      ...docs.docs
-        .filter((doc) => inside(doc.data().createdAt ?? doc.data().timestamp))
-        .map((doc) => {
-          const d = doc.data();
-          return [
-            d.userName || d.name || d.user,
-            d.action,
-            d.details,
-            d.status,
-            dateOnly(d.createdAt ?? d.timestamp),
-          ];
-        }),
-    ];
-  }
   if (kind.includes("Revenue")) {
     const docs = await getPaymentSnapshot(true);
     return [
@@ -295,18 +186,8 @@ export async function reportRows(
   const bookings = records.filter(
     (record) => inside(record.checkIn) && !cancelled(record),
   );
-  if (kind.includes("Guest"))
-    return [
-      ["Guest", "Email", "Phone", "Arrival", "Room", "Paid"],
-      ...bookings.map((b) => [
-        b.customerName,
-        b.customerEmail || b.email,
-        b.customerPhone || b.phone,
-        dateOnly(b.checkIn),
-        bookingRoomLabel(b),
-        bookingPaid(b),
-      ]),
-    ];
+  if (!kind.includes("Reservation"))
+    throw new Error("This report type is no longer available.");
   return [
     [
       "Booking",
@@ -335,30 +216,143 @@ export async function reportRows(
   ];
 }
 
-export function exportReport(name: string, rows: unknown[][], format: string) {
-  const filename = name.replace(/[^\p{L}\p{N}_-]+/gu, "_");
-  if (format === "PDF") {
-    printTable(name, rows);
-    return;
+const excelXml = (value: unknown) =>
+  String(value ?? "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
+    .replace(/[&<>"']/g, (char) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[char]!,
+    );
+
+const excelColumn = (index: number) => {
+  let result = "";
+  for (let number = index + 1; number > 0; number = Math.floor((number - 1) / 26))
+    result = String.fromCharCode(65 + ((number - 1) % 26)) + result;
+  return result;
+};
+
+// A small uncompressed ZIP writer keeps Excel exports free of extra dependencies.
+const zipFiles = (files: [string, string][]): Uint8Array => {
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const directory: Uint8Array[] = [];
+  let offset = 0;
+  const u16 = (view: DataView, at: number, value: number) => view.setUint16(at, value, true);
+  const u32 = (view: DataView, at: number, value: number) => view.setUint32(at, value >>> 0, true);
+  const crc32 = (bytes: Uint8Array) => {
+    let crc = -1;
+    for (const byte of bytes) {
+      crc ^= byte;
+      for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+    return (crc ^ -1) >>> 0;
+  };
+  for (const [name, content] of files) {
+    const filename = encoder.encode(name);
+    const data = encoder.encode(content);
+    const checksum = crc32(data);
+    const local = new Uint8Array(30 + filename.length);
+    const localView = new DataView(local.buffer);
+    u32(localView, 0, 0x04034b50);
+    u16(localView, 4, 20);
+    u16(localView, 6, 0x0800);
+    u32(localView, 14, checksum);
+    u32(localView, 18, data.length);
+    u32(localView, 22, data.length);
+    u16(localView, 26, filename.length);
+    local.set(filename, 30);
+    chunks.push(local, data);
+    const central = new Uint8Array(46 + filename.length);
+    const centralView = new DataView(central.buffer);
+    u32(centralView, 0, 0x02014b50);
+    u16(centralView, 4, 20);
+    u16(centralView, 6, 20);
+    u16(centralView, 8, 0x0800);
+    u32(centralView, 16, checksum);
+    u32(centralView, 20, data.length);
+    u32(centralView, 24, data.length);
+    u16(centralView, 28, filename.length);
+    u32(centralView, 42, offset);
+    central.set(filename, 46);
+    directory.push(central);
+    offset += local.length + data.length;
   }
-  if (format === "Excel") {
-    const escape = (v: unknown) =>
-      String(v ?? "").replace(
-        /[&<>"']/g,
-        (char) =>
-          ({
-            "&": "&amp;",
-            "<": "&lt;",
-            ">": "&gt;",
-            '"': "&quot;",
-            "'": "&apos;",
-          })[char]!,
-      );
-    const xml = `<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Report"><Table>${rows.map((row) => `<Row>${row.map((cell) => `<Cell><Data ss:Type="${typeof cell === "number" ? "Number" : "String"}">${escape(cell)}</Data></Cell>`).join("")}</Row>`).join("")}</Table></Worksheet></Workbook>`;
-    downloadFile(xml, filename + ".xml", "application/vnd.ms-excel");
-    return;
+  const directorySize = directory.reduce((sum, item) => sum + item.length, 0);
+  const end = new Uint8Array(22);
+  const endView = new DataView(end.buffer);
+  u32(endView, 0, 0x06054b50);
+  u16(endView, 8, files.length);
+  u16(endView, 10, files.length);
+  u32(endView, 12, directorySize);
+  u32(endView, 16, offset);
+  const result = new Uint8Array(offset + directorySize + end.length);
+  let position = 0;
+  for (const part of [...chunks, ...directory, end]) {
+    result.set(part, position);
+    position += part.length;
   }
-  downloadFile(toCsv(rows), filename + ".csv");
+  return result;
+};
+
+type ExcelSheet = { name: string; rows: unknown[][] };
+
+export function excelWorkbookSheets(name: string, sheets: ExcelSheet[], period = ""): Uint8Array {
+  const worksheetFiles = sheets.map((sheet, sheetIndex): [string, string] => [
+    `xl/worksheets/sheet${sheetIndex + 1}.xml`,
+    excelWorksheet(sheet.name === "Report" ? name : sheet.name, sheet.rows, period),
+  ]);
+  const contentTypes = sheets.map((_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("");
+  const workbookSheets = sheets.map((sheet, index) => `<sheet name="${excelXml(sheet.name.slice(0, 31))}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join("");
+  const relationships = sheets.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join("");
+  return zipFiles([
+    ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${contentTypes}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`],
+    ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+    ["xl/workbook.xml", `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${workbookSheets}</sheets></workbook>`],
+    ["xl/_rels/workbook.xml.rels", `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relationships}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+    ...worksheetFiles,
+    ["xl/styles.xml", excelStyles],
+  ]);
+}
+
+function excelWorksheet(name: string, rows: unknown[][], period: string): string {
+  const headers = rows[0] || [];
+  const data = rows.slice(1);
+  const columns = Math.max(1, ...rows.map((row) => row.length));
+  const widths = Array.from({ length: columns }, (_, index) =>
+    Math.min(42, Math.max(13, ...rows.map((row) => String(row[index] ?? "").length + 2))),
+  );
+  const cell = (value: unknown, row: number, column: number, style = 0) => {
+    const reference = `${excelColumn(column)}${row}`;
+    if (typeof value === "number" && Number.isFinite(value))
+      return `<c r="${reference}" s="${style}"><v>${value}</v></c>`;
+    return `<c r="${reference}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${excelXml(value)}</t></is></c>`;
+  };
+  const title = `<row r="1" ht="28" customHeight="1">${cell(name, 1, 0, 3)}</row>`;
+  const periodRow = `<row r="2">${cell(period || "All recorded dates", 2, 0)}</row>`;
+  const generated = `<row r="3">${cell(`Generated ${new Date().toLocaleString("en-PH")}`, 3, 0)}</row>`;
+  const headerRow = `<row r="5">${headers.map((value, column) => cell(value, 5, column, 1)).join("")}</row>`;
+  const dataRows = data.map((values, index) =>
+    `<row r="${index + 6}">${values.map((value, column) =>
+      cell(value, index + 6, column, typeof value === "number" && /amount|paid|balance|total|revenue|received|price|collection|collected|commission|booking.value/i.test(String(headers[column] || "")) ? 2 : 0),
+    ).join("")}</row>`,
+  ).join("");
+  const lastColumn = excelColumn(columns - 1);
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="5" topLeftCell="A6" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>${widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join("")}</cols><sheetData>${title}${periodRow}${generated}${headerRow}${dataRows}</sheetData><autoFilter ref="A5:${lastColumn}${Math.max(5, data.length + 5)}"/>${columns > 1 ? `<mergeCells count="1"><mergeCell ref="A1:${lastColumn}1"/></mergeCells>` : ""}</worksheet>`;
+}
+
+const excelStyles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="&quot;₱&quot;#,##0.00"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Aptos"/></font><font><b/><color rgb="FFFFFFFF"/><sz val="11"/><name val="Aptos"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0D7377"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="4"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFill="1" applyFont="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs></styleSheet>`;
+
+export function excelWorkbook(name: string, rows: unknown[][], period = ""): Uint8Array {
+  return excelWorkbookSheets(name, [{ name: "Report", rows }], period);
+}
+
+export function exportWorkbook(name: string, sheets: ExcelSheet[], period = "") {
+  const filename = name.replace(/[^\p{L}\p{N}_-]+/gu, "_") || "Report";
+  const workbook = excelWorkbookSheets(name, sheets, period);
+  downloadFile(workbook.buffer as ArrayBuffer, filename + ".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+}
+
+export function exportReport(name: string, rows: unknown[][], period = "") {
+  exportWorkbook(name, [{ name: "Report", rows }], period);
 }
 
 export function csvCell(value: unknown) {

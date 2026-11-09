@@ -135,7 +135,7 @@ export default function BackupManagement() {
             Backup and Data Management
           </h1>
           <p className="text-gray-600 mt-1">
-            Manage system backups, data recovery, and database maintenance for
+            Manage system backups and data recovery for
             data security
           </p>
         </div>

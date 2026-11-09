@@ -18,8 +18,8 @@ import { AsyncButton } from "./ui/async-action";
 import {
   commissionRows,
   groupCommissions,
-  commissionCsv,
 } from "../commissionReport";
+import { exportWorkbook } from "../reportData";
 import {
   dateOnly,
   moneyCents,
@@ -158,20 +158,16 @@ export default function CommissionReport() {
         ),
     ]),
   ].sort((a, b) => b - a);
-  const exportCsv = () => {
-    const url = URL.createObjectURL(
-      new Blob([commissionCsv(rows, period)], {
-        type: "text/csv;charset=utf-8",
-      }),
-    );
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `commission-report-${year}-${String(month + 1).padStart(2, "0")}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
+  const exportExcel = () => exportWorkbook(`Commission Report ${period}`, [
+    { name: "Summary", rows: [
+      ["Commissioner", "Bookings", "Booking value", "Commission"],
+      ...groups.map((group) => [group.name, group.bookings, group.bookingValue, group.commission]),
+    ] },
+    { name: "Bookings", rows: [
+      ["Commissioner", "Booking Reference", "Guest", "Room(s)", "Check-in", "Check-out", "Source", "Status", "Booking Value (PHP)", "Commission (PHP)"],
+      ...rows.map((row) => [row.commissioner, row.reference, row.guest, row.room, row.checkIn, row.checkOut, row.source, row.status, row.bookingValue, row.commission]),
+    ] },
+  ], period);
   if (loading)
     return (
       <div
@@ -198,12 +194,12 @@ export default function CommissionReport() {
           </p>
         </div>
         <AsyncButton
-          onClick={exportCsv}
+          onClick={exportExcel}
           disabled={Boolean(error) || !rows.length}
           className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-white disabled:opacity-50"
         >
           <Download className="size-4" />
-          Export CSV
+          Export Excel
         </AsyncButton>
       </div>
       {error && (

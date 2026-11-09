@@ -10,12 +10,13 @@ import {
   UserCircle,
   FileText,
   Settings,
-  Wrench,
   Waves,
+  CalendarDays,
   Menu,
   X,
   LogOut,
   ClipboardCheck,
+  ScrollText,
 } from "lucide-react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import { signOut } from "firebase/auth";
@@ -37,8 +38,14 @@ const navigation = [
     href: "/manager/receptionist-dashboard",
     icon: ClipboardCheck,
   },
+  { name: "Activity Logs", href: "/manager/activity-logs", icon: ScrollText },
   { name: "Room Management", href: "/manager/rooms", icon: Hotel },
   { name: "Services", href: "/manager/services", icon: Waves },
+  {
+    name: "Service Availability",
+    href: "/manager/service-availability",
+    icon: CalendarDays,
+  },
   {
     name: "Room Availability",
     href: "/manager/room-availability",
@@ -53,7 +60,6 @@ const navigation = [
   { name: "Guest Records", href: "/manager/guests", icon: UserCircle },
   { name: "Reports", href: "/manager/reports", icon: FileText },
   { name: "Staff Profiles", href: "/manager/staff", icon: Settings },
-  { name: "Maintenance", href: "/manager/maintenance", icon: Wrench },
 ];
 
 export default function ManagerLayout() {

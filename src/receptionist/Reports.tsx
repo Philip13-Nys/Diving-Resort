@@ -1,5 +1,5 @@
 import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
-import { toCsv, downloadFile, servicePackageRevenue } from "../app/reportData";
+import { exportWorkbook, servicePackageRevenue } from "../app/reportData";
 import { completedPayment } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import {
@@ -551,58 +551,34 @@ export default function Reports() {
   );
 
   const exportReport = () => {
-    const rows = [
-      [
-        "Resort Report",
-        `${period} ${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}`,
-      ],
-      ["Collected revenue", totalRevenue],
-      ["Bookings", totalBookings],
-      [],
-      ["Type", "Service / Package", "Bookings", "Collected revenue"],
-      ...itemRevenue.map((item) => [
-        item.type,
-        item.name,
-        item.bookings,
-        item.collected,
-      ]),
-      [],
-      ["Payment method", "Collections", "Transactions"],
-      ...paymentMethodData.map((item) => [
-        item.method,
-        item.amount,
-        item.count,
-      ]),
-      [],
-      [
-        "Guest",
-        "Room",
-        "Arrival",
-        "Departure",
-        "Booking value",
-        "Paid",
-        "Status",
-      ],
-      ...periodBookings.map((item) => [
-        item.guest,
-        item.room,
-        item.checkIn,
-        item.checkOut,
-        item.total,
-        item.amountPaid,
-        item.status,
-      ]),
-    ];
-    downloadFile(
-      toCsv(rows),
-      "resort-report-" +
-        period +
-        "-" +
-        selectedYear +
-        "-" +
-        String(selectedMonth + 1).padStart(2, "0") +
-        ".csv",
-    );
+    const label = `${period} ${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}`;
+    exportWorkbook(`Resort Report ${label}`, [
+      { name: "Summary", rows: [["Collected revenue", "Bookings"], [totalRevenue, totalBookings]] },
+      {
+        name: "Services",
+        rows: [["Service", "Bookings", "Collected revenue"], ...itemRevenue.filter((item) => item.type === "Service").map((item) => [item.name, item.bookings, item.collected])],
+      },
+      {
+        name: "Packages",
+        rows: [["Package", "Bookings", "Collected revenue"], ...itemRevenue.filter((item) => item.type === "Package").map((item) => [item.name, item.bookings, item.collected])],
+      },
+      {
+        name: "Payments",
+        rows: [["Payment method", "Collections", "Transactions"], ...paymentMethodData.map((item) => [item.method, item.amount, item.count])],
+      },
+      {
+        name: "Bookings",
+        rows: [["Guest", "Room / Item", "Arrival", "Departure", "Booking value", "Paid", "Status"], ...periodBookings.map((item) => [
+          item.guest,
+          item.room || item.packageName || item.serviceName || item.activityName || item.itemName,
+          item.checkIn,
+          item.checkOut,
+          item.total,
+          item.amountPaid,
+          item.status,
+        ])],
+      },
+    ], label);
 
     setSuccess("Report exported successfully.");
 

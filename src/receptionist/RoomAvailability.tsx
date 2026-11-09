@@ -18,7 +18,7 @@ type RoomStatus =
   | "available"
   | "occupied"
   | "checkout-today"
-  | "maintenance"
+  | "unavailable"
   | "reserved";
 
 interface Room {
@@ -75,8 +75,8 @@ const STATUS_CONFIG: Record<
     border: "#f97316",
   },
 
-  maintenance: {
-    label: "Maintenance",
+  unavailable: {
+    label: "Unavailable",
     color: "#4a7a7a",
     bg: "#f0f9f8",
     border: "#a0c4c4",
@@ -213,7 +213,6 @@ export default function RoomAvailability() {
 
     checkout: rooms.filter((room) => room.status === "checkout-today").length,
 
-    maintenance: rooms.filter((room) => room.status === "maintenance").length,
   };
 
   if (loading) {
@@ -235,7 +234,7 @@ export default function RoomAvailability() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {[
           {
             label: "Available",
@@ -257,13 +256,6 @@ export default function RoomAvailability() {
             status: "checkout-today" as RoomStatus,
             color: "#f97316",
             bg: "#fff7ed",
-          },
-          {
-            label: "Maintenance",
-            count: counts.maintenance,
-            status: "maintenance" as RoomStatus,
-            color: "#4a7a7a",
-            bg: "#f0f9f8",
           },
         ].map((s) => (
           <AsyncButton

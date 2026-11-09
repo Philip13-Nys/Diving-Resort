@@ -1,4 +1,5 @@
 import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
+import { exportReport } from "../app/reportData";
 import { displayRecordId } from "../app/bookingAvailability";
 import {
   assignedRoomIds,
@@ -401,13 +402,7 @@ export default function CalendarView() {
   const ROOM_COL_W = 140;
 
   const exportCalendar = () => {
-    const escapeCSV = (value: unknown) =>
-      `"${String(value ?? "").replace(/"/g, '""')}"`;
-
-    const lines = [
-      "Booking Calendar",
-      `Generated: ${new Date().toLocaleString()}`,
-      "",
+    exportReport("Booking Calendar", [
       [
         "Booking ID",
         "Guest",
@@ -419,9 +414,7 @@ export default function CalendarView() {
         "Services",
         "Packages",
         "Other Add-ons",
-      ]
-        .map(escapeCSV)
-        .join(","),
+      ],
       ...filteredBookings.map((booking) =>
         [
           displayRecordId(booking.id.split(":")[0]),
@@ -434,27 +427,9 @@ export default function CalendarView() {
           booking.services.join("; "),
           booking.packages.join("; "),
           booking.addOns.join("; "),
-        ]
-          .map(escapeCSV)
-          .join(","),
+        ],
       ),
-    ];
-
-    const blob = new Blob([lines.join("\n")], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-
-    link.href = url;
-    link.download = "booking-calendar.csv";
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    URL.revokeObjectURL(url);
+    ], rangeLabel);
   };
 
   if (loading) {

@@ -29,7 +29,6 @@ import {
   Activity,
   Plus,
   FileText,
-  Wrench,
   Waves,
   Edit,
   RefreshCw,
@@ -120,13 +119,6 @@ const quickActions = [
     icon: FileText,
     color: "bg-purple-100 text-purple-600",
     href: "/manager/reports",
-  },
-  {
-    label: "New Maintenance Request",
-    description: "Log a new repair or maintenance task",
-    icon: Wrench,
-    color: "bg-orange-100 text-orange-600",
-    href: "/manager/maintenance?action=new",
   },
   {
     label: "Edit Pricing",

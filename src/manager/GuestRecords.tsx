@@ -7,7 +7,7 @@ import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
 import { Search, Eye, Mail, Phone, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { customerDb } from "../app/firebase";
 
 type Guest = {
@@ -22,10 +22,15 @@ type Guest = {
 };
 
 type BookingRecord = {
+  id: string;
   date: string;
   room: string;
   nights: number;
   amount: number;
+  status: string;
+  cancellationReason: string;
+  userId: string;
+  bookingStore?: string;
 };
 
 type GuestWithHistory = Guest & {
@@ -40,6 +45,9 @@ export default function GuestRecords() {
   const [viewingGuest, setViewingGuest] = useState<GuestWithHistory | null>(
     null,
   );
+  const [cancellationRemarks, setCancellationRemarks] = useState<
+    Record<string, { reason: string; loading: boolean; error: boolean }>
+  >({});
 
   const [guests, setGuests] = useState<GuestWithHistory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,6 +73,56 @@ export default function GuestRecords() {
 
     fetchGuests();
   }, [recordRevision]);
+
+  useEffect(() => {
+    const cancelledBookings = viewingGuest?.history.filter(
+      (booking) => booking.status === "cancelled",
+    ) || [];
+    const initial = Object.fromEntries(
+      cancelledBookings.map((booking) => [
+        booking.id,
+        {
+          reason: booking.cancellationReason,
+          loading: booking.bookingStore === "customer" && Boolean(booking.userId),
+          error: false,
+        },
+      ]),
+    );
+    setCancellationRemarks(initial);
+    let active = true;
+    for (const booking of cancelledBookings) {
+      if (booking.bookingStore !== "customer" || !booking.userId) continue;
+      getDoc(
+        doc(customerDb, "Users", booking.userId, "bookingCancellations", booking.id),
+      ).then(
+        (snapshot) => {
+          if (!active) return;
+          setCancellationRemarks((current) => ({
+            ...current,
+            [booking.id]: {
+              reason: snapshot.exists()
+                ? String(snapshot.data().cancellationReason || booking.cancellationReason)
+                : booking.cancellationReason,
+              loading: false,
+              error: false,
+            },
+          }));
+        },
+        () => {
+          if (!active) return;
+          setCancellationRemarks((current) => ({
+            ...current,
+            [booking.id]: {
+              reason: booking.cancellationReason,
+              loading: false,
+              error: true,
+            },
+          }));
+        },
+      );
+    }
+    return () => { active = false; };
+  }, [viewingGuest]);
 
   function getDateValue(value: string): number {
     if (!value) return 0;
@@ -330,7 +388,7 @@ export default function GuestRecords() {
           onClick={() => setViewingGuest(null)}
         >
           <Card
-            className="w-full max-w-2xl p-6 m-4 max-h-[90vh] overflow-y-auto"
+            className="w-full max-w-5xl p-6 m-4 max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-6">
@@ -380,10 +438,10 @@ export default function GuestRecords() {
               </p>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[850px]">
                   <thead>
                     <tr className="border-b border-gray-200">
-                      {["Date", "Room", "Nights", "Amount"].map((heading) => (
+                      {["Booking ID", "Date", "Room / Item", "Nights", "Paid", "Status", "Cancellation remarks"].map((heading) => (
                         <th
                           key={heading}
                           className="text-left py-2 px-3 text-sm font-medium text-gray-500"
@@ -395,10 +453,13 @@ export default function GuestRecords() {
                   </thead>
 
                   <tbody>
-                    {viewingGuest.history.map((booking, index) => (
-                      <tr key={index} className="border-b border-gray-100">
+                    {viewingGuest.history.map((booking) => (
+                      <tr key={booking.id} className="border-b border-gray-100 align-top">
+                        <td className="py-2 px-3 text-sm font-medium text-gray-900">
+                          {displayRecordId(booking.id)}
+                        </td>
                         <td className="py-2 px-3 text-sm text-gray-700">
-                          {booking.date}
+                          {booking.date ? formatDate(booking.date) : "Not available"}
                         </td>
 
                         <td className="py-2 px-3 text-sm text-gray-700">
@@ -406,11 +467,26 @@ export default function GuestRecords() {
                         </td>
 
                         <td className="py-2 px-3 text-sm text-gray-700">
-                          {booking.nights}
+                          {booking.nights || "—"}
                         </td>
 
                         <td className="py-2 px-3 font-medium text-gray-900">
                           ₱{booking.amount.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-3 text-sm">
+                          <span className={booking.status === "cancelled" ? "rounded bg-red-50 px-2 py-1 text-red-700" : "text-gray-700"}>
+                            {booking.status === "cancelled" ? "Cancelled" : booking.status.replace(/-/g, " ")}
+                          </span>
+                        </td>
+                        <td className="max-w-64 whitespace-normal break-words py-2 px-3 text-sm text-gray-700">
+                          {booking.status === "cancelled"
+                            ? cancellationRemarks[booking.id]?.loading
+                              ? "Loading remarks..."
+                              : cancellationRemarks[booking.id]?.reason ||
+                                (cancellationRemarks[booking.id]?.error
+                                  ? "Unable to load remarks."
+                                  : "No remarks recorded.")
+                            : "—"}
                         </td>
                       </tr>
                     ))}

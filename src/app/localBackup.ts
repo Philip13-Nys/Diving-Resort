@@ -22,7 +22,6 @@ export const backupCollections = [
   "systemSettings",
   "publicSettings",
   "paymentSettings",
-  "maintenanceRequests",
   "ActivityLogs",
   "DisplayReferences",
   "DisplayCounters",

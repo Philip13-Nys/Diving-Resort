@@ -1,468 +1,188 @@
-import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import { reportRows, exportReport } from "../app/reportData";
-import { useState, useEffect, useRef } from "react";
+import { localDate } from "../app/bookingAvailability";
+import { useState } from "react";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
-import { FileText, Download, Calendar, Filter, X } from "lucide-react";
+import { FileText, Download, Calendar, X } from "lucide-react";
 
 const reportTemplates = [
   {
-    id: 7,
-    name: "Service Availability Snapshot",
-    description:
-      "Service quantities, confirmed reservations, processing holds and pending demand by date/session",
-    category: "Operational",
-    frequency: "Live",
-  },
-  {
-    id: 1,
+    id: "Occupancy",
     name: "Occupancy Report",
-    description: "Room occupancy rates and trends",
-    category: "Operational",
+    description: "Room reservations and occupancy by date",
     frequency: "Daily",
   },
   {
-    id: 2,
+    id: "Revenue",
     name: "Revenue Report",
-    description: "Sales performance and revenue breakdown",
-    category: "Financial",
+    description: "Completed payments and collected amounts",
     frequency: "Daily",
   },
   {
-    id: 3,
+    id: "Reservation",
     name: "Reservation Summary",
-    description: "Booking statistics and channel performance",
-    category: "Operational",
+    description: "Booking status, amounts, and remaining balances",
     frequency: "Weekly",
   },
-  {
-    id: 4,
-    name: "Guest Analytics",
-    description: "Guest demographics and behavior insights",
-    category: "Analytics",
-    frequency: "Monthly",
-  },
-  {
-    id: 5,
-    name: "Staff Performance",
-    description: "Recorded staff actions and activity history",
-    category: "Human Resources",
-    frequency: "Monthly",
-  },
-  {
-    id: 6,
-    name: "Maintenance Log",
-    description: "Recorded maintenance requests and status",
-    category: "Operational",
-    frequency: "Weekly",
-  },
-];
+] as const;
 
 type RecentReport = {
-  rows: unknown[][];
-  format: string;
   name: string;
-  date: string;
-  size: string;
-  status: string;
+  rows: unknown[][];
+  period: string;
+  generatedAt: string;
 };
 
-type FilterCategory =
-  | "All"
-  | "Operational"
-  | "Financial"
-  | "Analytics"
-  | "Human Resources";
-
-const CATEGORIES: FilterCategory[] = [
-  "All",
-  "Operational",
-  "Financial",
-  "Analytics",
-  "Human Resources",
-];
-
 export default function Reports() {
-  const [filterCategory, setFilterCategory] = useState<FilterCategory>("All");
-  const [showFilter, setShowFilter] = useState(false);
-  const [showModal, setShowModal] = useState(false);
   const [recentReports, setRecentReports] = useState<RecentReport[]>([]);
-  const [generatingId, setGeneratingId] = useState<number | null>(null);
-
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
   const [reportName, setReportName] = useState("");
   const [reportType, setReportType] = useState("Occupancy");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [format, setFormat] = useState("PDF");
 
-  const filterRef = useRef<HTMLDivElement>(null);
-
-  const filteredTemplates =
-    filterCategory === "All"
-      ? reportTemplates
-      : reportTemplates.filter((r) => r.category === filterCategory);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) {
-        setShowFilter(false);
-      }
-    }
-    if (showFilter) {
-      document.addEventListener("mousedown", handleClickOutside);
-    }
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showFilter]);
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setShowModal(false);
-    }
-    if (showModal) {
-      document.addEventListener("keydown", handleKeyDown);
-    }
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [showModal]);
-
-  async function generate(
-    name: string,
-    kind: string,
-    from = "",
-    to = "",
-    selectedFormat = "CSV",
-  ) {
-    const rows = await reportRows(kind, from, to);
-    setRecentReports((previous) => [
-      {
-        name,
-        date: new Date().toLocaleString(),
-        size: String(rows.length - 1) + " records",
-        status: "ready",
-        rows,
-        format: selectedFormat,
-      },
-      ...previous,
-    ]);
-  }
-  async function handleGenerate(templateId: number, templateName: string) {
-    if (generatingId !== null) return;
-    setGeneratingId(templateId);
+  const generate = async (name: string, kind: string, from = "", to = "") => {
+    if (generating) return;
+    setGenerating(kind);
     try {
-      await generate(templateName, templateName);
+      if (kind === "Occupancy" && !from && !to) from = to = localDate();
+      const rows = await reportRows(kind, from, to);
+      const period = from || to ? `${from || "Beginning"} to ${to || "Today"}` : "";
+      exportReport(name, rows, period);
+      setRecentReports((previous) => [
+        { name, rows, period, generatedAt: new Date().toLocaleString() },
+        ...previous,
+      ]);
+      return true;
     } catch (error) {
-      alert(
-        error instanceof Error ? error.message : "Unable to generate report.",
-      );
+      alert(error instanceof Error ? error.message : "Unable to generate report.");
+      return false;
     } finally {
-      setGeneratingId(null);
+      setGenerating(null);
     }
-  }
-  async function handleCustomReport() {
+  };
+
+  const generateCustom = async () => {
     if (!reportName.trim()) return;
-    try {
-      await generate(reportName.trim(), reportType, startDate, endDate, format);
+    const success = await generate(reportName.trim(), reportType, startDate, endDate);
+    if (success) {
       setShowModal(false);
       setReportName("");
-    } catch (error) {
-      alert(
-        error instanceof Error ? error.message : "Unable to generate report.",
-      );
     }
-  }
-  function handleDownload(report: RecentReport) {
-    try {
-      exportReport(report.name, report.rows, report.format);
-    } catch (error) {
-      alert(
-        error instanceof Error ? error.message : "Unable to export report.",
-      );
-    }
-  }
+  };
 
   return (
     <div className="p-8">
-      <div className="mb-8 flex justify-between items-center">
+      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
-          <p className="text-gray-500 mt-2">
-            Generate and access operational and analytical reports
-          </p>
+          <p className="mt-2 text-gray-500">Generate and download Excel reports</p>
         </div>
-        <div className="fixed bottom-4 right-4 z-40 flex flex-col gap-2 md:static md:flex-row">
-          {/* Filter button + dropdown */}
-          <div className="relative" ref={filterRef}>
-            <Button
-              variant="outline"
-              onClick={() => setShowFilter((prev) => !prev)}
-              className=" bg-white border-gray-300 h-10 px-3 text-sm md:h-10 md:px-4"
-            >
-              <Filter className="w-4 h-4 md:mr-2" />
-              <span className="hidden sm:inline">Filter</span>
-
-              {filterCategory !== "All" && (
-                <span className="ml-2 w-2 h-2 rounded-full bg-blue-600" />
-              )}
-            </Button>
-
-            {showFilter && (
-              <Card className=" absolute bottom-full mb-2 md:bottom-auto md:top-full md:mb-0 md:mt-2 right-0 w-52 p-3 bg-white shadow-lg rounded-lg z-50">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 px-1">
-                  Category
-                </p>
-                {CATEGORIES.map((cat) => (
-                  <label
-                    key={cat}
-                    className="flex items-center gap-2 px-1 py-1.5 rounded cursor-pointer hover:bg-gray-50"
-                  >
-                    <input
-                      type="radio"
-                      name="filterCategory"
-                      value={cat}
-                      checked={filterCategory === cat}
-                      onChange={() => {
-                        setFilterCategory(cat);
-                        setShowFilter(false);
-                      }}
-                      className="accent-blue-600"
-                    />
-                    <span className="text-sm text-gray-700">{cat}</span>
-                  </label>
-                ))}
-              </Card>
-            )}
-          </div>
-
-          <Button
-            className="bg-blue-600 hover:bg-blue-700 text-white h-9 px-3 text-sm md:h-10 md:px-4"
-            onClick={() => setShowModal(true)}
-          >
-            <Calendar className="w-4 h-4 md:mr-2" />
-            <span className="hidden sm:inline">Custom Report</span>
-          </Button>
-        </div>
+        <Button
+          className="bg-blue-600 text-white hover:bg-blue-700"
+          onClick={() => setShowModal(true)}
+        >
+          <Calendar className="mr-2 h-4 w-4" /> Custom Report
+        </Button>
       </div>
 
-      {/* Recent Reports */}
-      <Card className="p-6 mb-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          Recently Generated
-        </h2>
+      <h2 className="mb-4 text-lg font-semibold text-gray-900">Report Templates</h2>
+      <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+        {reportTemplates.map((report) => (
+          <Card key={report.id} className="flex h-full flex-col p-6">
+            <div className="mb-4 flex items-start justify-between">
+              <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-blue-600">
+                <FileText className="h-6 w-6 text-white" />
+              </div>
+              <span className="rounded bg-gray-100 px-2 py-1 text-xs text-gray-700">
+                {report.frequency}
+              </span>
+            </div>
+            <h3 className="mb-2 font-semibold text-gray-900">{report.name}</h3>
+            <p className="mb-5 flex-1 text-sm text-gray-600">{report.description}</p>
+            <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+              <span className="text-xs text-gray-500">Excel (.xlsx)</span>
+              <Button
+                size="sm"
+                disabled={generating !== null}
+                className="bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                onClick={() => void generate(report.name, report.id)}
+              >
+                {generating === report.id ? "Generating..." : "Generate"}
+              </Button>
+            </div>
+          </Card>
+        ))}
+      </div>
 
+      <Card className="p-6">
+        <h2 className="mb-4 text-lg font-semibold text-gray-900">Recently Generated</h2>
         {recentReports.length === 0 ? (
-          <div className="py-12 text-center">
-            <FileText className="w-12 h-12 mx-auto text-gray-300 mb-3" />
-
-            <h3 className="font-medium text-gray-700">
-              No reports generated yet
-            </h3>
-
-            <p className="text-sm text-gray-500 mt-1">
-              Generate a report from the templates below to see it here.
-            </p>
+          <div className="py-10 text-center text-sm text-gray-500">
+            Generate a report above to download an Excel file.
           </div>
         ) : (
           <div className="space-y-3">
             {recentReports.map((report, index) => (
-              <div
-                key={index}
-                className="flex items-center justify-between p-4 border border-gray-200 rounded-lg"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                  </div>
-
-                  <div>
-                    <p className="font-medium text-gray-900">{report.name}</p>
-
-                    <p className="text-sm text-gray-500">
-                      Generated on {report.date} · {report.size}
-                    </p>
-                  </div>
+              <div key={`${report.generatedAt}-${index}`} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 p-4">
+                <div>
+                  <p className="font-medium text-gray-900">{report.name}</p>
+                  <p className="text-sm text-gray-500">
+                    {report.generatedAt} · {Math.max(0, report.rows.length - 1)} records · Excel
+                  </p>
                 </div>
-
-                <div className="flex items-center gap-3">
-                  <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                    Ready
-                  </span>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleDownload(report)}
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Download
-                  </Button>
-                </div>
+                <Button variant="outline" size="sm" onClick={() => exportReport(report.name, report.rows, report.period)}>
+                  <Download className="mr-2 h-4 w-4" /> Download again
+                </Button>
               </div>
             ))}
           </div>
         )}
       </Card>
 
-      {/* Report Templates */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900">
-          Report Templates
-        </h2>
-        {filterCategory !== "All" && (
-          <span className="text-sm text-gray-500">
-            Filtered by{" "}
-            <span className="font-medium text-gray-700">{filterCategory}</span>{" "}
-            ({filteredTemplates.length} of {reportTemplates.length})
-          </span>
-        )}
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredTemplates.map((report) => {
-          const isGenerating = generatingId === report.id;
-          return (
-            <Card key={report.id} className="p-6">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
-                  <FileText className="w-6 h-6 text-white" />
-                </div>
-                <span className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
-                  {report.frequency}
-                </span>
-              </div>
-              <h3 className="font-semibold text-gray-900 mb-2">
-                {report.name}
-              </h3>
-              <p className="text-sm text-gray-600 mb-4">{report.description}</p>
-              <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                <span className="text-xs text-gray-500">{report.category}</span>
-                <Button
-                  size="sm"
-                  className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
-                  disabled={isGenerating || generatingId !== null}
-                  onClick={() => handleGenerate(report.id, report.name)}
-                >
-                  {isGenerating ? "Generating..." : "Generate"}
-                </Button>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Custom Report Modal */}
       {showModal && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setShowModal(false);
-          }}
-        >
-          <Card className="bg-white w-full max-w-lg mx-4 p-6 shadow-xl">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">
-                Custom Report
-              </h2>
-              <button
-                onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-                aria-label="Close modal"
-              >
-                <X className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(event) => {
+          if (event.target === event.currentTarget) setShowModal(false);
+        }}>
+          <Card className="w-full max-w-lg bg-white p-6 shadow-xl">
+            <div className="mb-6 flex items-center justify-between">
+              <h2 className="text-xl font-semibold text-gray-900">Custom Report</h2>
+              <button type="button" aria-label="Close modal" className="text-gray-400 hover:text-gray-600" onClick={() => setShowModal(false)}>
+                <X className="h-5 w-5" />
               </button>
             </div>
-
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Report Name
-                </label>
-                <input
-                  type="text"
-                  value={reportName}
-                  onChange={(e) => setReportName(e.target.value)}
-                  placeholder="e.g. Q2 Revenue Summary"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Report Type
-                </label>
-                <select
-                  value={reportType}
-                  onChange={(e) => setReportType(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option>Service Availability</option>
-                  <option>Occupancy</option>
-                  <option>Revenue</option>
-                  <option>Reservation</option>
-                  <option>Guest Analytics</option>
-                  <option>Staff Performance</option>
-                  <option>Maintenance</option>
+              <label className="block text-sm font-medium text-gray-700">
+                Report Name
+                <input value={reportName} onChange={(event) => setReportName(event.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" placeholder="e.g. November Revenue" />
+              </label>
+              <label className="block text-sm font-medium text-gray-700">
+                Report Type
+                <select value={reportType} onChange={(event) => setReportType(event.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2">
+                  {reportTemplates.map((report) => <option key={report.id} value={report.id}>{report.name}</option>)}
                 </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Start Date
-                  </label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    End Date
-                  </label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Format
+              </label>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Start Date
+                  <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
                 </label>
-                <select
-                  value={format}
-                  onChange={(e) => setFormat(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                >
-                  <option>PDF</option>
-                  <option>Excel</option>
-                  <option>CSV</option>
-                </select>
+                <label className="block text-sm font-medium text-gray-700">
+                  End Date
+                  <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2" />
+                </label>
               </div>
             </div>
-
-            <div className="flex justify-end gap-3 mt-6">
-              <Button
-                variant="outline"
-                className="border-gray-300"
-                onClick={() => setShowModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60"
-                disabled={!reportName.trim()}
-                onClick={handleCustomReport}
-              >
-                Generate Report
+            <div className="mt-6 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowModal(false)}>Cancel</Button>
+              <Button disabled={!reportName.trim() || generating !== null} className="bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60" onClick={() => void generateCustom()}>
+                {generating ? "Generating..." : "Generate Excel"}
               </Button>
             </div>
           </Card>
         </div>
       )}
-      <ServiceAvailabilityPanel exportable />
     </div>
   );
 }

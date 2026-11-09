@@ -54,7 +54,37 @@ test("confirmation requires verified money at the configured percentage", () => 
 });
 
 const { aggregateGuests } = load("src/app/bookingStore.ts");
-const { toCsv, servicePackageRevenue } = load("src/app/reportData.ts");
+const { toCsv, servicePackageRevenue, excelWorkbookSheets } = load("src/app/reportData.ts");
+
+test("Excel reports contain separate, formatted worksheets with numeric amounts", () => {
+  const workbook = excelWorkbookSheets("Financial Report", [
+    { name: "Summary", rows: [["Collections", "Bookings"], [1234.5, 2]] },
+    { name: "Bookings", rows: [["Guest", "Paid"], ["=Guest Name", 1234.5]] },
+  ], "November 2026");
+  const view = new DataView(workbook.buffer);
+  const decoder = new TextDecoder();
+  const entries = new Map();
+  let offset = 0;
+  while (view.getUint32(offset, true) === 0x04034b50) {
+    const size = view.getUint32(offset + 18, true);
+    const nameLength = view.getUint16(offset + 26, true);
+    const name = decoder.decode(workbook.slice(offset + 30, offset + 30 + nameLength));
+    const start = offset + 30 + nameLength;
+    entries.set(name, decoder.decode(workbook.slice(start, start + size)));
+    offset = start + size;
+  }
+  assert.equal(view.getUint32(offset, true), 0x02014b50);
+  assert.match(entries.get("xl/workbook.xml"), /name="Summary"/);
+  assert.match(entries.get("xl/workbook.xml"), /name="Bookings"/);
+  assert.match(entries.get("xl/worksheets/sheet1.xml"), /<v>1234\.5<\/v>/);
+  assert.match(entries.get("xl/worksheets/sheet2.xml"), /t="inlineStr"/);
+  assert.match(entries.get("xl/styles.xml"), /numFmtId="164"/);
+  assert.ok(
+    entries.get("xl/worksheets/sheet1.xml").indexOf("<autoFilter") <
+      entries.get("xl/worksheets/sheet1.xml").indexOf("<mergeCells"),
+    "Excel requires autoFilter before mergeCells in a worksheet",
+  );
+});
 
 test("service and package revenue uses collected shares without counting package contents twice", () => {
   const rows = servicePackageRevenue([
@@ -117,32 +147,6 @@ test("display references are stable across booking aliases and preserve existing
   assert.equal(values.displayRecordId("RCP-123", "RCP"), "RCP-123");
   assert.notEqual(values.displayRecordId(raw.toLowerCase()), reference);
   assert.equal(values.displayRecordId(""), "—");
-});
-
-test("maintenance resolves display codes and document IDs to the same physical room", () => {
-  const { maintenanceRoomId } = load("src/app/maintenanceOperations.ts");
-  const rooms = [
-    { id: "physical-1", roomId: "R-001" },
-    { id: "physical-2", roomId: "R-002" },
-  ];
-  assert.equal(maintenanceRoomId({ roomId: "R-001" }, rooms), "physical-1");
-  assert.equal(
-    maintenanceRoomId({ roomId: "physical-1" }, rooms),
-    "physical-1",
-  );
-  assert.equal(maintenanceRoomId({ roomID: "R-002" }, rooms), "physical-2");
-  assert.throws(
-    () => maintenanceRoomId({ roomId: "missing" }, rooms),
-    /no longer exists/,
-  );
-  assert.throws(
-    () =>
-      maintenanceRoomId({ roomId: "R-001" }, [
-        ...rooms,
-        { id: "duplicate", roomId: "R-001" },
-      ]),
-    /multiple rooms/,
-  );
 });
 
 test("legacy zero room numbers cannot spread one walk-in across the entire resort", () => {
@@ -517,6 +521,18 @@ test("sales keeps service and package bookings out of room-type revenue", () => 
     { name: "Deluxe", value: 100, bookings: 1 },
   ]);
 });
+test("room type chart uses collected room revenue and excludes activities", () => {
+  const rows = values.collectedRoomRevenueByType([
+    { roomType: "Deluxe", totalPrice: 120, roomSubtotal: 100, amountPaid: 60 },
+    { roomType: "Suite", totalPrice: 200, roomSubtotal: 200, amountPaid: 200 },
+    { roomType: "Deluxe", totalPrice: 120, roomSubtotal: 100, amountPaid: 120, status: "cancelled" },
+    { bookingType: "service", serviceName: "Dive", totalPrice: 50, amountPaid: 50 },
+  ]);
+  assert.deepEqual(rows, [
+    { name: "Suite", value: 200, bookings: 1 },
+    { name: "Deluxe", value: 50, bookings: 1 },
+  ]);
+});
 test("route roles fail closed, allow manager reception work, and keep personnel-only accounts out", () => {
   assert.equal(access.canEnter("Receptionist", "admin"), false);
   assert.equal(access.canEnter("Manager", "receptionist"), true);
@@ -586,6 +602,8 @@ test("guest profiles overlay all booking history without creating fake bookings"
   assert.equal(guests[0].visits, 2);
   assert.equal(guests[0].totalSpent, 75);
   assert.equal(guests[0].name, "Corrected");
+  assert.equal(guests[0].history.length, 3);
+  assert.equal(guests[0].history.find((booking) => booking.id === "c").status, "cancelled");
 });
 test("same-name guests without shared contact details are not merged", () => {
   const guests = aggregateGuests(

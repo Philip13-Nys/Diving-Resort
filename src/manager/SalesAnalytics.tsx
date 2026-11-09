@@ -1,6 +1,6 @@
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
-import { salesSummary } from "../app/bookingAvailability";
+import { collectedRoomRevenueByType, salesSummary } from "../app/bookingAvailability";
 import { servicePackageRevenue } from "../app/reportData";
 import { Card } from "../app/components/ui/card";
 import {
@@ -32,12 +32,7 @@ interface RoomTypeRevenue {
   bookings: number;
 }
 
-interface BookingChannel {
-  name: string;
-  value: number;
-}
-
-const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6"];
+const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#06b6d4", "#f97316"];
 
 export default function SalesAnalytics() {
   const recordRevision = useRecordRevision(
@@ -45,7 +40,6 @@ export default function SalesAnalytics() {
   );
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
   const [roomTypeRevenue, setRoomTypeRevenue] = useState<RoomTypeRevenue[]>([]);
-  const [bookingChannels, setBookingChannels] = useState<BookingChannel[]>([]);
   const [itemRevenue, setItemRevenue] = useState<ReturnType<typeof servicePackageRevenue>>([]);
 
   const [totalRevenue, setTotalRevenue] = useState(0);
@@ -64,8 +58,7 @@ export default function SalesAnalytics() {
         const bookings = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
         const summary = salesSummary(bookings);
         setMonthlyRevenue(summary.monthlyRevenue);
-        setRoomTypeRevenue(summary.roomTypeRevenue);
-        setBookingChannels(summary.bookingChannels);
+        setRoomTypeRevenue(collectedRoomRevenueByType(bookings));
         setItemRevenue(servicePackageRevenue(bookings));
         setTotalRevenue(summary.totalRevenue);
         setTotalBookings(summary.totalBookings);
@@ -90,6 +83,8 @@ export default function SalesAnalytics() {
       </div>
     );
   }
+  const roomTypeChart = roomTypeRevenue.filter((room) => room.value > 0);
+  const roomRevenueTotal = roomTypeChart.reduce((sum, room) => sum + room.value, 0);
   return (
     <div className="p-8">
       <div className="mb-8">
@@ -193,37 +188,38 @@ export default function SalesAnalytics() {
 
         <Card className="p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">
-            Booking Channels Distribution
+            Revenue by Room Type
           </h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={bookingChannels}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, value }) => `${name}: ${value}%`}
-                outerRadius={100}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {bookingChannels.map((entry, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={COLORS[index % COLORS.length]}
-                  />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          <p className="mb-4 text-sm text-gray-500">Collected room revenue by type</p>
+          {roomTypeChart.length ? (
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={roomTypeChart}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, value }) => `${name}: ${Math.round((Number(value) / roomRevenueTotal) * 100)}%`}
+                  outerRadius={100}
+                  dataKey="value"
+                >
+                  {roomTypeChart.map((entry, index) => (
+                    <Cell key={entry.name} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value: number) => `₱${Number(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-[300px] items-center justify-center text-sm text-gray-500">No collected room revenue yet.</div>
+          )}
         </Card>
       </div>
 
       {/* Room Type Performance */}
       <Card className="p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          Revenue by Room Type
+          Room Type Revenue Details
         </h2>
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -248,14 +244,10 @@ export default function SalesAnalytics() {
             </thead>
             <tbody>
               {roomTypeRevenue.map((room) => {
-                const avgRevenue = Math.round(room.value / room.bookings);
-                const totalRevenue = roomTypeRevenue.reduce(
-                  (sum, r) => sum + r.value,
-                  0,
-                );
-                const contribution = Math.round(
-                  (room.value / totalRevenue) * 100,
-                );
+                const avgRevenue = room.bookings ? room.value / room.bookings : 0;
+                const contribution = roomRevenueTotal
+                  ? Math.round((room.value / roomRevenueTotal) * 100)
+                  : 0;
                 return (
                   <tr
                     key={room.name}

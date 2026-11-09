@@ -108,13 +108,13 @@ export default function StayTimeSettings() {
       await batch.commit();
       dirty.current = false;
       setSaved(times);
-      setSuccess("Stay times saved. New bookings will use these times.");
+      setSuccess("Stay time saved. New bookings will use these time.");
     } catch (failure) {
-      console.error("Unable to save room stay times:", failure);
+      console.error("Unable to save room stay time:", failure);
       setError(
         failure instanceof Error
           ? failure.message
-          : "Unable to save stay times. Please try again.",
+          : "Unable to save stay time. Please try again.",
       );
     } finally {
       savingRef.current = false;
@@ -124,7 +124,7 @@ export default function StayTimeSettings() {
 
   return (
     <section
-      aria-labelledby="room-stay-times-title"
+      aria-labelledby="room-stay-time-title"
       className="mb-6 rounded-xl border border-gray-200 bg-white px-4 py-3"
     >
       <AsyncForm
@@ -133,14 +133,14 @@ export default function StayTimeSettings() {
       >
         <div className="lg:mr-auto">
           <h2
-            id="room-stay-times-title"
+            id="room-stay-time-title"
             className="flex items-center gap-2 text-sm font-semibold text-gray-900"
           >
             <Clock className="h-4 w-4 text-cyan-700" aria-hidden="true" /> Stay
-            times
+            time
           </h2>
           <p className="mt-1 text-xs text-gray-500">
-            Displayed on customer bookings · Philippine time
+            Displayed on customer bookings
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3 lg:w-80">
@@ -180,12 +180,12 @@ export default function StayTimeSettings() {
           disabled={loading || saving || Boolean(loadError) || !changed}
           className="flex items-center justify-center gap-2 self-stretch rounded-lg bg-cyan-700 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-50 lg:self-end"
         >
-          <Save className="h-4 w-4" aria-hidden="true" /> Save times
+          <Save className="h-4 w-4" aria-hidden="true" /> Save time
         </AsyncButton>
       </AsyncForm>
       {loading && (
         <p role="status" className="mt-2 text-xs text-gray-500">
-          Loading stay times...
+          Loading stay time...
         </p>
       )}
       {(loadError || error) && (

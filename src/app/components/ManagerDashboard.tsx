@@ -18,14 +18,13 @@ import {
 import { AsyncButton } from "./ui/async-action";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
-import { db, customerDb } from "../firebase";
+import { db } from "../firebase";
 import {
   BedDouble,
   DoorOpen,
   Waves,
   Package,
   Users,
-  Wrench,
   CalendarDays,
   CheckCircle2,
   AlertTriangle,
@@ -39,17 +38,6 @@ type RecordData = {
   [key: string]: any;
 };
 
-type ResourceGroup = {
-  title: string;
-  description: string;
-  icon: typeof BedDouble;
-  color: string;
-  bg: string;
-  records: RecordData[];
-  getName: (item: RecordData) => string;
-  getStatus: (item: RecordData) => string;
-};
-
 const todayString = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -61,401 +49,14 @@ const tomorrowString = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-const text = (value: unknown) => String(value ?? "").trim();
-
-const normalized = (value: unknown) =>
-  text(value)
-    .toLowerCase()
-    .replace(/[_\s]+/g, "-");
-
-const isMaintenance = (status: string) => {
-  const value = normalized(status);
-  return (
-    value.includes("maintenance") ||
-    value.includes("out-of-service") ||
-    value.includes("out-of-order") ||
-    value.includes("repair")
-  );
-};
-
-const isInactive = (status: string) => {
-  const value = normalized(status);
-  return (
-    value.includes("inactive") ||
-    value.includes("disabled") ||
-    value.includes("archived") ||
-    value.includes("unavailable") ||
-    value.includes("not-available")
-  );
-};
-
-const isCancelled = (status: string) =>
-  ["cancelled", "canceled", "rejected"].includes(normalized(status));
-
-const isCompletedTask = (status: string) =>
-  [
-    "completed",
-    "complete",
-    "done",
-    "resolved",
-    "closed",
-    "cancelled",
-    "canceled",
-    "rejected",
-  ].includes(normalized(status));
-
 const getRecordStatuses = (item: RecordData): string[] =>
-  [
-    item.status,
-    item.roomStatus,
-    item.availabilityStatus,
-    item.currentStatus,
-    item.taskStatus,
-    item.maintenanceStatus,
-    item.workStatus,
-  ]
-    .filter(
-      (value) => value !== undefined && value !== null && text(value) !== "",
-    )
-    .map(normalized);
-
-const recordStatus = (item: RecordData): string => {
-  const taskStatuses = [
-    item.taskStatus,
-    item.maintenanceStatus,
-    item.workStatus,
-  ]
-    .filter(
-      (value) => value !== undefined && value !== null && text(value) !== "",
-    )
-    .map(normalized);
-
-  const taskStatus = taskStatuses.find(
-    (status) =>
-      isCompletedTask(status) ||
-      status.includes("pending") ||
-      status.includes("requested") ||
-      status.includes("scheduled") ||
-      status.includes("in-progress") ||
-      status.includes("ongoing") ||
-      isMaintenance(status),
-  );
-
-  if (taskStatus) return taskStatus;
-
-  const statuses = getRecordStatuses(item);
-  const maintenanceStatus = statuses.find(isMaintenance);
-
-  if (maintenanceStatus) return maintenanceStatus;
-
-  if (statuses.length) return statuses[0];
-
-  if (item.isAvailable === false || item.available === false) {
-    return "unavailable";
-  }
-
-  if (item.isAvailable === true || item.available === true) {
-    return "available";
-  }
-
-  return "unknown";
-};
-
-const isPendingMaintenanceTask = (item: RecordData) => {
-  const statuses = getRecordStatuses(item);
-
-  if (statuses.some(isCompletedTask)) return false;
-
-  return statuses.some(
-    (status) =>
-      status.includes("pending") ||
-      status.includes("requested") ||
-      status.includes("scheduled") ||
-      status.includes("in-progress") ||
-      status.includes("ongoing") ||
-      status === "maintenance",
-  );
-};
-
-const isAvailableStatus = (status: string) =>
-  !isMaintenance(status) &&
-  !isInactive(status) &&
-  !status.includes("occupied") &&
-  !status.includes("checked-in") &&
-  !status.includes("reserved") &&
-  !status.includes("booked") &&
-  !status.includes("pending") &&
-  !status.includes("unknown");
-
-const recordName = (item: RecordData) =>
-  text(
-    item.name ??
-      item.taskName ??
-      item.title ??
-      item.description ??
-      item.equipmentName ??
-      item.serviceName ??
-      item.packageName,
-  ) || "Unnamed Record";
-
-/**
- * Your room document uses roomId such as R-006.
- * A numeric roomNumber of 0 is treated as unset.
- */
-const getRoomNumber = (room: RecordData) => {
-  const number = room.roomNumber;
-
-  if (
-    number !== undefined &&
-    number !== null &&
-    text(number) !== "" &&
-    Number(number) !== 0
-  ) {
-    return String(number).trim();
-  }
-
-  return text(
-    room.roomId ?? room.roomNo ?? room.roomCode ?? room.roomIdNumber ?? room.id,
-  );
-};
-
-const getRoomTypeName = (room: RecordData, roomTypes: RecordData[]): string => {
-  // Your room documents use type: "Suite Room".
-  const directName = text(
-    room.roomTypeName ?? room.typeName ?? room.roomType ?? room.type,
-  );
-
-  if (directName) {
-    const matchingType = roomTypes.find(
-      (type) =>
-        normalized(type.name ?? type.roomTypeName ?? type.type) ===
-        normalized(directName),
-    );
-
-    if (matchingType) {
-      return text(
-        matchingType.name ?? matchingType.roomTypeName ?? matchingType.type,
-      );
-    }
-
-    // The room already has a readable room type.
-    return directName;
-  }
-
-  // Support rooms that reference a room type by document ID.
-  const typeId = text(
-    room.roomTypeId ??
-      room.typeId ??
-      (typeof room.roomType === "object" ? room.roomType?.id : ""),
-  );
-
-  const matchingType = roomTypes.find(
-    (type) => normalized(type.id) === normalized(typeId),
-  );
-
-  if (matchingType) {
-    return text(
-      matchingType.name ?? matchingType.roomTypeName ?? matchingType.type,
-    );
-  }
-
-  return "Unassigned Room Type";
-};
-
-const getMaintenanceRoomLabel = (
-  item: RecordData,
-  rooms: RecordData[],
-  roomTypes: RecordData[],
-): string => {
-  const roomReference = text(
-    item.roomId ??
-      item.roomID ??
-      item.roomDocumentId ??
-      item.roomRef ??
-      item.roomCode ??
-      item.roomNo ??
-      item.roomNumber ??
-      item.assignedRoomId ??
-      item.selectedRoomId,
-  );
-
-  const typeReference = text(
-    item.roomType ??
-      item.roomTypeName ??
-      item.roomTypeId ??
-      item.type ??
-      item.typeId,
-  );
-
-  const matchedRoom = rooms.find((room) => {
-    const roomIdentifiers = [
-      room.id,
-      room.roomId,
-      room.roomNumber,
-      room.roomNo,
-      room.roomCode,
-    ]
-      .map(normalized)
-      .filter(Boolean);
-
-    return (
-      roomReference !== "" &&
-      roomIdentifiers.includes(normalized(roomReference))
-    );
-  });
-
-  if (matchedRoom) {
-    const roomTypeName = getRoomTypeName(matchedRoom, roomTypes);
-    const roomNumber = getRoomNumber(matchedRoom);
-
-    return `${roomTypeName} — ${roomNumber || "Room number not set"}`;
-  }
-
-  // If the maintenance record stores the room type but not the room ID.
-  if (typeReference) {
-    const matchingType = roomTypes.find(
-      (type) =>
-        normalized(type.id) === normalized(typeReference) ||
-        normalized(type.name ?? type.roomTypeName ?? type.type) ===
-          normalized(typeReference),
-    );
-
-    const typeName = matchingType
-      ? text(
-          matchingType.name ?? matchingType.roomTypeName ?? matchingType.type,
-        )
-      : typeReference;
-
-    return roomReference
-      ? `${typeName} — ${roomReference}`
-      : `${typeName} — Room not specified`;
-  }
-
-  if (roomReference) {
-    return `Room ${roomReference}`;
-  }
-
-  return "No room linked";
-};
-
-const toDateString = (value: unknown): string => {
-  if (!value) return "";
-
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return "";
-
-    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
-  }
-
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "toDate" in value &&
-    typeof (value as { toDate?: unknown }).toDate === "function"
-  ) {
-    return toDateString((value as { toDate: () => Date }).toDate());
-  }
-
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    "seconds" in value &&
-    typeof (value as { seconds?: unknown }).seconds === "number"
-  ) {
-    return toDateString(
-      new Date((value as { seconds: number }).seconds * 1000),
-    );
-  }
-
-  const raw = text(value);
-
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
-    return raw.slice(0, 10);
-  }
-
-  const date = new Date(raw);
-
-  if (Number.isNaN(date.getTime())) return "";
-
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-};
-
-const overlaps = (booking: RecordData, checkIn: string, checkOut: string) => {
-  const start = toDateString(booking.checkIn ?? booking.bookingDate);
-  const end = toDateString(booking.checkOut ?? booking.bookingDate);
-
-  if (!start || !end) return false;
-
-  return start < checkOut && end > checkIn;
-};
-
-const isRoomBooking = (booking: RecordData) => {
-  const type = normalized(
-    booking.bookingType ?? booking.itemType ?? booking.type,
-  );
-
-  return (
-    !type.includes("activity") &&
-    !type.includes("service") &&
-    !type.includes("package")
-  );
-};
-
-const isCheckedInBooking = (booking: RecordData) =>
-  ["checked-in", "checked-in-occupied"].includes(normalized(booking.status));
-
-const StatusBadge = ({ status }: { status: string }) => {
-  const value = normalized(status);
-
-  let classes = "bg-gray-100 text-gray-700";
-  let label = value.replace(/-/g, " ") || "Unknown";
-
-  if (isCompletedTask(value)) {
-    classes = "bg-green-100 text-green-700";
-    label = "Completed";
-  } else if (isMaintenance(value)) {
-    classes = "bg-orange-100 text-orange-700";
-    label = "Maintenance";
-  } else if (isCancelled(value)) {
-    classes = "bg-gray-100 text-gray-500";
-    label = "Cancelled";
-  } else if (
-    value.includes("occupied") ||
-    value.includes("checked-in") ||
-    value.includes("booked")
-  ) {
-    classes = "bg-blue-100 text-blue-700";
-    label = "Occupied";
-  } else if (isInactive(value)) {
-    classes = "bg-red-100 text-red-700";
-    label = "Unavailable";
-  } else if (
-    value.includes("pending") ||
-    value.includes("reserved") ||
-    value.includes("scheduled") ||
-    value.includes("ongoing") ||
-    value.includes("in-progress") ||
-    value.includes("requested")
-  ) {
-    classes = "bg-amber-100 text-amber-700";
-    label = "Pending";
-  } else if (value === "available") {
-    classes = "bg-green-100 text-green-700";
-    label = "Available";
-  }
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium capitalize ${classes}`}
-    >
-      {label}
-    </span>
-  );
-};
+  [item.status, item.availabilityStatus, item.currentStatus]
+    .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
+    .map((value) => String(value).trim().toLowerCase().replace(/[_\s]+/g, "-"));
 
 export default function ManagerDashboard() {
   const recordRevision = useRecordRevision(
-    "customer:Bookings,admin:reservations,admin:Staff,admin:rooms,admin:roomTypes,admin:services,admin:packages,admin:maintenanceRequests",
+    "customer:Bookings,admin:reservations,admin:Staff,admin:rooms,admin:roomTypes,admin:services,admin:packages",
   );
   const availability = useBookingInventory();
   const activities = useActivityAvailability();
@@ -464,13 +65,11 @@ export default function ManagerDashboard() {
   const [services, setServices] = useState<RecordData[]>([]);
   const [packages, setPackages] = useState<RecordData[]>([]);
   const [staff, setStaff] = useState<RecordData[]>([]);
-  const [maintenance, setMaintenance] = useState<RecordData[]>([]);
   const [bookings, setBookings] = useState<RecordData[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [search, setSearch] = useState("");
   const [checkIn, setCheckIn] = useState(todayString);
   const [checkOut, setCheckOut] = useState(tomorrowString);
 
@@ -490,7 +89,6 @@ export default function ManagerDashboard() {
         getDocs(collection(db, "services")),
         getDocs(collection(db, "packages")),
         getDocs(collection(db, "Staff")),
-        getDocs(collection(db, "maintenanceRequests")),
         getBookingSnapshot(),
       ]);
 
@@ -515,7 +113,6 @@ export default function ManagerDashboard() {
         servicesResult,
         packagesResult,
         staffResult,
-        maintenanceResult,
         bookingsResult,
       ] = results;
 
@@ -524,7 +121,6 @@ export default function ManagerDashboard() {
       setServices(convert(servicesResult, "services"));
       setPackages(convert(packagesResult, "packages"));
       setStaff(convert(staffResult, "Staff"));
-      setMaintenance(convert(maintenanceResult, "maintenanceRequests"));
       setBookings(convert(bookingsResult, "Bookings"));
 
       if (results.some((result) => result.status === "rejected")) {
@@ -545,11 +141,6 @@ export default function ManagerDashboard() {
     void loadDashboardData();
   }, [loadDashboardData, recordRevision]);
 
-  const activeBookings = useMemo(
-    () => bookings.filter((booking) => !isCancelled(booking.status)),
-    [bookings],
-  );
-
   const roomAvailability = useMemo(
     () =>
       availability.roomTypes.map((type) => {
@@ -560,7 +151,7 @@ export default function ManagerDashboard() {
               normalizeBookingValue(type.name),
         );
         const inventory = inventoryRooms.length;
-        const maintained = inventoryRooms.filter(blockedRoom).length;
+        const unavailable = inventoryRooms.filter(blockedRoom).length;
         let available = 0;
         try {
           available = typeAvailability(
@@ -577,8 +168,8 @@ export default function ManagerDashboard() {
           id: type.id,
           name: String(type.name),
           inventory,
-          maintained,
-          reserved: Math.max(0, inventory - maintained - available),
+          unavailable,
+          reserved: Math.max(0, inventory - unavailable - available),
           available,
         };
       }),
@@ -592,35 +183,9 @@ export default function ManagerDashboard() {
   );
 
   const roomCounts = useMemo(() => {
-    const maintainedRoomIds = new Set(
-      rooms
-        .filter((room) => getRecordStatuses(room).some(isMaintenance))
-        .map((room) => room.id),
+    const unavailableRoomIds = new Set(
+      availability.rooms.filter(blockedRoom).map((room) => room.id),
     );
-
-    maintenance.filter(isPendingMaintenanceTask).forEach((task) => {
-      const roomReference = text(
-        task.roomId ??
-          task.roomID ??
-          task.roomDocumentId ??
-          task.roomRef ??
-          task.roomCode ??
-          task.roomNo ??
-          task.roomNumber ??
-          task.assignedRoomId ??
-          task.selectedRoomId,
-      );
-
-      const matchedRoom = rooms.find((room) =>
-        [room.id, room.roomId, room.roomNumber, room.roomNo, room.roomCode]
-          .map(normalized)
-          .includes(normalized(roomReference)),
-      );
-
-      if (matchedRoom) {
-        maintainedRoomIds.add(matchedRoom.id);
-      }
-    });
 
     const today = localDate();
     const assignments = roomBookingsOnDate(
@@ -630,53 +195,24 @@ export default function ManagerDashboard() {
     );
     const occupied = availability.rooms.filter(
       (room) =>
-        !maintainedRoomIds.has(room.id) &&
+        !unavailableRoomIds.has(room.id) &&
         roomStatusOnDate(room, assignments.get(room.id), today) === "occupied",
-    ).length;
-
-    const inactive = rooms.filter((room) =>
-      getRecordStatuses(room).some(isInactive),
     ).length;
 
     return {
       total: rooms.length,
-      maintained: maintainedRoomIds.size,
+      unavailable: unavailableRoomIds.size,
       occupied,
-      inactive,
       available: Math.max(
         0,
-        rooms.length - maintainedRoomIds.size - occupied - inactive,
+        rooms.length - unavailableRoomIds.size - occupied,
       ),
     };
   }, [
     rooms,
-    bookings,
-    maintenance,
     availability.rooms,
     availability.reservations,
   ]);
-
-  const resourceGroups: ResourceGroup[] = [
-    {
-      title: "Maintenance",
-      description: "Maintenance tasks and service issues",
-      icon: Wrench,
-      color: "text-orange-700",
-      bg: "bg-orange-100",
-      records: maintenance,
-      getName: (item) =>
-        text(
-          item.taskName ??
-            item.title ??
-            item.name ??
-            item.description ??
-            item.issue ??
-            item.problem ??
-            item.maintenanceType,
-        ) || "Unnamed Record",
-      getStatus: recordStatus,
-    },
-  ];
 
   const availableActivities =
     activities.loading || activities.error
@@ -702,31 +238,6 @@ export default function ManagerDashboard() {
       ["active", "available", "on-duty"].includes(status),
     ),
   ).length;
-
-  const maintenancePending = maintenance.filter(
-    isPendingMaintenanceTask,
-  ).length;
-
-  const filteredGroups = resourceGroups.map((group) => ({
-    ...group,
-    records: group.records.filter((item) => {
-      const name = group.getName(item).toLowerCase();
-      const status = group.getStatus(item);
-      const query = search.trim().toLowerCase();
-
-      const roomNumber = text(
-        item.displayRoomNumber ?? item.roomNumber ?? item.roomNo ?? item.roomId,
-      ).toLowerCase();
-
-      return (
-        !query ||
-        name.includes(query) ||
-        status.includes(query) ||
-        roomNumber.includes(query) ||
-        group.title.toLowerCase().includes(query)
-      );
-    }),
-  }));
 
   if (loading) {
     return (
@@ -780,14 +291,6 @@ export default function ManagerDashboard() {
       color: "text-amber-700",
       bg: "bg-amber-100",
     },
-    {
-      label: "Maintenance Tasks",
-      value: String(maintenancePending),
-      detail: `${maintenance.length} total records`,
-      icon: Wrench,
-      color: "text-orange-700",
-      bg: "bg-orange-100",
-    },
   ];
 
   return (
@@ -798,7 +301,7 @@ export default function ManagerDashboard() {
             Resort Availability
           </h1>
           <p className="mt-1 text-sm text-gray-600">
-            Monitor rooms, activities, packages, staff, and maintenance.
+            Monitor rooms, activities, packages, and staff.
           </p>
         </div>
 
@@ -820,7 +323,7 @@ export default function ManagerDashboard() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {summaryCards.map((card) => {
           const Icon = card.icon;
 
@@ -934,8 +437,7 @@ export default function ManagerDashboard() {
                     <div>
                       <p className="font-medium text-gray-900">{room.name}</p>
                       <p className="text-xs text-gray-500">
-                        {room.reserved} reserved · {room.maintained} under
-                        maintenance
+                        {room.reserved} reserved · {room.unavailable} unavailable
                       </p>
                     </div>
 
@@ -979,92 +481,7 @@ export default function ManagerDashboard() {
         )}
       </section>
 
-      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="space-y-6">
-          {filteredGroups.map((group) => {
-            const Icon = group.icon;
-
-            return (
-              <div key={group.title}>
-                <div className="mb-3 flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className={`rounded-lg p-2 ${group.bg}`}>
-                      <Icon className={`size-5 ${group.color}`} />
-                    </div>
-
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-gray-900">
-                        {group.title}
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        {group.description}
-                      </p>
-                    </div>
-                  </div>
-
-                  <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600">
-                    {group.records.length}
-                  </span>
-                </div>
-
-                {group.records.length > 0 ? (
-                  <div className="overflow-x-auto rounded-lg border border-gray-100">
-                    <table className="w-full min-w-[500px] text-left text-sm">
-                      <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                        <tr>
-                          <th className="px-4 py-3 font-medium">Resource</th>
-                          <th className="px-4 py-3 font-medium">
-                            Room Number / Details
-                          </th>
-                          <th className="px-4 py-3 font-medium">Status</th>
-                        </tr>
-                      </thead>
-
-                      <tbody className="divide-y divide-gray-100">
-                        {group.records.map((item) => {
-                          const isRoomGroup = group.title === "Rooms";
-
-                          return (
-                            <tr key={item.id} className="hover:bg-gray-50">
-                              <td className="px-4 py-3 font-medium text-gray-800">
-                                {isRoomGroup
-                                  ? getRoomTypeName(item, roomTypes)
-                                  : group.getName(item)}
-                              </td>
-
-                              <td className="px-4 py-3 text-gray-600">
-                                {isRoomGroup
-                                  ? getRoomNumber(item) || "Room number not set"
-                                  : getMaintenanceRoomLabel(
-                                      item,
-                                      rooms,
-                                      roomTypes,
-                                    ) || "No room linked"}
-                              </td>
-
-                              <td className="px-4 py-3">
-                                <StatusBadge status={group.getStatus(item)} />
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="rounded-lg border border-dashed border-gray-200 px-4 py-5 text-center text-sm text-gray-500">
-                    {search
-                      ? "No matching records."
-                      : `No ${group.title.toLowerCase()} records found.`}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
           <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-green-700" />
 
@@ -1073,18 +490,6 @@ export default function ManagerDashboard() {
             <p className="mt-1 text-sm text-green-800">
               {roomCounts.available} rooms, {serviceAvailable} services, and{" "}
               {packageAvailable} active packages. See service quantities below.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-start gap-3 rounded-xl border border-orange-200 bg-orange-50 p-4">
-          <Wrench className="mt-0.5 size-5 shrink-0 text-orange-700" />
-
-          <div>
-            <p className="font-semibold text-orange-900">Maintenance</p>
-            <p className="mt-1 text-sm text-orange-800">
-              {roomCounts.maintained} rooms have a maintenance status and{" "}
-              {maintenancePending} maintenance tasks are pending or ongoing.
             </p>
           </div>
         </div>

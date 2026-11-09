@@ -1,4 +1,3 @@
-import AuditLogs from "./components/AuditLogs";
 import BackupManagement from "./components/BackupManagement";
 import RequireRole from "./RequireRole";
 import { createHashRouter, Navigate } from "react-router-dom";
@@ -25,8 +24,8 @@ import GuestRecords from "../manager/GuestRecords";
 import Reports from "../manager/Reports";
 import ManagersStaffProfiles from "../manager/ManagersStaffProfiles";
 import ActivityLogs from "../manager/ActivityLogs";
-import MaintenanceManagement from "../manager/MaintenanceManagement";
 import ServicesManagement from "../manager/ServicesManagement";
+import ServiceAvailability from "../manager/ServiceAvailability";
 
 import ReceptionistLayout from "../receptionist/ReceptionistLayout";
 import ReceptionistsDashboard from "../receptionist/ReceptionistsDashboard";
@@ -56,7 +55,7 @@ export const router = createHashRouter([
       { path: "receptionist", Component: ReceptionistDashboard },
       { path: "users", Component: UserRoleManagement },
       { path: "staff", Component: StaffProfiles },
-      { path: "audit-logs", Component: AuditLogs },
+      { path: "audit-logs", element: <Navigate to="/manager/activity-logs" replace /> },
       { path: "backups", Component: BackupManagement },
       { path: "commission", Component: CommissionReport },
       { path: "sales", Component: SalesReports },
@@ -87,8 +86,9 @@ export const router = createHashRouter([
       { path: "reports", Component: Reports },
       { path: "staff", Component: ManagersStaffProfiles },
       { path: "activity-logs", Component: ActivityLogs },
-      { path: "maintenance", Component: MaintenanceManagement },
+      { path: "maintenance", element: <Navigate to="/manager/rooms" replace /> },
       { path: "services", Component: ServicesManagement },
+      { path: "service-availability", Component: ServiceAvailability },
     ],
   },
 

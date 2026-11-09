@@ -13,7 +13,6 @@ import {
   typeAvailability,
 } from "../app/bookingAvailability";
 import { requireAccess } from "../app/auth";
-import { maintenanceRoomId } from "../app/maintenanceOperations";
 import { AsyncButton, AsyncForm } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import { Button } from "../app/components/ui/button";
@@ -83,8 +82,12 @@ export default function RoomManagement() {
       roomNumber: Number(data.roomNumber || 0),
       type: String(data.type || ""),
       floor: Number(data.floor || 0),
-      status: String(data.status || "available").toLowerCase(),
-      condition: String(data.condition || "good").toLowerCase(),
+      status: /maintenance/.test(String(data.status || "").toLowerCase())
+        ? "unavailable"
+        : String(data.status || "available").toLowerCase(),
+      condition: /maintenance/.test(String(data.condition || "").toLowerCase())
+        ? "unavailable"
+        : String(data.condition || "good").toLowerCase(),
     };
   };
 
@@ -622,6 +625,9 @@ export default function RoomManagement() {
       const floor = Number(data.get("floor"));
       const condition = String(data.get("condition") || "good").toLowerCase();
       const status = String(data.get("status") || "available").toLowerCase();
+      if (!["available", "occupied", "reserved", "cleaning", "unavailable"].includes(status)) {
+        throw new Error("Select a valid room status.");
+      }
 
       if (
         editingRoom.status === "cleaning" &&
@@ -673,6 +679,7 @@ export default function RoomManagement() {
         floor,
         condition,
         status,
+        maintenanceBlocked: false,
         updatedAt: serverTimestamp(),
       });
 
@@ -709,10 +716,9 @@ export default function RoomManagement() {
     setCleaningRoomId(room.id);
     try {
       const actor = await requireAccess("manager");
-      const [roomsSnapshot, requestsSnapshot, bookingsSnapshot] =
+      const [roomsSnapshot, bookingsSnapshot] =
         await Promise.all([
           getDocs(collection(db, "rooms")),
-          getDocs(collection(db, "maintenanceRequests")),
           getBookingSnapshot(),
         ]);
       const roomRecords = roomsSnapshot.docs.map((item) => ({
@@ -720,24 +726,6 @@ export default function RoomManagement() {
         id: item.id,
       }));
       const normalizedRooms = normalizeInventory(roomRecords);
-      const hasOpenMaintenance = requestsSnapshot.docs.some((item) => {
-        if (
-          !["pending", "in-progress"].includes(
-            normalizeBookingValue(item.data().status),
-          )
-        )
-          return false;
-        try {
-          return maintenanceRoomId(item.data(), roomRecords) === room.id;
-        } catch {
-          return false;
-        }
-      });
-      if (hasOpenMaintenance)
-        throw new Error(
-          "This room has an open maintenance request. Complete it before marking the room cleaned.",
-        );
-
       const hasCheckedInGuest = bookingsSnapshot.docs.some((item) => {
         const booking = item.data();
         return (
@@ -761,15 +749,16 @@ export default function RoomManagement() {
           );
         if (
           data.maintenanceBlocked ||
-          /maintenance|out-of-order|out-of-service|damaged/.test(
+          /maintenance|unavailable|out-of-order|out-of-service|damaged/.test(
             normalizeBookingValue(data.condition),
           )
         )
           throw new Error(
-            "This room is blocked for maintenance. Resolve that before marking it available.",
+            "This room is unavailable. Update its condition before marking it ready.",
           );
         transaction.update(roomRef, {
           status: "available",
+          maintenanceBlocked: false,
           cleanedAt: serverTimestamp(),
           cleanedBy: actor.name,
           cleanedByUid: actor.uid,
@@ -1239,7 +1228,11 @@ export default function RoomManagement() {
                   </label>
                   <select
                     name="condition"
-                    defaultValue={editingRoom.condition}
+                    defaultValue={
+                      ["excellent", "good", "fair"].includes(editingRoom.condition)
+                        ? editingRoom.condition
+                        : "good"
+                    }
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="excellent">Excellent</option>
@@ -1261,7 +1254,7 @@ export default function RoomManagement() {
                     <option value="occupied">Occupied</option>
                     <option value="reserved">Reserved</option>
                     <option value="cleaning">Cleaning</option>
-                    <option value="maintenance">Maintenance</option>
+                    <option value="unavailable">Unavailable</option>
                   </select>
                 </div>
 
