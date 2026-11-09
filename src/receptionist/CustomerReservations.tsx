@@ -12,9 +12,9 @@ import { useSearchParams } from "react-router-dom";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { bookingRoomLabel } from "../app/bookingAvailability";
 import { AsyncButton } from "../app/components/ui/async-action";
-import { Search, Edit2, X, Check, Eye } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth, db, customerDb } from "../app/firebase";
 import { createActivityLog } from "../app/activitylogss";
@@ -108,10 +108,48 @@ function bookingSubject(booking: Booking) {
   }
   return {
     label: "Room",
-    name:
-      booking.roomType ||
-      (booking.room && booking.room !== "0" ? booking.room : "Room stay"),
+    name: booking.roomType || "Room stay",
   };
+}
+
+function bookingAddOns(booking: Booking) {
+  const items = Array.isArray(booking.addOns)
+    ? booking.addOns
+    : booking.addOns
+      ? [booking.addOns]
+      : [];
+
+  return items.map((item: unknown) => {
+    const entry: Record<string, unknown> =
+      item && typeof item === "object"
+        ? (item as Record<string, unknown>)
+        : { name: item };
+    const included = Array.isArray(entry.services)
+      ? entry.services
+          .map((service) =>
+            typeof service === "string"
+              ? service
+              : service && typeof service === "object"
+                ? String((service as Record<string, unknown>).name || "")
+                : "",
+          )
+          .filter(Boolean)
+      : [];
+    const price = Number(entry.price);
+
+    return {
+      name: String(
+        entry.name || entry.serviceName || entry.packageName || "Add-on",
+      ),
+      type: String(entry.type || entry.category || "Add-on"),
+      price: entry.price != null && Number.isFinite(price) ? price : null,
+      quantity: Number(entry.quantity || 0),
+      participants: Number(entry.participants || 0),
+      date: String(entry.bookingDate || ""),
+      time: String(entry.bookingTime || ""),
+      included,
+    };
+  });
 }
 
 function BookingModal({
@@ -357,7 +395,36 @@ export default function Reservations() {
 
   const loadBookings = async () => {
     try {
-      const snapshot = await getBookingSnapshot();
+      const [snapshot, typesSnapshot, roomsSnapshot] = await Promise.all([
+        getBookingSnapshot(),
+        getDocs(collection(db, "roomTypes")).catch(() => null),
+        getDocs(collection(db, "rooms")).catch(() => null),
+      ]);
+      const roomTypes = new Map(
+        (typesSnapshot?.docs || []).map((item) => [item.id, String(item.data().name || "")]),
+      );
+      const rooms: ActivityRecord[] = (roomsSnapshot?.docs || []).map((item) => ({ id: item.id, ...item.data() }));
+
+      const roomTypeName = (data: Record<string, any>): string => {
+        const named = [data.roomTypeName, data.roomName, data.roomType].find(
+          (value) =>
+            typeof value === "string" &&
+            value.trim() &&
+            !/^(?:room\s*)?(?:[A-Za-z]+-)?\d+$/i.test(value.trim()),
+        );
+        if (named) return String(named);
+
+        const typeId = String(data.roomTypeId || data.typeId || data.roomId || "");
+        if (roomTypes.has(typeId)) return roomTypes.get(typeId) || "";
+
+        const assignedIds = Array.isArray(data.assignedRoomIds) ? data.assignedRoomIds.map(String) : [];
+        const number = String(data.roomNumber || data.roomTypeName || data.roomType || "");
+        const room = rooms.find((item) =>
+          assignedIds.includes(item.id) ||
+          (number && String(item.roomNumber || item.number || "") === number),
+        );
+        return room ? roomTypes.get(String(room.roomTypeId || room.typeId || "")) || String(room.type || "") : "";
+      };
 
       const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
         const data = bookingDoc.data();
@@ -397,7 +464,7 @@ export default function Reservations() {
           assignedRoomNumbers: Array.isArray(data.assignedRoomNumbers)
             ? data.assignedRoomNumbers
             : [],
-          roomType: data.roomTypeName || data.roomType || "",
+          roomType: roomTypeName(data),
           checkIn: data.checkIn || "",
           checkOut: data.checkOut || "",
           bookingDate: data.bookingDate || "",
@@ -444,7 +511,7 @@ export default function Reservations() {
       });
 
       bookingData.sort((a, b) =>
-        a.bookingId.localeCompare(b.bookingId, undefined, { numeric: true }),
+        b.bookingId.localeCompare(a.bookingId, undefined, { numeric: true }),
       );
 
       setBookings(bookingData);
@@ -478,6 +545,7 @@ export default function Reservations() {
     const matchesStatus = statusFilter === "all" || b.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
+  const detailAddOns = detail ? bookingAddOns(detail) : [];
 
   const saveBooking = async (booking: Booking) => {
     try {
@@ -698,7 +766,7 @@ export default function Reservations() {
       setDetail(null);
       alert(
         bookingSubject(booking).label === "Room"
-          ? `Guest ${booking.guest} has been checked out. Room ${booking.room} is now under Cleaning.`
+          ? `Guest ${booking.guest} has been checked out. Room ${booking.room} is now available.`
           : `Guest ${booking.guest} has completed ${bookingSubject(booking).label} ${bookingSubject(booking).name}.`,
       );
     } catch (error) {
@@ -775,7 +843,7 @@ export default function Reservations() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-5">
       {modal && (
         <BookingModal
           booking={modal}
@@ -784,27 +852,32 @@ export default function Reservations() {
         />
       )}
 
-      <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-48">
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
-            style={{ color: "#4a7a7a" }}
-          />
-          <input
-            type="text"
-            placeholder="Search by guest, ID, room…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 rounded-lg border text-sm outline-none"
-            style={{
-              borderColor: "rgba(13,115,119,0.2)",
-              background: "white",
-              color: "#0a2e2e",
-            }}
-          />
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="relative w-full sm:max-w-xl">
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
+              style={{ color: "#4a7a7a" }}
+            />
+            <input
+              type="text"
+              placeholder="Search by guest, ID, room…"
+              aria-label="Search reservations"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-4 py-2.5 rounded-lg border text-sm outline-none"
+              style={{
+                borderColor: "rgba(13,115,119,0.2)",
+                background: "white",
+                color: "#0a2e2e",
+              }}
+            />
+          </div>
+
+          <p className="text-xs text-[#4a7a7a]">{filtered.length} reservation{filtered.length === 1 ? "" : "s"}</p>
         </div>
 
-        <div className="flex gap-2 flex-wrap">
+        <div role="group" aria-label="Filter reservations by status" className="flex flex-wrap gap-2">
           {(
             [
               "all",
@@ -820,7 +893,8 @@ export default function Reservations() {
               key={s}
               type="button"
               onClick={() => setStatusFilter(s)}
-              className="px-3 py-1.5 rounded-lg text-xs transition-all border"
+              aria-pressed={statusFilter === s}
+              className="min-h-9 whitespace-nowrap px-3 py-2 rounded-lg text-xs font-medium transition-colors border"
               style={{
                 background: statusFilter === s ? "#0d7377" : "white",
                 color: statusFilter === s ? "white" : "#4a7a7a",
@@ -835,85 +909,51 @@ export default function Reservations() {
       </div>
 
       <div
-        className="bg-white rounded-xl border overflow-hidden"
+        className="rounded-xl 2xl:border 2xl:bg-white"
         style={{ borderColor: "rgba(13,115,119,0.1)" }}
       >
-        <div className="overflow-x-auto hide-scrollbar">
-          <table className="w-full">
-            <thead>
+        <div className="w-full">
+          <table className="block w-full 2xl:table 2xl:table-fixed">
+            <caption className="sr-only">Customer and walk-in reservations</caption>
+            <colgroup className="hidden 2xl:table-column-group">{[13,18,13,15,15,12,14].map((width,index) => <col key={index} style={{ width: width + "%" }} />)}</colgroup>
+            <thead className="hidden 2xl:table-header-group">
               <tr style={{ background: "#f0f9f8" }}>
-                {[
-                  "Booking ID",
-                  "Guest",
-                  "Receptionist",
-                  "Booking",
-                  "Check-in",
-                  "Check-out",
-                  "Pax",
-                  "Status",
-                  "Amount",
-                  "Balance",
-                  "Actions",
-                ].map((h) => (
-                  <th
-                    key={h}
-                    className="text-left px-4 py-3 text-xs whitespace-nowrap"
-                    style={{ color: "#4a7a7a", fontWeight: 500 }}
-                  >
-                    {h}
-                  </th>
+                {["Booking", "Guest", "Schedule", "Receptionist", "Status", "Payment", "Actions"].map((h) => (
+                  <th key={h} scope="col" className={`px-3 py-3 text-xs font-medium ${h === "Payment" ? "text-right" : h === "Actions" ? "text-center" : "text-left"}`} style={{ color: "#4a7a7a" }}>{h}</th>
                 ))}
               </tr>
             </thead>
-
-            <tbody>
+            <tbody className="grid gap-4 lg:grid-cols-2 2xl:table-row-group">
               {filtered.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={11}
-                    className="px-4 py-12 text-center text-sm text-gray-500"
-                  >
-                    No bookings found.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((b, i) => {
-                  const s = STATUS[b.status];
-                  const balance = b.amount - b.paid;
-                  const subject = bookingSubject(b);
-                  const roomNumber = b.room.trim();
-                  const hasRoomNumber =
-                    /^(?:[A-Za-z]+-)?\d+(?:\s*,\s*(?:[A-Za-z]+-)?\d+)*$/.test(
-                      roomNumber,
-                    );
-
-                  return (
-                    <tr
-                      key={b.id}
-                      style={{
-                        borderTop:
-                          i > 0 ? "1px solid rgba(13,115,119,0.08)" : undefined,
-                      }}
-                    >
-                      <td
-                        className="px-4 py-3 text-sm font-mono"
-                        style={{ color: "#0d7377" }}
-                      >
-                        {b.bookingId}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <p className="text-sm" style={{ color: "#0a2e2e" }}>
-                          {b.guest}
-                        </p>
-                        <p className="text-xs" style={{ color: "#4a7a7a" }}>
-                          {b.email}
-                        </p>
-                      </td>
-
-                      <td className="px-4 py-3">
+                <tr className="block lg:col-span-2 2xl:table-row"><td colSpan={7} className="block px-4 py-12 text-center text-sm text-gray-500 2xl:table-cell">No bookings found.</td></tr>
+              ) : filtered.map((b) => {
+                const s = STATUS[b.status];
+                const balance = b.amount - b.paid;
+                const subject = bookingSubject(b);
+                return (
+                  <tr key={b.id} className="grid min-w-0 grid-cols-2 gap-4 rounded-xl border border-[#dceeed] bg-white p-4 transition-colors hover:bg-[#f0f9f8]/60 2xl:table-row 2xl:rounded-none 2xl:border-x-0 2xl:border-b-0 2xl:p-0">
+                    <td className="block min-w-0 2xl:table-cell 2xl:px-3 2xl:py-4 2xl:align-middle">
+                      <span className="mb-1 block text-xs font-medium text-[#4a7a7a] 2xl:sr-only">Booking</span>
+                      <p className="break-words font-mono text-sm font-medium text-[#0d7377]">{b.bookingId}</p>
+                      <span className="mt-2 inline-block rounded px-1.5 py-0.5 text-xs" style={{background: subject.label === "Room" ? "#e2f3f2" : "#fff7ed",color: subject.label === "Room" ? "#0d7377" : "#c2410c"}}>{subject.label}</span>
+                      <p className="mt-1 break-words text-sm leading-5 text-[#0a2e2e]">{subject.name}</p>
+                    </td>
+                    <td className="block min-w-0 2xl:table-cell 2xl:px-3 2xl:py-4 2xl:align-middle col-span-2 row-start-2">
+                      <span className="mb-1 block text-xs font-medium text-[#4a7a7a] 2xl:sr-only">Guest</span>
+                      <p className="break-words text-sm font-medium leading-5 text-[#0a2e2e]">{b.guest}</p>
+                      <p className="mt-1 break-all text-xs leading-5 text-[#4a7a7a]">{b.email}</p>
+                    </td>
+                    <td className="block min-w-0 2xl:table-cell 2xl:px-3 2xl:py-4 2xl:align-middle">
+                      <span className="mb-1 block text-xs font-medium text-[#4a7a7a] 2xl:sr-only">Schedule</span>
+                      <div className="space-y-2 text-sm tabular-nums text-[#0a2e2e]">
+                        <div><span className="block text-xs text-[#4a7a7a]">Check-in</span><span className="whitespace-nowrap">{b.checkIn}</span></div>
+                        <div><span className="block text-xs text-[#4a7a7a]">Check-out</span><span className="whitespace-nowrap">{b.checkOut}</span></div>
+                      </div>
+                    </td>
+                    <td className="block min-w-0 2xl:table-cell 2xl:px-3 2xl:py-4 2xl:align-middle">
+                      <span className="mb-1 block text-xs font-medium text-[#4a7a7a] 2xl:sr-only">Receptionist</span>
                         <p
-                          className="text-sm"
+                          className="break-words text-sm font-medium leading-5"
                           style={{
                             color:
                               b.status === "cancelled" ? "#d4183d" : "#0a2e2e",
@@ -927,7 +967,7 @@ export default function Reservations() {
                                 "Unknown Receptionist"
                               : b.acceptedBy || "Not yet accepted"}
                         </p>
-                        <p className="text-xs" style={{ color: "#4a7a7a" }}>
+                        <p className="mt-1 text-xs leading-5" style={{ color: "#4a7a7a" }}>
                           {b.status === "cancelled"
                             ? "Cancelled"
                             : b.status === "checked-in"
@@ -936,87 +976,30 @@ export default function Reservations() {
                                 ? "Accepted / Accommodated"
                                 : "Pending acceptance"}
                         </p>
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <span
-                          className="inline-block rounded px-1.5 py-0.5 text-xs"
-                          style={{
-                            background:
-                              subject.label === "Room" ? "#e2f3f2" : "#fff7ed",
-                            color:
-                              subject.label === "Room" ? "#0d7377" : "#c2410c",
-                          }}
-                        >
-                          {subject.label}
-                        </span>
-                        <p
-                          className="mt-1 text-sm"
-                          style={{ color: "#0a2e2e" }}
-                        >
-                          {subject.name}
-                        </p>
-                        {subject.label === "Room" &&
-                          hasRoomNumber &&
-                          subject.name !== roomNumber && (
-                            <p className="text-xs" style={{ color: "#4a7a7a" }}>
-                              Room {roomNumber}
-                            </p>
-                          )}
-                      </td>
-
-                      <td
-                        className="px-4 py-3 text-sm"
-                        style={{ color: "#0a2e2e" }}
-                      >
-                        {b.checkIn}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-sm"
-                        style={{ color: "#0a2e2e" }}
-                      >
-                        {b.checkOut}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-sm text-center"
-                        style={{ color: "#0a2e2e" }}
-                      >
-                        {b.pax}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <span
-                          className="inline-block px-2 py-1 rounded-full text-xs"
-                          style={{ background: s.bg, color: s.color }}
-                        >
-                          {s.label}
-                        </span>
-                      </td>
-
-                      <td
-                        className="px-4 py-3 text-sm"
-                        style={{ color: "#0a2e2e" }}
-                      >
-                        ₱{b.amount.toLocaleString()}
-                      </td>
-                      <td
-                        className="px-4 py-3 text-sm"
-                        style={{ color: balance > 0 ? "#d4183d" : "#0d7377" }}
-                      >
-                        {balance > 0 ? `₱${balance.toLocaleString()}` : "Paid"}
-                      </td>
-
-                      <td className="px-4 py-3">
-                        <div className="flex gap-1">
+                    </td>
+                    <td className="block min-w-0 2xl:table-cell 2xl:px-3 2xl:py-4 2xl:align-middle col-start-2 row-start-1">
+                      <span className="mb-1 block text-xs font-medium text-[#4a7a7a] 2xl:sr-only">Status</span>
+                      <span className="inline-flex max-w-full rounded-full px-2.5 py-1 text-xs font-medium leading-4" style={{background:s.bg,color:s.color}}>{s.label}</span>
+                      <p className="mt-2 text-xs text-[#4a7a7a]">Guests: <span className="font-medium tabular-nums text-[#0a2e2e]">{b.pax}</span></p>
+                    </td>
+                    <td className="block min-w-0 2xl:table-cell 2xl:px-3 2xl:py-4 2xl:align-middle col-span-2 2xl:text-right">
+                      <span className="mb-1 block text-xs font-medium text-[#4a7a7a] 2xl:sr-only">Payment</span>
+                      <div className="grid min-w-0 gap-3 text-sm tabular-nums">
+                        <div><span className="block text-xs text-[#4a7a7a]">Total</span><span className="block whitespace-nowrap font-medium text-[#0a2e2e]">₱{b.amount.toLocaleString()}</span></div>
+                        <div><span className="block text-xs text-[#4a7a7a]">Balance</span><span className="block whitespace-nowrap font-medium" style={{color:balance > 0 ? "#d4183d" : "#0d7377"}}>{balance > 0 ? `₱${balance.toLocaleString()}` : "Paid"}</span></div>
+                      </div>
+                    </td>
+                    <td className="block min-w-0 2xl:table-cell 2xl:px-3 2xl:py-4 2xl:align-middle col-span-2 border-t border-[#dceeed] pt-3 2xl:border-0 2xl:pt-4">
+                        <div className="grid w-full grid-cols-2 auto-rows-fr gap-2">
                           {b.status === "pending" && (
                             <AsyncButton
                               type="button"
                               onClick={() => acceptBooking(b.id)}
-                              className="p-1.5 rounded-lg"
-                              style={{ color: "#0d7377" }}
-                              title="Accept Booking"
+                              className="min-h-9 w-full rounded-lg border px-2 py-2 text-xs font-medium whitespace-nowrap"
+                              style={{ color: "#0d7377", background: "#e2f3f2", borderColor: "#b9ddda" }}
+                              title="Confirm booking"
                             >
-                              <Check className="w-4 h-4" />
+                              Confirm
                             </AsyncButton>
                           )}
 
@@ -1024,11 +1007,11 @@ export default function Reservations() {
                             <AsyncButton
                               type="button"
                               onClick={() => checkInGuest(b.id)}
-                              className="p-1.5 rounded-lg"
-                              style={{ color: "#0d7377" }}
+                              className="min-h-9 w-full rounded-lg border px-2 py-2 text-xs font-medium whitespace-nowrap"
+                              style={{ color: "#0d7377", background: "#e2f3f2", borderColor: "#b9ddda" }}
                               title={checkInDateError(b) || "Check In"}
                             >
-                              <Check className="w-4 h-4" />
+                              Check-in
                             </AsyncButton>
                           )}
 
@@ -1036,52 +1019,51 @@ export default function Reservations() {
                             <AsyncButton
                               type="button"
                               onClick={() => checkOut(b.id)}
-                              className="p-1.5 rounded-lg"
-                              style={{ color: "#0d7377" }}
+                              className="min-h-9 w-full rounded-lg border px-2 py-2 text-xs font-medium whitespace-nowrap"
+                              style={{ color: "#0d7377", background: "#e2f3f2", borderColor: "#b9ddda" }}
                               title="Check Out"
                             >
-                              <Check className="w-4 h-4" />
+                              Check-out
                             </AsyncButton>
                           )}
-
-                          <AsyncButton
-                            type="button"
-                            onClick={() => setDetail(b)}
-                            className="p-1.5 rounded-lg"
-                            style={{ color: "#0d7377" }}
-                            title="View"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </AsyncButton>
-
-                          <AsyncButton
-                            type="button"
-                            onClick={() => setModal(b)}
-                            className="p-1.5 rounded-lg"
-                            style={{ color: "#06b6d4" }}
-                            title="Edit"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </AsyncButton>
 
                           {b.status !== "cancelled" &&
                             b.status !== "checked-out" && (
                               <AsyncButton
                                 type="button"
                                 onClick={() => cancel(b.id)}
-                                className="p-1.5 rounded-lg"
-                                style={{ color: "#d4183d" }}
-                                title="Cancel Booking"
+                                className="min-h-9 w-full rounded-lg border px-2 py-2 text-xs font-medium whitespace-nowrap"
+                                style={{ color: "#d4183d", background: "#fef2f2", borderColor: "#fbcbd3" }}
+                                title="Cancel booking"
                               >
-                                <X className="w-4 h-4" />
+                                Cancel
                               </AsyncButton>
                             )}
+
+                          <AsyncButton
+                            type="button"
+                            onClick={() => setDetail(b)}
+                            className="min-h-9 w-full rounded-lg border px-2 py-2 text-xs font-medium whitespace-nowrap"
+                            style={{ color: "#0d7377", background: "white", borderColor: "#b9ddda" }}
+                            title="View"
+                          >
+                            View
+                          </AsyncButton>
+
+                          <AsyncButton
+                            type="button"
+                            onClick={() => setModal(b)}
+                            className="min-h-9 w-full rounded-lg border px-2 py-2 text-xs font-medium whitespace-nowrap"
+                            style={{ color: "#0d7377", background: "white", borderColor: "#b9ddda" }}
+                            title="Edit"
+                          >
+                            Edit
+                          </AsyncButton>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1089,7 +1071,7 @@ export default function Reservations() {
 
       {detail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
             <div
               className="flex items-center justify-between px-6 py-4 border-b"
               style={{ borderColor: "rgba(13,115,119,0.1)" }}
@@ -1232,33 +1214,49 @@ export default function Reservations() {
               ))}
             </div>
 
-            <div className="px-6 pb-6 space-y-3">
-              {detail.status === "confirmed" && (
-                <AsyncButton
-                  type="button"
-                  title={checkInDateError(detail) || "Check In"}
-                  onClick={() => checkInGuest(detail.id)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
-                  style={{ background: "#0d7377" }}
-                >
-                  <Check className="w-4 h-4" />
-                  Check In Guest
-                </AsyncButton>
-              )}
-
-              {(detail.status === "confirmed" ||
-                detail.status === "checked-in") && (
-                <AsyncButton
-                  type="button"
-                  onClick={() => checkOut(detail.id)}
-                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm text-white"
-                  style={{ background: "#0d7377" }}
-                >
-                  <Check className="w-4 h-4" />
-                  Check Out Guest
-                </AsyncButton>
+            <div className="border-t px-6 py-5" style={{ borderColor: "rgba(13,115,119,0.1)" }}>
+              <h4 className="text-sm font-medium" style={{ color: "#0a2e2e" }}>
+                Add-on details
+              </h4>
+              {detailAddOns.length === 0 ? (
+                <p className="mt-2 text-sm" style={{ color: "#4a7a7a" }}>
+                  No add-ons for this booking.
+                </p>
+              ) : (
+                <div className="mt-3 space-y-3">
+                  {detailAddOns.map((addOn, index) => (
+                    <div key={`${addOn.name}-${index}`} className="rounded-lg border p-3" style={{ borderColor: "rgba(13,115,119,0.15)" }}>
+                      <div className="flex items-start justify-between gap-3 text-sm">
+                        <div>
+                          <p className="font-medium" style={{ color: "#0a2e2e" }}>{addOn.name}</p>
+                          <p className="text-xs capitalize" style={{ color: "#4a7a7a" }}>{addOn.type}</p>
+                        </div>
+                        {addOn.price !== null && (
+                          <span className="font-medium whitespace-nowrap" style={{ color: "#0d7377" }}>
+                            ₱{addOn.price.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        )}
+                      </div>
+                      {(addOn.quantity > 0 || addOn.participants > 0 || addOn.date) && (
+                        <p className="mt-2 text-xs" style={{ color: "#4a7a7a" }}>
+                          {[
+                            addOn.quantity > 0 ? `Quantity: ${addOn.quantity}` : "",
+                            addOn.participants > 0 ? `Guests: ${addOn.participants}` : "",
+                            addOn.date ? `Date: ${addOn.date}${addOn.time ? ` · ${activityTimeLabel(addOn.time)}` : ""}` : "",
+                          ].filter(Boolean).join(" · ")}
+                        </p>
+                      )}
+                      {addOn.included.length > 0 && (
+                        <p className="mt-1 text-xs" style={{ color: "#4a7a7a" }}>
+                          Includes: {addOn.included.join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
+
           </div>
         </div>
       )}

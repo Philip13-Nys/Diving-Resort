@@ -13,7 +13,6 @@ import {
   Users,
   BedDouble,
   CreditCard,
-  BarChart3,
   Shell,
   LogOut,
   Menu,
@@ -21,6 +20,7 @@ import {
   ChevronRight,
   Bell,
   CalendarCheck,
+  CalendarDays,
 } from "lucide-react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
@@ -35,9 +35,9 @@ const NAV_ITEMS: {
     | "reservations"
     | "walkin"
     | "guests"
+    | "service-availability"
     | "availability"
-    | "payments"
-    | "reports";
+    | "payments";
   label: string;
   icon: React.ComponentType<{ className?: string }>;
 }[] = [
@@ -47,9 +47,9 @@ const NAV_ITEMS: {
   { id: "reservations", label: "Reservations", icon: BookOpen },
   { id: "walkin", label: "Walk-in", icon: UserPlus },
   { id: "guests", label: "Guests", icon: Users },
+  { id: "service-availability", label: "Service Availability", icon: CalendarDays },
   { id: "availability", label: "Room Availability", icon: BedDouble },
   { id: "payments", label: "Payments", icon: CreditCard },
-  { id: "reports", label: "Reports", icon: BarChart3 },
 ];
 
 type Notification = {
@@ -340,7 +340,7 @@ export default function ReceptionistLayout() {
 
   return (
     <div
-      className="flex h-screen w-full overflow-hidden"
+      className="fixed inset-0 flex h-screen h-dvh w-full overflow-hidden"
       style={{ background: "#f0f9f8" }}
     >
       {sidebarOpen && (
@@ -515,7 +515,7 @@ export default function ReceptionistLayout() {
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header
           className="flex min-h-[64px] flex-shrink-0 items-center gap-2 border-b bg-white px-3 py-3 sm:gap-3 sm:px-4 md:px-6"
           style={{
@@ -859,7 +859,7 @@ export default function ReceptionistLayout() {
           </div>
         </header>
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 lg:p-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3 sm:p-4 lg:p-6">
           <div className="w-full min-w-0">
             <Outlet />
           </div>

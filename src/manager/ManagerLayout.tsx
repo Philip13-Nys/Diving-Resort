@@ -2,14 +2,12 @@ import { logoutUser } from "../app/auth";
 import { AsyncButton } from "../app/components/ui/async-action";
 import {
   LayoutDashboard,
-  Users,
   Hotel,
   CalendarCheck,
   DollarSign,
   TrendingUp,
   UserCircle,
   FileText,
-  Settings,
   Waves,
   CalendarDays,
   Menu,
@@ -59,7 +57,6 @@ const navigation = [
   },
   { name: "Guest Records", href: "/manager/guests", icon: UserCircle },
   { name: "Reports", href: "/manager/reports", icon: FileText },
-  { name: "Staff Profiles", href: "/manager/staff", icon: Settings },
 ];
 
 export default function ManagerLayout() {

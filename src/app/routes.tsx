@@ -22,7 +22,6 @@ import PricingManagement from "../manager/PricingManagement";
 import SalesAnalytics from "../manager/SalesAnalytics";
 import GuestRecords from "../manager/GuestRecords";
 import Reports from "../manager/Reports";
-import ManagersStaffProfiles from "../manager/ManagersStaffProfiles";
 import ActivityLogs from "../manager/ActivityLogs";
 import ServicesManagement from "../manager/ServicesManagement";
 import ServiceAvailability from "../manager/ServiceAvailability";
@@ -36,7 +35,6 @@ import WalkIn from "../receptionist/WalkIn";
 import Guests from "../receptionist/Guests";
 import ReceptionistRoomAvailability from "../receptionist/RoomAvailability";
 import Payments from "../receptionist/Payments";
-import ReceptionistReports from "../receptionist/Reports";
 
 import Login from "../app/login";
 
@@ -84,7 +82,7 @@ export const router = createHashRouter([
       { path: "bookings", element: <Navigate to="/manager/receptionist-dashboard" replace /> },
       { path: "guests", Component: GuestRecords },
       { path: "reports", Component: Reports },
-      { path: "staff", Component: ManagersStaffProfiles },
+      { path: "staff", element: <Navigate to="/manager" replace /> },
       { path: "activity-logs", Component: ActivityLogs },
       { path: "maintenance", element: <Navigate to="/manager/rooms" replace /> },
       { path: "services", Component: ServicesManagement },
@@ -102,9 +100,10 @@ export const router = createHashRouter([
       { path: "reservations", Component: CustomerReservations },
       { path: "walkin", Component: WalkIn },
       { path: "guests", Component: Guests },
+      { path: "service-availability", Component: ServiceAvailability },
       { path: "availability", Component: ReceptionistRoomAvailability },
       { path: "payments", Component: Payments },
-      { path: "reports", Component: ReceptionistReports },
+      { path: "reports", element: <Navigate to="/receptionist" replace /> },
     ],
   },
 

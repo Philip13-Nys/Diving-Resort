@@ -1,5 +1,5 @@
 import { exportWorkbook, servicePackageRevenue } from "../reportData";
-import { completedPayment, cancelled, displayRecordId } from "../bookingAvailability";
+import { collectedBookingAmount, completedPayment, cancelled, displayRecordId } from "../bookingAvailability";
 import { useRecordRevision } from "../useBookingInventory";
 import {
   getLiveBookingSnapshot as getBookingSnapshot,
@@ -109,8 +109,6 @@ export default function SalesReports() {
 
   const loadBookings = async () => {
     try {
-      setLoading(true);
-
       const [snapshot, paymentSnapshot] = await Promise.all([
         getBookingSnapshot(),
         getPaymentSnapshot(),
@@ -216,8 +214,7 @@ export default function SalesReports() {
         : date.getMonth() === reportMonth)
     );
   });
-  const collected = (booking: Booking) =>
-    Math.max(0, Math.min(booking.total, booking.amountPaid));
+  const collected = (booking: Booking) => collectedBookingAmount(booking);
   const totalRevenue = reportBookings.reduce(
     (sum, booking) => sum + collected(booking),
     0,

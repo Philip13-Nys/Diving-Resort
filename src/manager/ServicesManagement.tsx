@@ -94,9 +94,7 @@ const uploadToCloudinary = async (file: File): Promise<string> => {
 
 export default function ServicesManagement() {
   const activityInventory = useActivityAvailability();
-  const [availabilityDate, setAvailabilityDate] = useState(() =>
-    new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10),
-  );
+  const availabilityDate = new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10);
   const recordRevision = useRecordRevision("admin:services,admin:packages");
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<"services" | "packages">(
@@ -1094,22 +1092,6 @@ export default function ServicesManagement() {
         </AsyncButton>
       </div>
 
-      {activeTab === "services" && (
-        <label className="mb-5 flex flex-wrap items-center gap-3 text-sm font-medium text-gray-700">
-          Activity availability date
-          <input
-            aria-label="Activity availability date"
-            type="date"
-            value={availabilityDate}
-            onChange={(event) => setAvailabilityDate(event.target.value)}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm"
-          />
-          <span className="text-xs font-normal text-gray-500">
-            Confirmed reservations and confirmations in progress reserve
-            participant places.
-          </span>
-        </label>
-      )}
       {activityInventory.error && (
         <p role="alert" className="mb-4 text-sm text-red-700">
           {activityInventory.error}

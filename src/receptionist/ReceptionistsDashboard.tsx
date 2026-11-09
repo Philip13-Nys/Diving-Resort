@@ -1,7 +1,8 @@
-import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
+import { activityTimeLabel } from "../app/activityAvailability";
 import {
   assignedRoomIds,
   normalizeInventory,
+  collectedBookingAmount,
 } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
@@ -41,6 +42,13 @@ interface Booking {
   room?: string;
 
   packageName?: string;
+  serviceName?: string;
+  activityName?: string;
+  itemName?: string;
+  bookingType?: string;
+  itemType?: string;
+  bookingDate?: string;
+  bookingTime?: string;
   name?: string;
 
   checkIn?: any;
@@ -100,10 +108,10 @@ const QUICK_ACTIONS = [
     path: "/receptionist/payments",
   },
   {
-    title: "View Reports",
-    description: "View booking reports",
+    title: "View Reservations",
+    description: "Review guest bookings",
     icon: CalendarDays,
-    path: "/receptionist/reports",
+    path: "/receptionist/reservations",
   },
 ];
 
@@ -146,40 +154,22 @@ const getCustomerName = (booking: Booking) => {
   return booking.guestName || booking.guest || booking.customerName || "Guest";
 };
 
-const getBookingPrice = (booking: Booking): number => {
-  const value =
-    booking.totalPrice ??
-    booking.totalAmount ??
-    booking.total ??
-    booking.price ??
-    booking.amount ??
-    booking.roomRate ??
-    0;
-
-  const parsed = Number(String(value).replace(/[₱,\s]/g, ""));
-
-  return Number.isFinite(parsed) ? parsed : 0;
+const getActivityKind = (booking: Booking) => {
+  const kinds = [booking.itemType, booking.bookingType].map((value) =>
+    String(value || "").trim().toLowerCase(),
+  );
+  if (kinds.includes("package")) return "Package";
+  if (kinds.includes("service") || kinds.includes("activity")) return "Service";
+  return null;
 };
 
-const getAmountPaid = (booking: Booking): number => {
-  const value = booking.amountPaid ?? booking.paid ?? 0;
-  const parsed = Number(String(value).replace(/[₱,\s]/g, ""));
-
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
-const isPaidBooking = (booking: Booking) => {
-  const paymentStatus = booking.paymentStatus?.toLowerCase();
-
-  if (paymentStatus === "paid" || paymentStatus === "completed") {
-    return true;
-  }
-
-  const total = getBookingPrice(booking);
-  const paid = getAmountPaid(booking);
-
-  return total > 0 && paid >= total;
-};
+const getActivityName = (booking: Booking) =>
+  booking.packageName ||
+  booking.serviceName ||
+  booking.activityName ||
+  booking.itemName ||
+  booking.name ||
+  getActivityKind(booking);
 
 const getBookingStatus = (booking: Booking) => {
   return booking.status?.toLowerCase() || "pending";
@@ -203,8 +193,6 @@ export default function ReceptionistsDashboard() {
 
   const loadDashboard = async () => {
     try {
-      setLoading(true);
-
       const bookingsSnapshot = await getBookingSnapshot();
 
       const bookingData: Booking[] = bookingsSnapshot.docs.map((doc) => ({
@@ -271,6 +259,7 @@ export default function ReceptionistsDashboard() {
 
   const todaysCheckIns = useMemo(() => {
     return bookings.filter((booking) => {
+      if (getActivityKind(booking)) return false;
       const status = getBookingStatus(booking);
 
       if (status !== "confirmed" && status !== "checked-in") {
@@ -285,6 +274,7 @@ export default function ReceptionistsDashboard() {
 
   const todaysCheckOuts = useMemo(() => {
     return bookings.filter((booking) => {
+      if (getActivityKind(booking)) return false;
       const status = getBookingStatus(booking);
 
       if (status !== "confirmed" && status !== "checked-in") {
@@ -297,9 +287,20 @@ export default function ReceptionistsDashboard() {
     });
   }, [bookings, today]);
 
+  const todaysActivities = useMemo(() => {
+    return bookings.filter((booking) => {
+      if (!getActivityKind(booking)) return false;
+      const status = getBookingStatus(booking);
+      if (status !== "confirmed" && status !== "checked-in") return false;
+      const date = convertToDate(booking.bookingDate || booking.checkIn);
+      return date ? isSameDay(date, today) : false;
+    });
+  }, [bookings, today]);
+
   const revenueToday = useMemo(() => {
     return bookings.reduce((total, booking) => {
-      if (!isPaidBooking(booking)) return total;
+      const collected = collectedBookingAmount(booking);
+      if (!collected) return total;
 
       const checkIn = convertToDate(booking.checkIn);
 
@@ -307,7 +308,7 @@ export default function ReceptionistsDashboard() {
         return total;
       }
 
-      return total + getBookingPrice(booking);
+      return total + collected;
     }, 0);
   }, [bookings, today]);
 
@@ -316,7 +317,8 @@ export default function ReceptionistsDashboard() {
     const currentYear = today.getFullYear();
 
     return bookings.reduce((total, booking) => {
-      if (!isPaidBooking(booking)) return total;
+      const collected = collectedBookingAmount(booking);
+      if (!collected) return total;
 
       const date =
         convertToDate(booking.createdAt) || convertToDate(booking.checkIn);
@@ -327,7 +329,7 @@ export default function ReceptionistsDashboard() {
         date.getMonth() === currentMonth &&
         date.getFullYear() === currentYear
       ) {
-        return total + getBookingPrice(booking);
+        return total + collected;
       }
 
       return total;
@@ -465,7 +467,7 @@ export default function ReceptionistsDashboard() {
         </div>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-xl bg-white p-5 sm:p-6 shadow-sm h-[480px] flex flex-col">
+          <div className="rounded-xl bg-white p-5 sm:p-6 shadow-sm min-h-[360px] max-h-[480px] flex flex-col">
             {/* Header */}
             <div className="mb-4 flex items-center justify-between shrink-0">
               <div>
@@ -483,7 +485,7 @@ export default function ReceptionistsDashboard() {
 
             {/* Schedule */}
             <div className="min-h-0 flex-1 overflow-y-auto pr-1 space-y-2 hide-scrollbar">
-              {todaysCheckIns.length === 0 && todaysCheckOuts.length === 0 ? (
+              {todaysCheckIns.length === 0 && todaysCheckOuts.length === 0 && todaysActivities.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center">
                   <CalendarDays className="h-10 w-10 text-gray-300" />
 
@@ -568,6 +570,32 @@ export default function ReceptionistsDashboard() {
                       </span>
                     </div>
                   ))}
+
+                  {todaysActivities.map((booking) => (
+                    <div
+                      key={`activity-${booking.id}`}
+                      className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-3 transition hover:bg-gray-50"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-100">
+                        <CalendarDays className="h-5 w-5 text-green-600" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-gray-900">
+                          {getCustomerName(booking)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          {getActivityKind(booking)}
+                          {booking.bookingTime ? ` · ${activityTimeLabel(booking.bookingTime)}` : ""}
+                        </p>
+                        <p className="mt-0.5 truncate text-xs text-gray-400">
+                          {getActivityKind(booking)}: {getActivityName(booking)}
+                        </p>
+                      </div>
+                      <span className="hidden shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-[11px] font-medium text-green-600 sm:inline-block">
+                        {getActivityKind(booking)}
+                      </span>
+                    </div>
+                  ))}
                 </>
               )}
             </div>
@@ -605,16 +633,6 @@ export default function ReceptionistsDashboard() {
 
               <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
                 <span className="text-sm text-gray-600">
-                  Today's Check-outs
-                </span>
-
-                <span className="font-semibold text-gray-900">
-                  {todaysCheckOuts.length}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
-                <span className="text-sm text-gray-600">
                   Currently Checked In
                 </span>
 
@@ -630,7 +648,6 @@ export default function ReceptionistsDashboard() {
           </div>
         </div>
       </div>
-      <ServiceAvailabilityPanel />
     </div>
   );
 }

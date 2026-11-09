@@ -1,5 +1,5 @@
-import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import { exportWorkbook, servicePackageRevenue } from "../app/reportData";
+import { collectedBookingAmount } from "../app/bookingAvailability";
 import { completedPayment } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import {
@@ -66,12 +66,12 @@ type Payment = {
 };
 
 const COLORS = [
-  "#0d7377",
-  "#14b8a6",
-  "#06b6d4",
-  "#f97316",
-  "#8b5cf6",
-  "#ec4899",
+  "#1d4ed8",
+  "#3b82f6",
+  "#0ea5e9",
+  "#60a5fa",
+  "#93c5fd",
+  "#1e40af",
 ];
 
 const formatPeso = (value: number) =>
@@ -128,11 +128,11 @@ function RevenueByItemChart({
   return (
     <div
       className="min-w-0 bg-white rounded-xl border p-5"
-      style={{ borderColor: "rgba(13,115,119,0.1)" }}
+      style={{ borderColor: "rgba(37,99,235,0.1)" }}
     >
       <h3
         className="font-medium mb-1"
-        style={{ color: "#0a2e2e", fontFamily: "Georgia, serif" }}
+        style={{ color: "#0f172a", fontFamily: "Georgia, serif" }}
       >
         {title}
       </h3>
@@ -155,7 +155,7 @@ function RevenueByItemChart({
           >
             <CartesianGrid
               strokeDasharray="3 3"
-              stroke="rgba(13,115,119,0.08)"
+              stroke="rgba(37,99,235,0.08)"
             />
             <XAxis
               type="number"
@@ -184,7 +184,7 @@ function RevenueByItemChart({
             <Bar
               dataKey="collected"
               name="Collected revenue"
-              fill="#0d7377"
+              fill="#1d4ed8"
               radius={[0, 4, 4, 0]}
             />
           </BarChart>
@@ -214,8 +214,6 @@ export default function Reports() {
 
   const loadReportData = async () => {
     try {
-      setLoading(true);
-
       const [bookingSnapshot, paymentSnapshot] = await Promise.all([
         getBookingSnapshot(),
         getPaymentSnapshot(),
@@ -372,8 +370,7 @@ export default function Reports() {
     });
   }, [period, validBookings, today]);
 
-  const collected = (booking: Booking) =>
-    Math.max(0, Math.min(booking.total, booking.amountPaid));
+  const collected = (booking: Booking) => collectedBookingAmount(booking);
   const roomCollected = (booking: Booking) => {
     const addOns = booking.addOns.reduce(
       (sum, item) => sum + Number(item.price || 0),
@@ -614,10 +611,10 @@ export default function Reports() {
                 onClick={() => setPeriod(p)}
                 className="px-4 py-2 rounded-lg text-sm capitalize border transition-all"
                 style={{
-                  background: period === p ? "#0d7377" : "white",
-                  color: period === p ? "white" : "#4a7a7a",
+                  background: period === p ? "#1d4ed8" : "white",
+                  color: period === p ? "white" : "#64748b",
                   borderColor:
-                    period === p ? "#0d7377" : "rgba(13,115,119,0.2)",
+                    period === p ? "#1d4ed8" : "rgba(37,99,235,0.2)",
                 }}
               >
                 {p}
@@ -632,7 +629,7 @@ export default function Reports() {
             value={selectedMonth}
             onChange={(event) => setSelectedMonth(Number(event.target.value))}
             className="px-3 py-2 rounded-lg border text-sm"
-            style={{ borderColor: "rgba(13,115,119,0.2)" }}
+            style={{ borderColor: "rgba(37,99,235,0.2)" }}
           >
             {Array.from({ length: 12 }, (_, month) => (
               <option key={month} value={month}>
@@ -647,7 +644,7 @@ export default function Reports() {
             value={selectedYear}
             onChange={(event) => setSelectedYear(Number(event.target.value))}
             className="px-3 py-2 rounded-lg border text-sm"
-            style={{ borderColor: "rgba(13,115,119,0.2)" }}
+            style={{ borderColor: "rgba(37,99,235,0.2)" }}
           >
             {years.map((year) => (
               <option key={year} value={year}>
@@ -661,8 +658,8 @@ export default function Reports() {
           onClick={exportReport}
           className="ml-auto flex items-center gap-2 px-4 py-2 rounded-lg text-sm border"
           style={{
-            borderColor: "rgba(13,115,119,0.2)",
-            color: "#0d7377",
+            borderColor: "rgba(37,99,235,0.2)",
+            color: "#1d4ed8",
           }}
         >
           <Download className="w-4 h-4" />
@@ -675,13 +672,13 @@ export default function Reports() {
         <div
           className="bg-white rounded-xl border p-5"
           style={{
-            borderColor: "rgba(13,115,119,0.1)",
+            borderColor: "rgba(37,99,235,0.1)",
           }}
         >
           <p
             className="text-3xl mb-1"
             style={{
-              color: "#0d7377",
+              color: "#1d4ed8",
               fontFamily: "Georgia, serif",
             }}
           >
@@ -691,7 +688,7 @@ export default function Reports() {
           <p
             className="text-xs"
             style={{
-              color: "#4a7a7a",
+              color: "#64748b",
             }}
           >
             Booking Value
@@ -701,13 +698,13 @@ export default function Reports() {
         <div
           className="bg-white rounded-xl border p-5"
           style={{
-            borderColor: "rgba(13,115,119,0.1)",
+            borderColor: "rgba(37,99,235,0.1)",
           }}
         >
           <p
             className="text-3xl mb-1"
             style={{
-              color: "#14b8a6",
+              color: "#3b82f6",
               fontFamily: "Georgia, serif",
             }}
           >
@@ -717,7 +714,7 @@ export default function Reports() {
           <p
             className="text-xs"
             style={{
-              color: "#4a7a7a",
+              color: "#64748b",
             }}
           >
             Total Bookings
@@ -727,13 +724,13 @@ export default function Reports() {
         <div
           className="bg-white rounded-xl border p-5"
           style={{
-            borderColor: "rgba(13,115,119,0.1)",
+            borderColor: "rgba(37,99,235,0.1)",
           }}
         >
           <p
             className="text-3xl mb-1"
             style={{
-              color: "#f97316",
+              color: "#1d4ed8",
               fontFamily: "Georgia, serif",
             }}
           >
@@ -743,7 +740,7 @@ export default function Reports() {
           <p
             className="text-xs"
             style={{
-              color: "#4a7a7a",
+              color: "#64748b",
             }}
           >
             Avg. Revenue / Booking
@@ -756,13 +753,13 @@ export default function Reports() {
         <div
           className="lg:col-span-2 bg-white rounded-xl border p-5"
           style={{
-            borderColor: "rgba(13,115,119,0.1)",
+            borderColor: "rgba(37,99,235,0.1)",
           }}
         >
           <h3
             className="font-medium mb-5"
             style={{
-              color: "#0a2e2e",
+              color: "#0f172a",
               fontFamily: "Georgia, serif",
             }}
           >
@@ -773,7 +770,7 @@ export default function Reports() {
             <BarChart data={monthlyRevenue} barGap={4}>
               <CartesianGrid
                 strokeDasharray="3 3"
-                stroke="rgba(13,115,119,0.08)"
+                stroke="rgba(37,99,235,0.08)"
               />
 
               <XAxis dataKey="month" />
@@ -803,14 +800,14 @@ export default function Reports() {
               <Bar
                 yAxisId="left"
                 dataKey="revenue"
-                fill="#0d7377"
+                fill="#1d4ed8"
                 name="Revenue"
               />
 
               <Bar
                 yAxisId="right"
                 dataKey="bookings"
-                fill="#14b8a6"
+                fill="#3b82f6"
                 name="Bookings"
               />
             </BarChart>
@@ -820,13 +817,13 @@ export default function Reports() {
         <div
           className="bg-white rounded-xl border p-5"
           style={{
-            borderColor: "rgba(13,115,119,0.1)",
+            borderColor: "rgba(37,99,235,0.1)",
           }}
         >
           <h3
             className="font-medium mb-5"
             style={{
-              color: "#0a2e2e",
+              color: "#0f172a",
               fontFamily: "Georgia, serif",
             }}
           >
@@ -883,7 +880,7 @@ export default function Reports() {
                     <span
                       className="flex-1"
                       style={{
-                        color: "#4a7a7a",
+                        color: "#64748b",
                       }}
                     >
                       {item.name}
@@ -891,7 +888,7 @@ export default function Reports() {
 
                     <span
                       style={{
-                        color: "#0a2e2e",
+                        color: "#0f172a",
                       }}
                     >
                       {formatPeso(item.value)} · {item.percentage}%
@@ -921,13 +918,13 @@ export default function Reports() {
         <div
           className="bg-white rounded-xl border p-5"
           style={{
-            borderColor: "rgba(13,115,119,0.1)",
+            borderColor: "rgba(37,99,235,0.1)",
           }}
         >
           <h3
             className="font-medium mb-4"
             style={{
-              color: "#0a2e2e",
+              color: "#0f172a",
               fontFamily: "Georgia, serif",
             }}
           >
@@ -952,7 +949,7 @@ export default function Reports() {
                     <div className="flex justify-between text-sm mb-1">
                       <span
                         style={{
-                          color: "#0a2e2e",
+                          color: "#0f172a",
                         }}
                       >
                         {payment.method}
@@ -960,7 +957,7 @@ export default function Reports() {
 
                       <span
                         style={{
-                          color: "#4a7a7a",
+                          color: "#64748b",
                         }}
                       >
                         {formatPeso(payment.amount)} ({payment.count} txns)
@@ -970,14 +967,14 @@ export default function Reports() {
                     <div
                       className="h-2 rounded-full"
                       style={{
-                        background: "#e2f3f2",
+                        background: "#dbeafe",
                       }}
                     >
                       <div
                         className="h-full rounded-full"
                         style={{
                           width: `${percentage}%`,
-                          background: "#0d7377",
+                          background: "#1d4ed8",
                         }}
                       />
                     </div>
@@ -992,13 +989,13 @@ export default function Reports() {
         <div
           className="bg-white rounded-xl border p-5"
           style={{
-            borderColor: "rgba(13,115,119,0.1)",
+            borderColor: "rgba(37,99,235,0.1)",
           }}
         >
           <h3
             className="font-medium mb-4"
             style={{
-              color: "#0a2e2e",
+              color: "#0f172a",
               fontFamily: "Georgia, serif",
             }}
           >
@@ -1014,8 +1011,8 @@ export default function Reports() {
                   <span
                     className="w-7 h-7 rounded-full text-xs flex items-center justify-center"
                     style={{
-                      background: index === 0 ? "#f97316" : "#e2f3f2",
-                      color: index === 0 ? "#fff" : "#0d7377",
+                      background: index === 0 ? "#1d4ed8" : "#dbeafe",
+                      color: index === 0 ? "#fff" : "#1d4ed8",
                     }}
                   >
                     {index + 1}
@@ -1025,7 +1022,7 @@ export default function Reports() {
                     <p
                       className="text-sm"
                       style={{
-                        color: "#0a2e2e",
+                        color: "#0f172a",
                       }}
                     >
                       {guest.name}
@@ -1039,7 +1036,7 @@ export default function Reports() {
                   <span
                     className="text-sm font-medium"
                     style={{
-                      color: "#0d7377",
+                      color: "#1d4ed8",
                     }}
                   >
                     {formatPeso(guest.spent)}
@@ -1050,7 +1047,7 @@ export default function Reports() {
           )}
         </div>
       </div>
-      <ServiceAvailabilityPanel exportable />
     </div>
   );
 }
+

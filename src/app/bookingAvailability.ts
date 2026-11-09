@@ -443,6 +443,20 @@ export function bookingTotal(record: BookingRecord) {
 export function bookingPaid(record: BookingRecord) {
   return moneyCents(record.amountPaid ?? record.paid ?? 0) / 100;
 }
+// Booking payment fields are updated only after a payment is accepted.
+// Older fully paid records may have a paid status without an amountPaid field.
+export function collectedBookingAmount(record: BookingRecord): number {
+  if (cancelled(record)) return 0;
+  const asAmount = (value: unknown) => Number(String(value ?? 0).replace(/[₱,\s]/g, "").replace(/^PHP/i, ""));
+  const total = asAmount(record.totalPrice ?? record.totalAmount ?? record.total ?? record.grandTotal ?? record.finalAmount ?? record.bookingTotal ?? record.amount ?? record.price ?? 0);
+  if (!Number.isFinite(total) || total <= 0) return 0;
+  const recorded = asAmount(record.amountPaid ?? record.paid ?? record.paidAmount ?? 0);
+  const accepted = Number.isFinite(recorded) ? Math.max(0, recorded) : 0;
+  const paid = accepted > 0
+    ? accepted
+    : normalizeBookingValue(record.paymentStatus) === "paid" ? total : 0;
+  return Math.round(Math.min(total, paid) * 100) / 100;
+}
 export function cancelled(record: BookingRecord) {
   return ["cancelled", "canceled", "rejected"].includes(
     normalizeBookingValue(record.status),
@@ -488,14 +502,16 @@ export function collectedRoomRevenueByType(records: BookingRecord[]) {
   const types = new Map<string, { name: string; value: number; bookings: number }>();
   for (const booking of records) {
     if (cancelled(booking)) continue;
-    const kind = normalizeBookingValue(booking.bookingType ?? booking.itemType);
+    const kind = [booking.itemType, booking.bookingType]
+      .map(normalizeBookingValue)
+      .find((value) => ["service", "activity", "package"].includes(value)) || "";
     const activityOnly =
       ["service", "activity", "package"].includes(kind) ||
       (!booking.roomTypeName && !booking.roomType && !booking.roomName && !booking.room &&
         (booking.serviceName || booking.packageName || booking.activityName));
     if (activityOnly) continue;
     const total = bookingTotal(booking);
-    const paid = Math.max(0, Math.min(total, bookingPaid(booking)));
+    const paid = collectedBookingAmount(booking);
     const subtotal = Number(booking.roomSubtotal ?? booking.roomTotal ?? total);
     const roomShare = total > 0 && Number.isFinite(subtotal)
       ? Math.min(total, Math.max(0, subtotal)) / total
@@ -532,14 +548,16 @@ export function salesSummary(records: BookingRecord[], now = new Date()) {
     roomNights = 0,
     roomCents = 0;
   for (const booking of bookings) {
-    const cents = moneyCents(bookingTotal(booking));
+    const cents = moneyCents(collectedBookingAmount(booking));
     totalCents += cents;
     const month = monthly.find(
       (item) =>
         item.key === dateOnly(booking.checkIn ?? booking.createdAt).slice(0, 7),
     );
     if (month) month.revenue = (Math.round(month.revenue * 100) + cents) / 100;
-    const kind = normalizeBookingValue(booking.bookingType ?? booking.itemType);
+    const kind = [booking.itemType, booking.bookingType]
+      .map(normalizeBookingValue)
+      .find((value) => ["service", "activity", "package"].includes(value)) || "";
     const activityOnly =
       ["service", "activity", "package"].includes(kind) ||
       (!booking.roomTypeName &&
@@ -551,11 +569,14 @@ export function salesSummary(records: BookingRecord[], now = new Date()) {
       const name = String(
         booking.roomTypeName || booking.roomType || booking.roomName || "Other",
       );
-      const roomValue =
-        booking.roomSubtotal ?? booking.roomTotal ?? bookingTotal(booking);
+      const bookingValue = bookingTotal(booking);
+      const roomValue = Number(booking.roomSubtotal ?? booking.roomTotal ?? bookingValue);
+      const collectedRoom = bookingValue > 0
+        ? Math.max(0, Math.min(bookingValue, roomValue)) / bookingValue * (cents / 100)
+        : 0;
       const group = types.get(name) ?? { name, value: 0, bookings: 0 };
       group.value =
-        (Math.round(group.value * 100) + moneyCents(roomValue)) / 100;
+        (Math.round(group.value * 100) + Math.round(collectedRoom * 100)) / 100;
       group.bookings++;
       types.set(name, group);
     }
@@ -573,11 +594,10 @@ export function salesSummary(records: BookingRecord[], now = new Date()) {
       const quantity = roomQuantity(booking);
       nights += length;
       roomNights += length * quantity;
-      roomCents += moneyCents(
-        booking.roomSubtotal ??
-          booking.roomTotal ??
-          Number(booking.roomRate ?? 0) * length * quantity,
-      );
+      const subtotal = Number(booking.roomSubtotal ?? booking.roomTotal ?? Number(booking.roomRate ?? 0) * length * quantity);
+      roomCents += bookingTotal(booking) > 0
+        ? Math.round(Math.max(0, Math.min(bookingTotal(booking), subtotal)) / bookingTotal(booking) * cents)
+        : 0;
     } catch {
       /* Activity-only or legacy records have no valid room stay. */
     }

@@ -5,6 +5,7 @@ import { useActivityAvailability } from "../useActivityAvailability";
 import {
   activityAvailabilityRows,
   activityPolicy,
+  activityTimeLabel,
   pendingActivityReservations,
 } from "../activityAvailability";
 import { exportReport } from "../reportData";
@@ -112,7 +113,7 @@ export default function ServiceAvailabilityPanel({
           row.name,
           row.itemType,
           row.date,
-          row.time,
+          `${activityTimeLabel(row.time)} – ${activityTimeLabel(row.endTime)}`,
           row.label,
           row.total,
           row.reserved,
@@ -132,7 +133,7 @@ export default function ServiceAvailabilityPanel({
     >
       <td className="px-3 py-2 font-medium text-gray-900">{row.name}</td>
       <td className="px-3 py-2">
-        {row.time} – {row.endTime}
+        {activityTimeLabel(row.time)} – {activityTimeLabel(row.endTime)}
       </td>
       <td className="px-3 py-2">{row.label}</td>
       <td className="px-3 py-2">{row.total}</td>
@@ -317,7 +318,7 @@ export default function ServiceAvailabilityPanel({
           >
             <option value="all">All sessions</option>
             {[...new Set(rows.map((row) => row.time))].sort().map((value) => (
-              <option key={value}>{value}</option>
+              <option key={value} value={value}>{activityTimeLabel(value)}</option>
             ))}
           </select>
         </label>

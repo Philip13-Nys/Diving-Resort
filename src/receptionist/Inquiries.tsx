@@ -106,8 +106,6 @@ export default function Inquiries() {
   useEffect(() => {
     const loadInquiries = async () => {
       try {
-        setLoading(true);
-
         const inquiriesQuery = query(
           collection(customerDb, "Inquiries"),
           orderBy("createdAt", "desc"),

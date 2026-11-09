@@ -463,6 +463,7 @@ test("sales combines both channels, excludes cancelled values, and divides room 
     [
       {
         totalPrice: 420,
+        amountPaid: 420,
         roomSubtotal: 400,
         checkIn: "2026-11-01",
         checkOut: "2026-11-03",
@@ -471,6 +472,7 @@ test("sales combines both channels, excludes cancelled values, and divides room 
       },
       {
         totalPrice: 100,
+        amountPaid: 100,
         roomSubtotal: 100,
         checkIn: "2026-11-01",
         checkOut: "2026-11-02",
@@ -487,6 +489,22 @@ test("sales combines both channels, excludes cancelled values, and divides room 
     [50, 50],
   );
 });
+
+test("revenue counts accepted amounts, excludes pending payments, and preserves booking counts", () => {
+  const records = [
+    { totalPrice: 200, status: "confirmed", paymentStatus: "pending_verification", amountPaid: 0, checkIn: "2026-11-01" },
+    { totalPrice: 200, status: "confirmed", paymentStatus: "partial", amountPaid: 50, checkIn: "2026-11-01" },
+    { totalPrice: 100, status: "checked-out", paymentStatus: "paid", amountPaid: 100, checkIn: "2026-11-01" },
+    { totalPrice: 80, status: "cancelled", paymentStatus: "paid", amountPaid: 80, checkIn: "2026-11-01" },
+  ];
+  assert.equal(values.collectedBookingAmount(records[0]), 0);
+  assert.equal(values.collectedBookingAmount(records[1]), 50);
+  assert.equal(values.collectedBookingAmount(records[3]), 0);
+  const summary = values.salesSummary(records, new Date(2026, 10, 1));
+  assert.equal(summary.totalRevenue, 150);
+  assert.equal(summary.totalBookings, 3);
+  assert.equal(summary.monthlyRevenue.at(-1).revenue, 150);
+});
 test("sales keeps service and package bookings out of room-type revenue", () => {
   const summary = values.salesSummary(
     [
@@ -494,6 +512,7 @@ test("sales keeps service and package bookings out of room-type revenue", () => 
         bookingType: "room",
         roomType: "Deluxe",
         totalPrice: 120,
+        amountPaid: 120,
         roomSubtotal: 100,
         checkIn: "2026-11-01",
         checkOut: "2026-11-02",
@@ -502,6 +521,7 @@ test("sales keeps service and package bookings out of room-type revenue", () => 
         bookingType: "service",
         serviceName: "Night Dive",
         totalPrice: 50,
+        amountPaid: 50,
         checkIn: "2026-11-01",
         checkOut: "2026-11-01",
       },
@@ -509,6 +529,7 @@ test("sales keeps service and package bookings out of room-type revenue", () => 
         bookingType: "package",
         packageName: "Dive Bundle",
         totalPrice: 80,
+        amountPaid: 80,
         checkIn: "2026-11-01",
         checkOut: "2026-11-01",
       },

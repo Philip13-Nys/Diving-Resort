@@ -76,8 +76,6 @@ export default function ManagerDashboard() {
   const loadDashboardData = useCallback(async (refresh = false) => {
     if (refresh) {
       setRefreshing(true);
-    } else {
-      setLoading(true);
     }
 
     setError("");

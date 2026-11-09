@@ -10,6 +10,7 @@ import {
 import { AsyncButton } from "../app/components/ui/async-action";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   collection,
   doc,
@@ -250,6 +251,8 @@ function PaymentModal({ booking, onClose, onPay }: PaymentModalProps) {
 }
 
 export default function Payments() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedVerificationId = searchParams.get("verification");
   const recordRevision = useRecordRevision(
     "customer:Bookings,admin:reservations,customer:Payments,admin:Payments",
   );
@@ -267,8 +270,6 @@ export default function Payments() {
 
   const loadData = async () => {
     try {
-      setLoading(true);
-
       const paymentSnap = await getPaymentSnapshot();
 
       const paymentData: Payment[] = paymentSnap.docs.map((docSnap) => {
@@ -593,7 +594,8 @@ export default function Payments() {
     (p) =>
       p.method === "gcash" &&
       p.status === "pending" &&
-      p.verificationStatus === "pending",
+      p.verificationStatus === "pending" &&
+      (!selectedVerificationId || p.id === selectedVerificationId),
   );
 
   const filtered = payments.filter(
@@ -833,6 +835,20 @@ export default function Payments() {
               <p className="text-xs mt-1" style={{ color: "#4a7a7a" }}>
                 Review customer-submitted payments and verify the reference.
               </p>
+              {selectedVerificationId && (
+                <button
+                  type="button"
+                  onClick={() => setSearchParams((current) => {
+                    const next = new URLSearchParams(current);
+                    next.delete("verification");
+                    return next;
+                  })}
+                  className="mt-2 text-sm font-medium hover:underline"
+                  style={{ color: "#0d7377" }}
+                >
+                  Show all submissions
+                </button>
+              )}
             </div>
 
             <div className="p-4 space-y-3">
@@ -841,7 +857,9 @@ export default function Payments() {
                   className="text-sm text-center py-4"
                   style={{ color: "#4a7a7a" }}
                 >
-                  No pending GCash submissions.
+                  {selectedVerificationId
+                    ? "This payment no longer awaits verification."
+                    : "No pending GCash submissions."}
                 </p>
               ) : (
                 gcashSubmissions.map((p) => (

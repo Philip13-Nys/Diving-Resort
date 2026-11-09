@@ -1,10 +1,10 @@
-import ServiceAvailabilityPanel from "./ServiceAvailabilityPanel";
+import { cancelled, collectedBookingAmount, normalizeBookingValue } from "../bookingAvailability";
 import { useRecordRevision } from "../useBookingInventory";
-import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
+import { getLiveBookingSnapshot as getBookingSnapshot, getLivePaymentSnapshot as getPaymentSnapshot } from "../bookingStore";
 import {
   TrendingUp,
-  Calendar,
-  Waves,
+  CreditCard,
+  Wallet,
   AlertCircle,
   CheckCircle,
   Loader2,
@@ -23,12 +23,12 @@ import {
 } from "recharts";
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db, customerDb } from "../firebase";
+import { Link } from "react-router-dom";
 
 type BookingStatus =
   | "confirmed"
   | "pending"
+  | "pending-payment-verification"
   | "cancelled"
   | "checked-in"
   | "checked-out";
@@ -52,21 +52,15 @@ type Booking = {
   nights: number;
 };
 
-type StaffMember = {
+type PaymentAlert = {
   id: string;
-  name: string;
-  position: string;
-  department: string;
-  email: string;
-  phone: string;
-  joinDate: string;
-  status: string;
-  certifications: string[];
+  guest: string;
+  amount: number;
 };
 
 export default function Dashboard() {
   const recordRevision = useRecordRevision(
-    "customer:Bookings,admin:reservations,admin:Staff",
+    "customer:Bookings,admin:reservations,customer:Payments,admin:Payments",
   );
   const formatPeso = (value: number) =>
     `₱${Number(value || 0).toLocaleString("en-PH", {
@@ -75,17 +69,16 @@ export default function Dashboard() {
     })}`;
 
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [pendingPayments, setPendingPayments] = useState<PaymentAlert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     const loadDashboardData = async () => {
       try {
-        setLoading(true);
-
-        const [bookingSnapshot, staffSnapshot] = await Promise.all([
+        const [bookingSnapshot, paymentSnapshot] = await Promise.all([
           getBookingSnapshot(),
-          getDocs(collection(db, "Staff")),
+          getPaymentSnapshot(),
         ]);
 
         const bookingData: Booking[] = bookingSnapshot.docs.map(
@@ -148,12 +141,14 @@ export default function Dashboard() {
                   data.total ??
                   Number(data.roomRate || 0) * nights,
               ),
-              amountPaid: Number(data.amountPaid ?? 0),
+              amountPaid: Number(data.amountPaid ?? data.paid ?? 0),
 
               status:
                 data.status === "confirmed"
                   ? "confirmed"
-                  : data.status === "cancelled"
+                  : data.status === "pending-payment-verification"
+                    ? "pending-payment-verification"
+                  : cancelled(data)
                     ? "cancelled"
                     : data.status === "checked-in"
                       ? "checked-in"
@@ -167,28 +162,32 @@ export default function Dashboard() {
           },
         );
 
-        const staffData: StaffMember[] = staffSnapshot.docs.map((staffDoc) => {
-          const data = staffDoc.data();
-
-          return {
-            id: staffDoc.id,
-            name: data.name || "Unknown Staff",
-            position: data.position || "",
-            department: data.department || "",
-            email: data.email || "",
-            phone: data.phone || "",
-            joinDate: data.joinDate || "",
-            status: data.status || "Inactive",
-            certifications: Array.isArray(data.certifications)
-              ? data.certifications
-              : [],
-          };
-        });
-
         setBookings(bookingData);
-        setStaff(staffData);
+        setPendingPayments(paymentSnapshot.docs
+          .filter((paymentDoc) => {
+            const payment = paymentDoc.data();
+            const method = String(payment.method ?? payment.paymentMethod ?? "").toLowerCase();
+            const status = normalizeBookingValue(payment.status);
+            const verification = normalizeBookingValue(
+              payment.verificationStatus ??
+                (status === "pending-verification" ? "pending" : "verified"),
+            );
+            return method.includes("gcash") &&
+              ["pending", "pending-verification"].includes(status) &&
+              verification === "pending";
+          })
+          .map((paymentDoc) => {
+            const payment = paymentDoc.data();
+            return {
+              id: paymentDoc.id,
+              guest: String(payment.guest ?? payment.customerName ?? "Guest"),
+              amount: Number(payment.amount ?? 0),
+            };
+          }));
+        setLoadError(false);
       } catch (error) {
         console.error("Error loading dashboard:", error);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
@@ -203,38 +202,17 @@ export default function Dashboard() {
     return date;
   }, []);
 
-  const todayKey = useMemo(() => {
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, "0");
-    const day = String(today.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }, [today]);
-
-  const getDate = (value: string) => {
-    if (!value) return null;
-
-    const date = new Date(`${value}T00:00:00`);
-
-    return isNaN(date.getTime()) ? null : date;
-  };
-
-  const isToday = (value: string) => {
-    return value === todayKey;
-  };
-
   const paidBookings = useMemo(
     () =>
       bookings.filter(
         (booking) =>
-          booking.paymentStatus === "paid" && booking.status !== "cancelled",
+          collectedBookingAmount(booking) > 0,
       ),
     [bookings],
   );
 
   const getRecognizedRevenue = (booking: Booking) => {
-    return booking.amountPaid > 0
-      ? Math.min(booking.amountPaid, booking.total)
-      : booking.total;
+    return collectedBookingAmount(booking);
   };
 
   const totalRevenue = useMemo(
@@ -246,26 +224,15 @@ export default function Dashboard() {
     [paidBookings],
   );
 
-  const bookingsToday = useMemo(
-    () =>
-      bookings.filter(
-        (booking) => booking.category === "Room" && isToday(booking.checkIn) && booking.status !== "cancelled",
-      ),
-    [bookings, todayKey],
-  );
-
   const pendingBookings = useMemo(
     () => bookings.filter((booking) => booking.status === "pending"),
     [bookings],
   );
 
-  const completedToday = useMemo(
-    () =>
-      bookings.filter(
-        (booking) =>
-          booking.status === "checked-out" && isToday(booking.checkOut),
-      ),
-    [bookings, todayKey],
+  const outstandingBalance = useMemo(
+    () => bookings.reduce((sum, booking) =>
+      cancelled(booking) ? sum : sum + Math.max(0, booking.total - collectedBookingAmount(booking)), 0),
+    [bookings],
   );
 
   const revenueData = useMemo(() => {
@@ -307,6 +274,10 @@ export default function Dashboard() {
         count: bookings.filter((b) => b.status === "pending").length,
       },
       {
+        status: "Payment Review",
+        count: bookings.filter((b) => b.status === "pending-payment-verification").length,
+      },
+      {
         status: "Confirmed",
         count: bookings.filter((b) => b.status === "confirmed").length,
       },
@@ -324,49 +295,6 @@ export default function Dashboard() {
       },
     ],
     [bookings],
-  );
-
-  const recentBookings = useMemo(
-    () =>
-      [...bookings]
-        .filter((booking) => booking.status !== "cancelled")
-        .sort(
-          (a, b) =>
-            (getDate(b.checkIn)?.getTime() || 0) -
-            (getDate(a.checkIn)?.getTime() || 0),
-        )
-        .slice(0, 5),
-    [bookings],
-  );
-
-  const upcomingBookings = useMemo(
-    () =>
-      [...bookings]
-        .filter((booking) => {
-          const date = getDate(booking.checkIn);
-
-          return (
-            date &&
-            date.getTime() >= today.getTime() &&
-            booking.category === "Room" &&
-            booking.status !== "cancelled" &&
-            booking.status !== "checked-out"
-          );
-        })
-        .sort(
-          (a, b) =>
-            (getDate(a.checkIn)?.getTime() || 0) -
-            (getDate(b.checkIn)?.getTime() || 0),
-        )
-        .slice(0, 5),
-    [bookings, today],
-  );
-
-  const activeStaff = useMemo(
-    () =>
-      staff.filter((member) => member.status.trim().toLowerCase() === "active")
-        .length,
-    [staff],
   );
 
   const cardClass =
@@ -398,31 +326,34 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Main Statistics */}
-      <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {/* Total Revenue */}
+      {loadError && (
+        <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          Dashboard data could not be loaded. Refresh to try again.
+        </p>
+      )}
+
+      <div className="grid grid-cols-1 items-stretch gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl bg-gradient-to-br from-sky-800 to-cyan-600 p-5 text-white shadow-sm sm:p-6">
           <div className="pointer-events-none absolute -bottom-12 -right-8 size-36 rounded-full bg-white/10" />
           <div className="relative mb-3 flex items-center justify-between gap-3">
             <TrendingUp className="size-7 shrink-0 opacity-90" />
           </div>
-          <p className="relative mb-1 text-sm text-white/85">Total Revenue</p>
+          <p className="relative mb-1 text-sm text-white/85">Collected Revenue</p>
           <p className="relative break-words text-2xl font-bold sm:text-3xl">
             {formatPeso(totalRevenue)}
           </p>
           <p className="relative mt-2 text-xs text-white/80">
-            From fully paid, non-cancelled bookings
+            From accepted payments on non-cancelled bookings
           </p>
         </div>
 
-        {/* Pending Bookings */}
         <div className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl bg-gradient-to-br from-amber-600 to-yellow-400 p-5 text-white shadow-sm sm:p-6">
           <div className="pointer-events-none absolute -bottom-12 -right-8 size-36 rounded-full bg-white/10" />
           <div className="relative mb-3 flex items-center justify-between gap-3">
-            <Waves className="size-7 shrink-0 opacity-90" />
+            <AlertCircle className="size-7 shrink-0 opacity-90" />
           </div>
           <p className="relative mb-1 text-sm text-white/90">
-            Pending Bookings
+            Pending Approvals
           </p>
           <p className="relative text-3xl font-bold">
             {pendingBookings.length.toLocaleString()}
@@ -432,30 +363,78 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* Today's Booking */}
         <div className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl bg-gradient-to-br from-teal-600 to-cyan-500 p-5 text-white shadow-sm sm:p-6">
           <div className="pointer-events-none absolute -bottom-12 -right-8 size-36 rounded-full bg-white/10" />
           <div className="relative mb-3 flex items-center justify-between gap-3">
-            <Calendar className="size-7 shrink-0 opacity-90" />
+            <CreditCard className="size-7 shrink-0 opacity-90" />
           </div>
-          <p className="relative mb-1 text-sm text-white/85">Today's Booking</p>
+          <p className="relative mb-1 text-sm text-white/85">Payments to Verify</p>
           <p className="relative text-3xl font-bold">
-            {bookingsToday.length.toLocaleString()}
+            {pendingPayments.length.toLocaleString()}
           </p>
           <p className="relative mt-2 text-xs text-white/80">
-            Non-cancelled bookings checking in today
+            GCash submissions awaiting review
+          </p>
+        </div>
+
+        <div className="relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl bg-gradient-to-br from-blue-700 to-sky-500 p-5 text-white shadow-sm sm:p-6">
+          <div className="pointer-events-none absolute -bottom-12 -right-8 size-36 rounded-full bg-white/10" />
+          <div className="relative mb-3 flex items-center justify-between gap-3">
+            <Wallet className="size-7 shrink-0 opacity-90" />
+          </div>
+          <p className="relative mb-1 text-sm text-white/85">Outstanding Balances</p>
+          <p className="relative break-words text-2xl font-bold sm:text-3xl">
+            {formatPeso(outstandingBalance)}
+          </p>
+          <p className="relative mt-2 text-xs text-white/80">
+            Unpaid amount on non-cancelled bookings
           </p>
         </div>
       </div>
 
-      {/* Revenue Trend and Alerts */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <section className={`${cardClass} xl:col-span-2`}>
+      <section className={cardClass}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className={headingClass}>Needs Attention</h2>
+          <span className={mutedClass}>Open a record to take action</span>
+        </div>
+        {pendingBookings.length === 0 && pendingPayments.length === 0 && outstandingBalance === 0 ? (
+          <p className="rounded-lg bg-muted/50 p-4 text-sm text-muted-foreground">No items need attention.</p>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-4">
+              <p className="mb-3 font-medium text-foreground">Booking approvals ({pendingBookings.length})</p>
+              {pendingBookings.slice(0, 3).map((booking) => (
+                <Link key={booking.id} to={`/receptionist/reservations?search=${encodeURIComponent(booking.id)}`} className="mb-2 block rounded-md bg-card p-2 text-sm text-primary hover:underline">
+                  {booking.guest} · {booking.category}: {booking.subject}
+                </Link>
+              ))}
+              <Link to="/receptionist/reservations" className="text-sm font-medium text-primary hover:underline">View reservations</Link>
+            </div>
+            <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-4">
+              <p className="mb-3 font-medium text-foreground">Payments to verify ({pendingPayments.length})</p>
+              {pendingPayments.slice(0, 3).map((payment) => (
+                <Link key={payment.id} to={`/receptionist/payments?verification=${encodeURIComponent(payment.id)}`} className="mb-2 block rounded-md bg-card p-2 text-sm text-primary hover:underline">
+                  {payment.guest} · {formatPeso(payment.amount)}
+                </Link>
+              ))}
+              <Link to="/receptionist/payments" className="text-sm font-medium text-primary hover:underline">Review payments</Link>
+            </div>
+            <div className="rounded-lg border border-blue-500/25 bg-blue-500/5 p-4">
+              <p className="mb-3 font-medium text-foreground">Outstanding balances</p>
+              <p className="mb-3 text-xl font-semibold text-foreground">{formatPeso(outstandingBalance)}</p>
+              <Link to="/receptionist/payments" className="text-sm font-medium text-primary hover:underline">View balances</Link>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <section className={cardClass}>
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className={headingClass}>Revenue Trend</h2>
               <p className={`${mutedClass} mt-1`}>
-                Paid bookings by check-in date · Last 7 days
+                Bookings with accepted payments by check-in date · Last 7 days
               </p>
             </div>
             <TrendingUp className="size-5 text-primary" />
@@ -499,7 +478,7 @@ export default function Dashboard() {
                     name === "revenue"
                       ? formatPeso(Number(value))
                       : Number(value),
-                    name === "revenue" ? "Paid Revenue" : "Paid Bookings",
+                    name === "revenue" ? "Collected Revenue" : "Bookings with payments",
                   ]}
                   contentStyle={{
                     backgroundColor: "var(--card)",
@@ -522,102 +501,6 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Alerts and Upcoming Check-ins */}
-        <section className={cardClass}>
-          <h2 className={`${headingClass} mb-4`}>Current Alerts</h2>
-
-          <div className="space-y-3">
-            {pendingBookings.length > 0 && (
-              <div className="rounded-lg border border-orange-500/30 bg-orange-500/10 p-3">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="mt-0.5 size-4 shrink-0 text-orange-500" />
-                  <p className="text-sm text-foreground">
-                    {pendingBookings.length} booking
-                    {pendingBookings.length !== 1 ? "s are" : " is"} waiting for
-                    approval.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {bookingsToday.length > 0 && (
-              <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-3">
-                <div className="flex items-start gap-2">
-                  <Calendar className="mt-0.5 size-4 shrink-0 text-sky-500" />
-                  <p className="text-sm text-foreground">
-                    {bookingsToday.length} check-in
-                    {bookingsToday.length !== 1 ? "s" : ""} scheduled today.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {completedToday.length > 0 && (
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
-                <div className="flex items-start gap-2">
-                  <CheckCircle className="mt-0.5 size-4 shrink-0 text-emerald-500" />
-                  <p className="text-sm text-foreground">
-                    {completedToday.length} booking
-                    {completedToday.length !== 1 ? "s" : ""} completed today.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {pendingBookings.length === 0 &&
-              bookingsToday.length === 0 &&
-              completedToday.length === 0 && (
-                <div className="rounded-lg bg-muted/50 p-5 text-center">
-                  <CheckCircle className="mx-auto mb-2 size-6 text-emerald-500" />
-                  <p className="text-sm text-muted-foreground">
-                    No current alerts.
-                  </p>
-                </div>
-              )}
-          </div>
-
-          <div className="mt-6 border-t border-border pt-5">
-            <h3 className="mb-3 font-semibold text-foreground">
-              Upcoming Check-ins
-            </h3>
-
-            <div className="space-y-2">
-              {upcomingBookings.length > 0 ? (
-                upcomingBookings.map((booking) => (
-                  <div
-                    key={booking.id}
-                    className="flex min-w-0 items-center gap-3 rounded-lg bg-muted/40 p-2.5"
-                  >
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                      {booking.guest.charAt(0).toUpperCase() || "G"}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {booking.guest}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {booking.room} · {booking.checkIn}
-                      </p>
-                    </div>
-
-                    <span className="shrink-0 rounded-md bg-secondary px-2 py-1 text-xs text-secondary-foreground">
-                      {booking.guests} guest{booking.guests === 1 ? "" : "s"}
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <p className="py-4 text-center text-sm text-muted-foreground">
-                  No upcoming check-ins.
-                </p>
-              )}
-            </div>
-          </div>
-        </section>
-      </div>
-
-      {/* Booking Status and Recent Bookings */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <section className={cardClass}>
           <h2 className={`${headingClass} mb-5`}>Booking Status</h2>
 
@@ -669,69 +552,8 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className={cardClass}>
-          <h2 className={`${headingClass} mb-5`}>Recent Bookings</h2>
-
-          <div className="space-y-1">
-            {recentBookings.length > 0 ? (
-              recentBookings.map((booking) => (
-                <div
-                  key={booking.id}
-                  className="flex items-start gap-3 border-b border-border py-3 last:border-0"
-                >
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                    {booking.status === "checked-out" ? (
-                      <CheckCircle className="size-5 text-emerald-500" />
-                    ) : (
-                      <Calendar className="size-5 text-primary" />
-                    )}
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">
-                      {booking.guest}
-                    </p>
-                    <p className="truncate text-sm text-muted-foreground">
-                      {booking.category}: {booking.subject}
-                    </p>
-
-                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-xs capitalize text-muted-foreground">
-                        {booking.status}
-                      </span>
-                      <span className="text-xs text-muted-foreground">·</span>
-                      <span
-                        className={`text-xs font-medium ${
-                          booking.paymentStatus === "paid"
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-muted-foreground"
-                        }`}
-                      >
-                        {booking.paymentStatus === "paid"
-                          ? "Paid"
-                          : booking.paymentStatus === "partial"
-                            ? "Partially paid"
-                            : "Unpaid"}
-                      </span>
-                      <span className="text-xs text-muted-foreground">·</span>
-                      <span className="text-xs font-medium text-foreground">
-                        {formatPeso(booking.total)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="py-8 text-center text-sm text-muted-foreground">
-                No bookings found.
-              </div>
-            )}
-          </div>
-        </section>
       </div>
 
-      {/* Bottom Summary: Active Staff card removed */}
-      <ServiceAvailabilityPanel managePath="/manager/services" />
     </div>
   );
 }

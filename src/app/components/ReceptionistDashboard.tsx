@@ -1,4 +1,4 @@
-import ServiceAvailabilityPanel from "./ServiceAvailabilityPanel";
+import { collectedBookingAmount } from "../bookingAvailability";
 import { displayRecordId } from "../bookingAvailability";
 import { useRecordRevision } from "../useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
@@ -248,8 +248,6 @@ export default function ManagerDashboard() {
   const loadBookings = useCallback(async (refresh = false) => {
     if (refresh) {
       setRefreshing(true);
-    } else {
-      setLoading(true);
     }
 
     setLoadError("");
@@ -295,7 +293,7 @@ export default function ManagerDashboard() {
           checkOut,
           guests: Number(data.guests ?? data.numberOfGuests ?? 0),
           total: Number.isFinite(total) ? total : 0,
-          amountPaid: Number(data.amountPaid ?? data.paidAmount ?? 0),
+          amountPaid: Number(data.amountPaid ?? data.paid ?? data.paidAmount ?? 0),
           status: normalizeStatus(data.status || "pending"),
           paymentStatus: normalizeStatus(data.paymentStatus || "unpaid"),
           nights,
@@ -368,7 +366,7 @@ export default function ManagerDashboard() {
           (booking) =>
             booking.checkIn === today && !isCancelled(booking.status),
         )
-        .reduce((sum, booking) => sum + booking.total, 0),
+        .reduce((sum, booking) => sum + collectedBookingAmount(booking), 0),
     [bookings, today],
   );
 
@@ -380,7 +378,7 @@ export default function ManagerDashboard() {
             booking.checkIn.startsWith(currentMonth) &&
             !isCancelled(booking.status),
         )
-        .reduce((sum, booking) => sum + booking.total, 0),
+        .reduce((sum, booking) => sum + collectedBookingAmount(booking), 0),
     [bookings, currentMonth],
   );
 
@@ -709,7 +707,6 @@ export default function ManagerDashboard() {
           )}
         </section>
       </div>
-      <ServiceAvailabilityPanel />
     </main>
   );
 }

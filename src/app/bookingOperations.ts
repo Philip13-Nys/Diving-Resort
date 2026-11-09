@@ -43,8 +43,10 @@ import {
   pendingPayment,
 } from "./bookingAvailability";
 const activityBooking = (record: BookingRecord) =>
-  ["service", "package", "activity"].includes(
-    String(record.bookingType || record.itemType || "").toLowerCase(),
+  [record.bookingType, record.itemType].some((value) =>
+    ["service", "package", "activity"].includes(
+      String(value || "").trim().toLowerCase(),
+    ),
   );
 
 export function checkInDateError(
@@ -567,9 +569,10 @@ export async function changeBooking(
           [`${prefix}At`]: serverTimestamp(),
         };
       }
-      const roomStatus =
-        action === "checked-out"
-          ? "Cleaning"
+      const roomStatus = activityBooking(original)
+        ? ""
+        : action === "checked-out"
+          ? "Available"
           : action === "checked-in"
             ? "Occupied"
             : "";

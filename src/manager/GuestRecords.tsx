@@ -55,8 +55,6 @@ export default function GuestRecords() {
   useEffect(() => {
     const fetchGuests = async () => {
       try {
-        setLoading(true);
-
         const guests = await getGuests();
         setGuests(
           guests.map((guest) => ({
@@ -167,11 +165,18 @@ export default function GuestRecords() {
 
     return (
       !q ||
+      displayRecordId(guest.id, "GST").toLowerCase().includes(q) ||
       guest.name.toLowerCase().includes(q) ||
       guest.email.toLowerCase().includes(q) ||
       guest.phone.toLowerCase().includes(q)
     );
-  });
+  }).sort((left, right) =>
+    displayRecordId(left.id, "GST").localeCompare(
+      displayRecordId(right.id, "GST"),
+      undefined,
+      { numeric: true },
+    ),
+  );
 
   const statusBadge = (status: Guest["status"]) => {
     const map = {
@@ -230,7 +235,7 @@ export default function GuestRecords() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search guests by name, email, or phone..."
+            placeholder="Search guests by ID, name, email, or phone..."
             className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
           />
 
@@ -252,26 +257,26 @@ export default function GuestRecords() {
         )}
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <Card className="p-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <Card className="gap-0 p-5">
           <p className="text-sm text-gray-500">Total Guests</p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">{totalGuests}</p>
         </Card>
 
-        <Card className="p-6">
+        <Card className="gap-0 p-5">
           <p className="text-sm text-gray-500">VIP Guests</p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">{vipGuests}</p>
         </Card>
 
-        <Card className="p-6">
+        <Card className="gap-0 p-5">
           <p className="text-sm text-gray-500">New Guests</p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">{newGuests}</p>
         </Card>
 
-        <Card className="p-6">
+        <Card className="gap-0 p-5">
           <p className="text-sm text-gray-500">Avg. Lifetime Value</p>
 
           <p className="text-2xl font-bold text-gray-900 mt-1">
@@ -280,13 +285,16 @@ export default function GuestRecords() {
         </Card>
       </div>
 
-      <Card className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          Guest Directory
-        </h2>
+      <Card className="gap-0 p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-gray-900">Guest Directory</h2>
+          <p className="text-sm text-gray-500">
+            {filtered.length} {filtered.length === 1 ? "guest" : "guests"} · Sorted by guest ID
+          </p>
+        </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[900px]">
             <thead>
               <tr className="border-b border-gray-200">
                 {[
@@ -310,7 +318,7 @@ export default function GuestRecords() {
             </thead>
 
             <tbody>
-              {filtered.map((guest, index) => (
+              {filtered.map((guest) => (
                 <tr
                   key={guest.id}
                   className="border-b border-gray-100 hover:bg-gray-50"

@@ -1,4 +1,4 @@
-import { displayRecordId } from "./bookingAvailability";
+import { collectedBookingAmount, displayRecordId } from "./bookingAvailability";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 import { getBookingSnapshot, getPaymentSnapshot } from "./bookingStore";
@@ -23,14 +23,11 @@ export function servicePackageRevenue(records: Record<string, any>[]) {
     const total = Number(
       record.totalPrice ?? record.totalAmount ?? record.total ?? 0,
     );
-    const paid = Math.max(
-      0,
-      Math.min(total, Number(record.amountPaid ?? record.paid ?? 0)),
-    );
+    const paid = collectedBookingAmount(record);
     if (!(total > 0 && paid > 0)) continue;
-    const kind = String(
-      record.bookingType || record.itemType || "",
-    ).toLowerCase();
+    const kind = [record.itemType, record.bookingType]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .find((value) => ["service", "activity", "package"].includes(value)) || "";
     const items: {
       type: "Service" | "Package";
       name: string;

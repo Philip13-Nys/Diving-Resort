@@ -18,6 +18,18 @@ type ActivityLog = {
 };
 type FilterStatus = "all" | "success" | "warning";
 
+function detailLines(details: string): string[] {
+  const text = String(details || "").trim();
+  if (!text) return ["No details recorded."];
+
+  return text
+    .replace(/\.\s+(?=[A-Z])/g, ".\n")
+    .replace(/,\s+(?=[A-Za-z][A-Za-z /-]{1,32}:)/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 export default function ActivityLogs() {
   const recordRevision = useRecordRevision("admin:ActivityLogs");
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -75,7 +87,7 @@ export default function ActivityLogs() {
             user: data.user || "Unknown User",
             role: data.role || "Unknown Role",
             action: data.action || "",
-            details: data.details || "",
+            details: String(data.details || ""),
             status: data.status === "warning" ? "warning" : "success",
           };
         });
@@ -230,7 +242,7 @@ export default function ActivityLogs() {
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full min-w-[900px]">
             <thead>
               <tr className="border-b border-gray-200">
                 <th className="text-left py-3 px-4 text-sm font-medium text-gray-500">
@@ -275,13 +287,13 @@ export default function ActivityLogs() {
                     key={log.id}
                     className="border-b border-gray-100 hover:bg-gray-50"
                   >
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 whitespace-nowrap align-top">
                       <div className="flex items-center gap-2 text-sm text-gray-700">
                         <Clock className="w-4 h-4 text-gray-400" />
                         {log.timestamp}
                       </div>
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 align-top">
                       <div className="flex items-center gap-2">
                         <User className="w-4 h-4 text-gray-400" />
                         <div>
@@ -292,13 +304,27 @@ export default function ActivityLogs() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-sm font-medium text-gray-900">
+                    <td className="py-3 px-4 align-top text-sm font-medium text-gray-900">
                       {log.action}
                     </td>
-                    <td className="py-3 px-4 text-sm text-gray-700">
-                      {log.details}
+                    <td className="min-w-[280px] max-w-[520px] py-3 px-4 align-top text-sm text-gray-700">
+                      <div className="space-y-1.5 break-words leading-5">
+                        {detailLines(log.details).map((line, index) => {
+                          const field = /^([A-Za-z][A-Za-z /-]{1,32}):\s*(.*)$/.exec(line);
+                          return (
+                            <p key={`${log.id}-detail-${index}`} className={index === 0 ? "text-gray-900" : "border-l-2 border-blue-100 pl-2 text-gray-600"}>
+                              {field ? (
+                                <>
+                                  <span className="font-medium">{field[1]}:</span>{" "}
+                                  {field[2]}
+                                </>
+                              ) : line}
+                            </p>
+                          );
+                        })}
+                      </div>
                     </td>
-                    <td className="py-3 px-4">
+                    <td className="py-3 px-4 align-top">
                       <span
                         className={`px-2 py-1 rounded text-xs ${
                           log.status === "success"

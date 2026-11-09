@@ -1,4 +1,3 @@
-import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import { exportReport } from "../app/reportData";
 import { displayRecordId } from "../app/bookingAvailability";
 import {
@@ -227,9 +226,6 @@ function getBookingBars(
 }
 
 export default function CalendarView() {
-  const [availabilityTab, setAvailabilityTab] = useState<"rooms" | "services">(
-    "rooms",
-  );
   const recordRevision = useRecordRevision(
     "customer:Bookings,admin:reservations,admin:rooms,admin:roomTypes",
   );
@@ -253,7 +249,6 @@ export default function CalendarView() {
 
   const loadCalendarData = async () => {
     try {
-      setLoading(true);
       setError("");
 
       const [snapshot, physicalRooms, roomTypes] = await Promise.all([
@@ -445,32 +440,6 @@ export default function CalendarView() {
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full">
-      <div
-        className="mb-4 flex gap-2"
-        role="group"
-        aria-label="Booking calendar type"
-      >
-        <button
-          type="button"
-          aria-pressed={availabilityTab === "rooms"}
-          onClick={() => setAvailabilityTab("rooms")}
-          className="rounded-lg border px-4 py-2 text-sm"
-        >
-          Room calendar
-        </button>
-        <button
-          type="button"
-          aria-pressed={availabilityTab === "services"}
-          onClick={() => setAvailabilityTab("services")}
-          className="rounded-lg border px-4 py-2 text-sm"
-        >
-          Service calendar
-        </button>
-      </div>
-      {availabilityTab === "services" ? (
-        <ServiceAvailabilityPanel title="Service booking calendar" exportable />
-      ) : (
-        <>
           {error && (
             <div className="mb-4 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm">
               {error}
@@ -929,8 +898,6 @@ export default function CalendarView() {
               </div>
             )}
           </div>
-        </>
-      )}
     </div>
   );
 }

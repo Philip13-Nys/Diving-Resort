@@ -1,10 +1,10 @@
-import ServiceAvailabilityPanel from "../app/components/ServiceAvailabilityPanel";
 import {
   normalizeInventory,
   roomBookingsOnDate,
   roomStatusOnDate,
   localDate,
   roomQuantity,
+  collectedBookingAmount,
 } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
@@ -28,9 +28,7 @@ import {
   TrendingUp,
   Activity,
   Plus,
-  FileText,
   Waves,
-  Edit,
   RefreshCw,
   Loader2,
 } from "lucide-react";
@@ -113,20 +111,6 @@ const quickActions = [
     color: "bg-teal-100 text-teal-600",
     href: "/manager/services?action=add",
   },
-  {
-    label: "Reports",
-    description: "Generate and download reports",
-    icon: FileText,
-    color: "bg-purple-100 text-purple-600",
-    href: "/manager/reports",
-  },
-  {
-    label: "Edit Pricing",
-    description: "Update room rates and pricing policies",
-    icon: Edit,
-    color: "bg-green-100 text-green-600",
-    href: "/manager/pricing",
-  },
 ];
 
 const convertToDate = (value: unknown): Date | null => {
@@ -178,47 +162,6 @@ const getBookingDate = (booking: Booking): Date | null => {
     convertToDate(booking.date) ??
     convertToDate(booking.checkIn)
   );
-};
-
-const parseAmount = (value: unknown): number | null => {
-  if (typeof value === "number") {
-    return Number.isFinite(value) && value >= 0 ? value : null;
-  }
-
-  if (typeof value === "string" && value.trim() !== "") {
-    // Supports values such as "1500", "₱1,500.00", and "PHP 1500".
-    const cleaned = value.replace(/[₱,\s]/g, "").replace(/^PHP/i, "");
-    const parsed = Number(cleaned);
-
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-  }
-
-  return null;
-};
-
-const getBookingAmount = (booking: Booking): number => {
-  // Prefer the full booking total. Skip missing or zero values when
-  // another supported field contains the actual total.
-  const fields = [
-    booking.total,
-    booking.totalAmount,
-    booking.totalPrice,
-    booking.grandTotal,
-    booking.finalAmount,
-    booking.bookingTotal,
-    booking.amount,
-    booking.price,
-    booking.serviceTotal,
-    booking.paymentAmount,
-  ];
-
-  const parsedAmounts = fields
-    .map(parseAmount)
-    .filter((amount): amount is number => amount !== null);
-
-  const positiveAmount = parsedAmounts.find((amount) => amount > 0);
-
-  return positiveAmount ?? parsedAmounts[0] ?? 0;
 };
 
 const normalizeStatus = (value: unknown): string =>
@@ -342,8 +285,6 @@ export default function Dashboard() {
   const loadDashboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
       setRefreshing(true);
-    } else {
-      setLoading(true);
     }
 
     setError("");
@@ -376,9 +317,9 @@ export default function Dashboard() {
       // Count all booking records, including cancelled records.
       setTotalBookings(bookings.length);
 
-      // Total revenue: all non-cancelled room and activity bookings.
+      // Count only accepted payments, including partial payments.
       const revenue = activeBookings.reduce(
-        (sum, booking) => sum + getBookingAmount(booking),
+        (sum, booking) => sum + collectedBookingAmount(booking),
         0,
       );
 
@@ -386,7 +327,7 @@ export default function Dashboard() {
 
       // Average Daily Rate: room revenue per occupied room-night.
       const roomRevenue = activeRoomBookings.reduce(
-        (sum, booking) => sum + getBookingAmount(booking),
+        (sum, booking) => sum + collectedBookingAmount(booking),
         0,
       );
 
@@ -437,7 +378,7 @@ export default function Dashboard() {
         if (!current) return;
 
         current.bookings += 1;
-        current.revenue += getBookingAmount(booking);
+        current.revenue += collectedBookingAmount(booking);
       });
 
       setRevenueData(
@@ -639,7 +580,7 @@ export default function Dashboard() {
           Quick Actions
         </h2>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6 lg:gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:gap-4">
           {quickActions.map((action) => {
             const Icon = action.icon;
 
@@ -840,7 +781,6 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <ServiceAvailabilityPanel managePath="/manager/services" />
     </div>
   );
 }

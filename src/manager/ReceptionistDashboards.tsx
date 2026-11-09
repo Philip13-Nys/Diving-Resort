@@ -1,4 +1,4 @@
-import { displayRecordId } from "../app/bookingAvailability";
+import { dateOnly, displayRecordId, localDate } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
 import { Card } from "../app/components/ui/card";
@@ -10,6 +10,8 @@ import {
   XCircle,
   CalendarCheck,
   Users,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import { useEffect, useState } from "react";
@@ -88,12 +90,11 @@ export default function ReceptionistDashboards() {
 
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [viewDate, setViewDate] = useState(() => localDate());
 
   useEffect(() => {
     const fetchBookings = async () => {
       try {
-        setLoading(true);
-
         const snapshot = await getBookingSnapshot();
 
         const bookingData: Booking[] = snapshot.docs.map((bookingDoc) => {
@@ -124,7 +125,7 @@ export default function ReceptionistDashboards() {
                 data.totalAmount ??
                 0,
             ),
-            paid: Number(data.paid ?? data.amountPaid ?? 0),
+            paid: Number(data.amountPaid ?? data.paid ?? 0),
             notes: data.notes,
             acceptedBy: String(
               data.acceptedBy ||
@@ -169,51 +170,47 @@ export default function ReceptionistDashboards() {
     fetchBookings();
   }, [recordRevision]);
 
-  const totalReservations = bookings.length;
+  const bookingsForDate = bookings.filter((booking) => {
+    const checkIn = dateOnly(booking.checkIn);
+    const checkOut = dateOnly(booking.checkOut || booking.checkIn);
+    return checkIn <= viewDate && viewDate <= checkOut;
+  });
 
-  const pendingReservations = bookings.filter((booking) =>
+  const totalReservations = bookingsForDate.length;
+
+  const pendingReservations = bookingsForDate.filter((booking) =>
     ["pending", "pending-payment-verification"].includes(booking.status || ""),
   ).length;
 
-  const confirmedReservations = bookings.filter(
+  const confirmedReservations = bookingsForDate.filter(
     (booking) => booking.status === "confirmed",
   ).length;
 
-  const checkedInReservations = bookings.filter(
+  const checkedInReservations = bookingsForDate.filter(
     (booking) =>
       booking.status === "checked-in" || booking.status === "checkedin",
   ).length;
 
-  const checkedOutReservations = bookings.filter(
+  const checkedOutReservations = bookingsForDate.filter(
     (booking) =>
       booking.status === "checked-out" || booking.status === "checkedout",
   ).length;
 
-  const cancelledReservations = bookings.filter(
+  const cancelledReservations = bookingsForDate.filter(
     (booking) => booking.status === "cancelled",
   ).length;
 
-  const totalSales = bookings
-    .filter(
-      (booking) =>
-        booking.status === "confirmed" ||
-        booking.status === "checked-in" ||
-        booking.status === "checkedin" ||
-        booking.status === "checked-out" ||
-        booking.status === "checkedout",
-    )
-    .reduce((total, booking) => total + Number(booking.amount ?? 0), 0);
-
-  const totalPaid = bookings.reduce(
-    (total, booking) => total + Number(booking.paid ?? 0),
-    0,
-  );
-
-  const sortedBookings = [...bookings].sort((a, b) =>
+  const sortedBookings = [...bookingsForDate].sort((a, b) =>
     displayRecordId(a.id).localeCompare(displayRecordId(b.id), undefined, {
       numeric: true,
     }),
   );
+
+  const moveViewDate = (days: number) => {
+    const next = new Date(`${viewDate}T12:00:00`);
+    next.setDate(next.getDate() + days);
+    setViewDate(localDate(next));
+  };
 
   const getAcceptedBy = (booking: Booking) => {
     return (
@@ -273,7 +270,7 @@ export default function ReceptionistDashboards() {
 
   return (
     <div className="p-8">
-      <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="flex items-center gap-3">
             <div>
@@ -287,18 +284,43 @@ export default function ReceptionistDashboards() {
             </div>
           </div>
         </div>
+        <div className="shrink-0">
+          <label htmlFor="receptionist-view-date" className="mb-2 block text-sm font-medium text-gray-700">
+            View date
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="receptionist-view-date"
+              type="date"
+              value={viewDate}
+              onChange={(event) => {
+                if (event.target.value) setViewDate(event.target.value);
+              }}
+              className="h-11 min-w-[170px] rounded-xl border border-gray-300 bg-white px-3 text-gray-900"
+            />
+            <button type="button" aria-label="Previous day" onClick={() => moveViewDate(-1)} className="h-11 w-11 rounded-xl border border-gray-300 bg-white text-gray-700 hover:bg-gray-100">
+              <ChevronLeft className="mx-auto h-5 w-5" />
+            </button>
+            <button type="button" aria-label="Next day" onClick={() => moveViewDate(1)} className="h-11 w-11 rounded-xl border border-gray-300 bg-white text-gray-700 hover:bg-gray-100">
+              <ChevronRight className="mx-auto h-5 w-5" />
+            </button>
+            <button type="button" onClick={() => setViewDate(localDate())} className="h-11 rounded-xl bg-blue-600 px-4 font-medium text-white hover:bg-blue-700">
+              Today
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <Card className="p-6">
-          <p className="text-sm text-gray-500">All Booking Requests</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        <Card className="gap-0 p-6">
+          <p className="text-sm text-gray-500">Bookings on selected date</p>
 
           <p className="text-3xl font-bold text-gray-900 mt-2">
             {loading ? "..." : totalReservations}
           </p>
         </Card>
 
-        <Card className="p-6">
+        <Card className="gap-0 p-6">
           <p className="text-sm text-gray-500">Pending</p>
 
           <p className="text-3xl font-bold text-yellow-600 mt-2">
@@ -306,7 +328,7 @@ export default function ReceptionistDashboards() {
           </p>
         </Card>
 
-        <Card className="p-6">
+        <Card className="gap-0 p-6">
           <p className="text-sm text-gray-500">Confirmed</p>
 
           <p className="text-3xl font-bold text-green-600 mt-2">
@@ -314,47 +336,33 @@ export default function ReceptionistDashboards() {
           </p>
         </Card>
 
-        <Card className="p-6">
-          <p className="text-sm text-gray-500">Total Sales</p>
-
-          <p className="text-2xl font-bold text-blue-600 mt-2">
-            {loading ? "..." : formatCurrency(totalSales)}
-          </p>
-        </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-        <Card className="p-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+        <Card className="gap-0 p-6">
           <p className="text-sm text-gray-500">Checked-in</p>
 
-          <p className="text-xl font-bold text-gray-900">
+          <p className="mt-2 text-3xl font-bold text-gray-900">
             {loading ? "..." : checkedInReservations}
           </p>
         </Card>
 
-        <Card className="p-5">
+        <Card className="gap-0 p-6">
           <p className="text-sm text-gray-500">Checked-out</p>
 
-          <p className="text-xl font-bold text-gray-900">
+          <p className="mt-2 text-3xl font-bold text-gray-900">
             {loading ? "..." : checkedOutReservations}
           </p>
         </Card>
 
-        <Card className="p-5">
+        <Card className="gap-0 p-6">
           <p className="text-sm text-gray-500">Cancelled</p>
 
-          <p className="text-xl font-bold text-red-600">
+          <p className="mt-2 text-3xl font-bold text-red-600">
             {loading ? "..." : cancelledReservations}
           </p>
         </Card>
 
-        <Card className="p-5">
-          <p className="text-sm text-gray-500">Total Paid</p>
-
-          <p className="text-xl font-bold text-gray-900">
-            {loading ? "..." : formatCurrency(totalPaid)}
-          </p>
-        </Card>
       </div>
 
       <Card className="p-6">
@@ -371,8 +379,8 @@ export default function ReceptionistDashboards() {
           </div>
 
           <span className="text-sm text-gray-500">
-            {bookings.length} booking
-            {bookings.length !== 1 ? "s" : ""}
+            {bookingsForDate.length} booking
+            {bookingsForDate.length !== 1 ? "s" : ""}
           </span>
         </div>
 
@@ -424,7 +432,7 @@ export default function ReceptionistDashboards() {
               ) : sortedBookings.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-10 text-center text-gray-500">
-                    No booking data found.
+                    No bookings scheduled for this date.
                   </td>
                 </tr>
               ) : (
