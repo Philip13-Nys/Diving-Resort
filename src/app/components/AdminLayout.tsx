@@ -4,8 +4,6 @@ import {
   LayoutDashboard,
   Users,
   UserCog,
-  PhilippinePeso,
-  TrendingUp,
   Menu,
   X,
   Waves,
@@ -51,21 +49,6 @@ const navigation = [
     name: "User Role Management",
     path: "/admin/users",
     icon: UserCog,
-  },
-  {
-    name: "Staff Profiles",
-    path: "/admin/staff",
-    icon: Users,
-  },
-  {
-    name: "Commission Report",
-    path: "/admin/commission",
-    icon: PhilippinePeso,
-  },
-  {
-    name: "Sales & Financial Reports",
-    path: "/admin/sales",
-    icon: TrendingUp,
   },
 ];
 

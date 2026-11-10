@@ -8,8 +8,8 @@ import {
   Clock,
   CheckCircle,
   XCircle,
-  CalendarCheck,
-  Users,
+  LogIn,
+  LogOut,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -312,57 +312,28 @@ export default function ReceptionistDashboards() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        <Card className="gap-0 p-6">
-          <p className="text-sm text-gray-500">Bookings on selected date</p>
-
-          <p className="text-3xl font-bold text-gray-900 mt-2">
-            {loading ? "..." : totalReservations}
-          </p>
-        </Card>
-
-        <Card className="gap-0 p-6">
-          <p className="text-sm text-gray-500">Pending</p>
-
-          <p className="text-3xl font-bold text-yellow-600 mt-2">
-            {loading ? "..." : pendingReservations}
-          </p>
-        </Card>
-
-        <Card className="gap-0 p-6">
-          <p className="text-sm text-gray-500">Confirmed</p>
-
-          <p className="text-3xl font-bold text-green-600 mt-2">
-            {loading ? "..." : confirmedReservations}
-          </p>
-        </Card>
-
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        <Card className="gap-0 p-6">
-          <p className="text-sm text-gray-500">Checked-in</p>
-
-          <p className="mt-2 text-3xl font-bold text-gray-900">
-            {loading ? "..." : checkedInReservations}
-          </p>
-        </Card>
-
-        <Card className="gap-0 p-6">
-          <p className="text-sm text-gray-500">Checked-out</p>
-
-          <p className="mt-2 text-3xl font-bold text-gray-900">
-            {loading ? "..." : checkedOutReservations}
-          </p>
-        </Card>
-
-        <Card className="gap-0 p-6">
-          <p className="text-sm text-gray-500">Cancelled</p>
-
-          <p className="mt-2 text-3xl font-bold text-red-600">
-            {loading ? "..." : cancelledReservations}
-          </p>
-        </Card>
-
+        {[
+          { label: "Bookings on selected date", count: totalReservations, Icon: ClipboardCheck, iconBackground: "bg-blue-100", iconColor: "text-blue-600" },
+          { label: "Pending", count: pendingReservations, Icon: Clock, iconBackground: "bg-yellow-100", iconColor: "text-yellow-600" },
+          { label: "Confirmed", count: confirmedReservations, Icon: CheckCircle, iconBackground: "bg-green-100", iconColor: "text-green-600" },
+          { label: "Checked-in", count: checkedInReservations, Icon: LogIn, iconBackground: "bg-teal-100", iconColor: "text-teal-700" },
+          { label: "Checked-out", count: checkedOutReservations, Icon: LogOut, iconBackground: "bg-purple-100", iconColor: "text-purple-600" },
+          { label: "Cancelled", count: cancelledReservations, Icon: XCircle, iconBackground: "bg-red-100", iconColor: "text-red-600" },
+        ].map(({ label, count, Icon, iconBackground, iconColor }) => (
+          <Card key={label} className="gap-0 p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm text-gray-500">{label}</p>
+                <p className="mt-2 text-3xl font-bold text-gray-900">
+                  {loading ? "..." : count}
+                </p>
+              </div>
+              <div className={`rounded-lg p-3 ${iconBackground}`}>
+                <Icon className={`h-6 w-6 ${iconColor}`} aria-hidden="true" />
+              </div>
+            </div>
+          </Card>
+        ))}
       </div>
 
       <Card className="p-6">

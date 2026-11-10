@@ -3,9 +3,7 @@ import {
   activityEnabled,
   hasAvailableActivitySession,
 } from "../activityAvailability";
-import ServiceAvailabilityPanel from "./ServiceAvailabilityPanel";
 import { useRecordRevision } from "../useBookingInventory";
-import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
 import { useBookingInventory } from "../useBookingInventory";
 import {
   typeAvailability,
@@ -24,11 +22,8 @@ import {
   DoorOpen,
   Waves,
   Package,
-  Users,
   CalendarDays,
-  CheckCircle2,
   AlertTriangle,
-  MonitorCheck,
   RefreshCw,
   Loader2,
 } from "lucide-react";
@@ -49,23 +44,14 @@ const tomorrowString = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-const getRecordStatuses = (item: RecordData): string[] =>
-  [item.status, item.availabilityStatus, item.currentStatus]
-    .filter((value) => value !== undefined && value !== null && String(value).trim() !== "")
-    .map((value) => String(value).trim().toLowerCase().replace(/[_\s]+/g, "-"));
-
 export default function ManagerDashboard() {
   const recordRevision = useRecordRevision(
-    "customer:Bookings,admin:reservations,admin:Staff,admin:rooms,admin:roomTypes,admin:services,admin:packages",
+    "admin:services,admin:packages",
   );
   const availability = useBookingInventory();
   const activities = useActivityAvailability();
-  const [roomTypes, setRoomTypes] = useState<RecordData[]>([]);
-  const [rooms, setRooms] = useState<RecordData[]>([]);
   const [services, setServices] = useState<RecordData[]>([]);
   const [packages, setPackages] = useState<RecordData[]>([]);
-  const [staff, setStaff] = useState<RecordData[]>([]);
-  const [bookings, setBookings] = useState<RecordData[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -82,12 +68,8 @@ export default function ManagerDashboard() {
 
     try {
       const results = await Promise.allSettled([
-        getDocs(collection(db, "roomTypes")),
-        getDocs(collection(db, "rooms")),
         getDocs(collection(db, "services")),
         getDocs(collection(db, "packages")),
-        getDocs(collection(db, "Staff")),
-        getBookingSnapshot(),
       ]);
 
       const convert = (
@@ -105,21 +87,10 @@ export default function ManagerDashboard() {
         return [];
       };
 
-      const [
-        roomTypesResult,
-        roomsResult,
-        servicesResult,
-        packagesResult,
-        staffResult,
-        bookingsResult,
-      ] = results;
+      const [servicesResult, packagesResult] = results;
 
-      setRoomTypes(convert(roomTypesResult, "roomTypes"));
-      setRooms(convert(roomsResult, "rooms"));
       setServices(convert(servicesResult, "services"));
       setPackages(convert(packagesResult, "packages"));
-      setStaff(convert(staffResult, "Staff"));
-      setBookings(convert(bookingsResult, "Bookings"));
 
       if (results.some((result) => result.status === "rejected")) {
         setError(
@@ -198,16 +169,10 @@ export default function ManagerDashboard() {
     ).length;
 
     return {
-      total: rooms.length,
-      unavailable: unavailableRoomIds.size,
+      total: availability.rooms.length,
       occupied,
-      available: Math.max(
-        0,
-        rooms.length - unavailableRoomIds.size - occupied,
-      ),
     };
   }, [
-    rooms,
     availability.rooms,
     availability.reservations,
   ]);
@@ -231,13 +196,7 @@ export default function ManagerDashboard() {
     (item) => item.itemType === "package" && activityEnabled(item),
   ).length;
 
-  const staffAvailable = staff.filter((item) =>
-    getRecordStatuses(item).some((status) =>
-      ["active", "available", "on-duty"].includes(status),
-    ),
-  ).length;
-
-  if (loading) {
+  if (loading || availability.loading) {
     return (
       <div className="flex min-h-64 items-center justify-center">
         <div className="flex items-center gap-3 text-gray-500">
@@ -251,7 +210,7 @@ export default function ManagerDashboard() {
   const summaryCards = [
     {
       label: "Room Types",
-      value: String(roomTypes.length),
+      value: String(availability.roomTypes.length),
       detail: `${roomAvailability.filter((room) => room.available > 0).length} types with availability`,
       icon: BedDouble,
       color: "text-blue-700",
@@ -268,7 +227,11 @@ export default function ManagerDashboard() {
     {
       label: "Services",
       value: String(services.length),
-      detail: `${serviceAvailable} available`,
+      detail: activities.error
+        ? "Availability unavailable"
+        : activities.loading
+          ? "Checking today's sessions"
+          : `${serviceAvailable} bookable today`,
       icon: Waves,
       color: "text-cyan-700",
       bg: "bg-cyan-100",
@@ -276,18 +239,14 @@ export default function ManagerDashboard() {
     {
       label: "Packages",
       value: String(packages.length),
-      detail: `${packageAvailable} available`,
+      detail: activities.error
+        ? "Availability unavailable"
+        : activities.loading
+          ? "Checking packages"
+          : `${packageAvailable} active packages`,
       icon: Package,
       color: "text-purple-700",
       bg: "bg-purple-100",
-    },
-    {
-      label: "Staff",
-      value: String(staff.length),
-      detail: `${staffAvailable} active or available`,
-      icon: Users,
-      color: "text-amber-700",
-      bg: "bg-amber-100",
     },
   ];
 
@@ -299,7 +258,7 @@ export default function ManagerDashboard() {
             Resort Availability
           </h1>
           <p className="mt-1 text-sm text-gray-600">
-            Monitor rooms, activities, packages, and staff.
+            Review room availability, services, and packages.
           </p>
         </div>
 
@@ -314,14 +273,14 @@ export default function ManagerDashboard() {
         </AsyncButton>
       </div>
 
-      {(error || availability.error) && (
+      {(error || availability.error || activities.error) && (
         <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
           <AlertTriangle className="mt-0.5 size-5 shrink-0" />
-          <p>{error}</p>
+          <p>{[error, availability.error, activities.error].filter(Boolean).join(" ")}</p>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {summaryCards.map((card) => {
           const Icon = card.icon;
 
@@ -367,7 +326,7 @@ export default function ManagerDashboard() {
           </div>
         </div>
 
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:max-w-[520px] sm:grid-cols-2">
           <div>
             <label
               htmlFor="manager-checkin"
@@ -479,33 +438,6 @@ export default function ManagerDashboard() {
         )}
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div className="flex items-start gap-3 rounded-xl border border-green-200 bg-green-50 p-4">
-          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-green-700" />
-
-          <div>
-            <p className="font-semibold text-green-900">Available Resources</p>
-            <p className="mt-1 text-sm text-green-800">
-              {roomCounts.available} rooms, {serviceAvailable} services, and{" "}
-              {packageAvailable} active packages. See service quantities below.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-start gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
-          <MonitorCheck className="mt-0.5 size-5 shrink-0 text-blue-700" />
-
-          <div>
-            <p className="font-semibold text-blue-900">Data Summary</p>
-            <p className="mt-1 text-sm text-blue-800">
-              Monitoring {rooms.length} rooms, {staff.length} staff,{" "}
-              {services.length + packages.length} activities and packages, and{" "}
-              {bookings.length} booking records.
-            </p>
-          </div>
-        </div>
-      </section>
-      <ServiceAvailabilityPanel managePath="/manager/services" />
     </div>
   );
 }

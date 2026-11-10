@@ -7,7 +7,8 @@ import {
   collectedBookingAmount,
 } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
-import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
+import { getLiveBookingSnapshot as getBookingSnapshot, guestKey } from "../app/bookingStore";
+import { collectedRoomRevenue, servicePackageRevenue } from "../app/reportData";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { Card } from "../app/components/ui/card";
 import {
@@ -19,7 +20,7 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
-  LineChart,
+  ComposedChart,
   Line,
 } from "recharts";
 import {
@@ -29,11 +30,12 @@ import {
   Activity,
   Plus,
   Waves,
+  PhilippinePeso,
   RefreshCw,
   Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { customerDb, db } from "../app/firebase";
 import { collection, getDocs } from "firebase/firestore";
 
@@ -78,15 +80,24 @@ type Booking = {
 };
 
 type RevenueData = {
-  month: string;
+  date: string;
+  label: string;
   revenue: number;
   bookings: number;
 };
+
+type RevenuePeriod = "7days" | "30days" | "month";
 
 type OccupancyData = {
   day: string;
   occupied: number;
   available: number;
+};
+
+type RankingItem = {
+  name: string;
+  bookings: number;
+  revenue: number;
 };
 
 const quickActions = [
@@ -110,6 +121,13 @@ const quickActions = [
     icon: Waves,
     color: "bg-teal-100 text-teal-600",
     href: "/manager/services?action=add",
+  },
+  {
+    label: "Pricing Management",
+    description: "Review and update rates",
+    icon: PhilippinePeso,
+    color: "bg-green-100 text-green-600",
+    href: "/manager/pricing",
   },
 ];
 
@@ -247,15 +265,42 @@ const getOccupiedRoomCount = (bookings: Booking[], date: Date): number => {
   }, 0);
 };
 
-const getLatestMonths = (count: number): Date[] => {
-  const now = new Date();
-  const months: Date[] = [];
+const dateKey = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 
-  for (let i = count - 1; i >= 0; i--) {
-    months.push(new Date(now.getFullYear(), now.getMonth() - i, 1));
+const buildRevenueData = (bookings: Booking[], period: RevenuePeriod): RevenueData[] => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dayCount = period === "month" ? today.getDate() : period === "7days" ? 7 : 30;
+  const start = period === "month"
+    ? new Date(today.getFullYear(), today.getMonth(), 1)
+    : new Date(today);
+  if (period !== "month") start.setDate(today.getDate() - dayCount + 1);
+
+  const totals = new Map<string, { revenue: number; bookings: number }>();
+  for (let i = 0; i < dayCount; i++) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + i);
+    totals.set(dateKey(date), { revenue: 0, bookings: 0 });
   }
 
-  return months;
+  bookings.forEach((booking) => {
+    const date = getBookingDate(booking);
+    if (!date) return;
+    const daily = totals.get(dateKey(date));
+    if (!daily) return;
+    daily.bookings += 1;
+    daily.revenue += collectedBookingAmount(booking);
+  });
+
+  return [...totals].map(([date, values]) => {
+    const [year, month, day] = date.split("-").map(Number);
+    return {
+      date,
+      label: `${new Date(year, month - 1, day).toLocaleDateString("en-US", { month: "short" })} ${day}`,
+      ...values,
+    };
+  });
 };
 
 const formatCurrency = (amount: number): string =>
@@ -279,8 +324,12 @@ export default function Dashboard() {
   const [occupancyRate, setOccupancyRate] = useState(0);
   const [averageDailyRate, setAverageDailyRate] = useState(0);
 
-  const [revenueData, setRevenueData] = useState<RevenueData[]>([]);
+  const [chartBookings, setChartBookings] = useState<Booking[]>([]);
+  const [revenuePeriod, setRevenuePeriod] = useState<RevenuePeriod>("7days");
   const [occupancyData, setOccupancyData] = useState<OccupancyData[]>([]);
+  const [topServices, setTopServices] = useState<RankingItem[]>([]);
+  const [topRoomTypes, setTopRoomTypes] = useState<RankingItem[]>([]);
+  const [topGuests, setTopGuests] = useState<RankingItem[]>([]);
 
   const loadDashboard = useCallback(async (isRefresh = false) => {
     if (isRefresh) {
@@ -311,6 +360,7 @@ export default function Dashboard() {
       const activeBookings = bookings.filter(
         (booking) => !isCancelled(booking),
       );
+      setChartBookings(activeBookings);
 
       const activeRoomBookings = activeBookings.filter(isRoomBooking);
 
@@ -324,6 +374,46 @@ export default function Dashboard() {
       );
 
       setTotalRevenue(revenue);
+
+      setTopServices(
+        servicePackageRevenue(activeBookings)
+          .filter((item) => item.type === "Service")
+          .slice(0, 5)
+          .map((item) => ({ name: item.name, bookings: item.bookings, revenue: item.collected })),
+      );
+
+      const roomTotals = new Map<string, RankingItem>();
+      activeRoomBookings.forEach((booking) => {
+        const amount = collectedRoomRevenue(booking);
+        if (amount <= 0) return;
+        const type = String(booking.roomTypeName || booking.roomType || booking.roomName || "").trim();
+        const name = type && !/^(?:room\s*)?\d+$|^R-\d+$/i.test(type)
+          ? type
+          : "Unspecified room type";
+        const key = name.toLowerCase();
+        const current = roomTotals.get(key) || { name, bookings: 0, revenue: 0 };
+        current.bookings += 1;
+        current.revenue += amount;
+        roomTotals.set(key, current);
+      });
+      setTopRoomTypes([...roomTotals.values()]
+        .sort((a, b) => b.revenue - a.revenue || a.name.localeCompare(b.name))
+        .slice(0, 5));
+
+      const guestTotals = new Map<string, RankingItem>();
+      activeBookings.forEach((booking) => {
+        const amount = collectedBookingAmount(booking);
+        if (amount <= 0) return;
+        const name = String(booking.customerName || booking.guestName || booking.guest || "Guest").trim();
+        const key = guestKey({ ...booking, customerName: name });
+        const current = guestTotals.get(key) || { name, bookings: 0, revenue: 0 };
+        current.bookings += 1;
+        current.revenue += amount;
+        guestTotals.set(key, current);
+      });
+      setTopGuests([...guestTotals.values()]
+        .sort((a, b) => b.revenue - a.revenue || a.name.localeCompare(b.name))
+        .slice(0, 5));
 
       // Average Daily Rate: room revenue per occupied room-night.
       const roomRevenue = activeRoomBookings.reduce(
@@ -346,57 +436,6 @@ export default function Dashboard() {
 
       setAverageDailyRate(
         totalRoomNights > 0 ? roomRevenue / totalRoomNights : 0,
-      );
-
-      // Prepare the latest 12 calendar months.
-      const latestMonths = getLatestMonths(12);
-
-      const monthlyData = new Map<
-        string,
-        { revenue: number; bookings: number }
-      >();
-
-      const getMonthKey = (date: Date) =>
-        `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-
-      latestMonths.forEach((date) => {
-        monthlyData.set(getMonthKey(date), {
-          revenue: 0,
-          bookings: 0,
-        });
-      });
-
-      activeBookings.forEach((booking) => {
-        const date = getBookingDate(booking);
-
-        if (!date) return;
-
-        const key = getMonthKey(date);
-        const current = monthlyData.get(key);
-
-        // Ignore bookings outside the displayed 12-month period.
-        if (!current) return;
-
-        current.bookings += 1;
-        current.revenue += collectedBookingAmount(booking);
-      });
-
-      setRevenueData(
-        latestMonths.map((date) => {
-          const values = monthlyData.get(getMonthKey(date)) ?? {
-            revenue: 0,
-            bookings: 0,
-          };
-
-          return {
-            month: date.toLocaleDateString("en-US", {
-              month: "short",
-              year: "2-digit",
-            }),
-            revenue: values.revenue,
-            bookings: values.bookings,
-          };
-        }),
       );
 
       // Current occupancy and the last seven days.
@@ -460,6 +499,12 @@ export default function Dashboard() {
   useEffect(() => {
     void loadDashboard();
   }, [loadDashboard, recordRevision]);
+
+  const revenueData = useMemo(
+    () => buildRevenueData(chartBookings, revenuePeriod),
+    [chartBookings, revenuePeriod],
+  );
+  const hasRevenueActivity = revenueData.some((day) => day.bookings > 0 || day.revenue > 0);
 
   return (
     <div className="min-w-0 space-y-6 p-4 sm:space-y-8 sm:p-6 lg:p-8">
@@ -580,7 +625,7 @@ export default function Dashboard() {
           Quick Actions
         </h2>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:gap-4">
           {quickActions.map((action) => {
             const Icon = action.icon;
 
@@ -590,14 +635,14 @@ export default function Dashboard() {
                 type="button"
                 title={action.description}
                 onClick={() => navigate(action.href)}
-                className="group flex min-h-32 min-w-0 flex-col items-center justify-center gap-3 rounded-xl border border-gray-200 bg-white p-3 text-center transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:min-h-36 sm:p-4"
+                className="group flex min-w-0 items-center gap-3 rounded-xl border border-gray-200 bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 sm:p-4"
               >
                 <div
-                  className={`flex size-10 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105 sm:size-11 ${action.color}`}
+                  className={`flex size-9 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105 ${action.color}`}
                 >
                   <Icon className="size-5" />
                 </div>
-                <span className="text-xs font-medium leading-snug text-gray-700 sm:text-sm">
+                <span className="text-sm font-medium leading-snug text-gray-700">
                   {action.label}
                 </span>
               </AsyncButton>
@@ -606,16 +651,34 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Charts */}
       <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
         <Card className="min-w-0 overflow-hidden p-4 sm:p-6">
-          <div className="mb-5">
-            <h2 className="text-base font-semibold text-gray-900 sm:text-lg">
-              Revenue &amp; Bookings
-            </h2>
-            <p className="mt-1 text-xs text-gray-500 sm:text-sm">
-              Monthly revenue and booking volume for the latest 12 months
-            </p>
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 sm:text-lg">
+                Revenue &amp; Bookings
+              </h2>
+              <p className="mt-1 text-xs text-gray-500 sm:text-sm">
+                Daily collected revenue and booking counts
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1 rounded-lg bg-gray-100 p-1" aria-label="Chart period">
+              {([
+                ["7days", "7 Days"],
+                ["30days", "30 Days"],
+                ["month", "This Month"],
+              ] as const).map(([period, label]) => (
+                <button
+                  key={period}
+                  type="button"
+                  onClick={() => setRevenuePeriod(period)}
+                  aria-pressed={revenuePeriod === period}
+                  className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${revenuePeriod === period ? "bg-blue-600 text-white shadow-sm" : "text-gray-600 hover:bg-white hover:text-gray-900"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {loading ? (
@@ -623,24 +686,34 @@ export default function Dashboard() {
               <Loader2 className="mr-2 size-4 animate-spin" />
               Loading chart...
             </div>
+          ) : !hasRevenueActivity ? (
+            <div className="flex h-[280px] items-center justify-center text-sm text-gray-500">
+              No bookings in this period.
+            </div>
           ) : (
             <div className="h-[280px] min-w-0 sm:h-[320px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart
+                <ComposedChart
                   data={revenueData}
                   margin={{ top: 8, right: 8, left: 0, bottom: 4 }}
                 >
+                  <defs>
+                    <linearGradient id="managerRevenueGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3b82f6" />
+                      <stop offset="100%" stopColor="#bfdbfe" />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid
                     strokeDasharray="3 3"
                     vertical={false}
                     stroke="#e5e7eb"
                   />
                   <XAxis
-                    dataKey="month"
+                    dataKey="label"
                     tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={{ stroke: "#e5e7eb" }}
-                    minTickGap={8}
+                    minTickGap={revenuePeriod === "7days" ? 0 : 18}
                   />
                   <YAxis
                     yAxisId="revenue"
@@ -677,27 +750,25 @@ export default function Dashboard() {
                     }}
                   />
                   <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                  <Line
+                  <Bar
                     yAxisId="revenue"
-                    type="monotone"
                     dataKey="revenue"
                     name="Revenue"
-                    stroke="#3b82f6"
-                    strokeWidth={2.5}
-                    dot={false}
-                    activeDot={{ r: 5 }}
+                    fill="url(#managerRevenueGradient)"
+                    radius={[4, 4, 0, 0]}
+                    maxBarSize={44}
                   />
                   <Line
                     yAxisId="bookings"
                     type="monotone"
                     dataKey="bookings"
                     name="Bookings"
-                    stroke="#10b981"
+                    stroke="#1d4ed8"
                     strokeWidth={2.5}
-                    dot={false}
+                    dot={{ r: 4 }}
                     activeDot={{ r: 5 }}
                   />
-                </LineChart>
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           )}
@@ -780,6 +851,50 @@ export default function Dashboard() {
           )}
         </Card>
       </div>
+
+      <section>
+        <h2 className="mb-1 text-lg font-semibold text-gray-900 sm:text-xl">Top Performers</h2>
+        <p className="mb-4 text-sm text-gray-500">Ranked by collected payments across all bookings.</p>
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+          {[
+            { title: "Top Performing Services", description: "Services and add-ons", items: topServices, Icon: Waves, iconColor: "text-teal-600", iconBackground: "bg-teal-100" },
+            { title: "Top Performing Room Types", description: "Room bookings by type", items: topRoomTypes, Icon: Hotel, iconColor: "text-blue-600", iconBackground: "bg-blue-100" },
+            { title: "Top Guests", description: "Guest spending", items: topGuests, Icon: Users, iconColor: "text-purple-600", iconBackground: "bg-purple-100" },
+          ].map(({ title, description, items, Icon, iconColor, iconBackground }) => (
+            <Card key={title} className="min-w-0 p-4 sm:p-6">
+              <div className="flex items-start gap-3">
+                <div className={`flex size-10 shrink-0 items-center justify-center rounded-lg ${iconBackground}`}>
+                  <Icon className={`size-5 ${iconColor}`} aria-hidden="true" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">{title}</h3>
+                  <p className="mt-1 text-xs text-gray-500">{description}</p>
+                </div>
+              </div>
+              {loading ? (
+                <p className="mt-5 text-sm text-gray-500">Loading rankings...</p>
+              ) : items.length === 0 ? (
+                <p className="mt-5 text-sm text-gray-500">No collected payments yet.</p>
+              ) : (
+                <ol className="mt-5 divide-y divide-gray-100">
+                  {items.map((item, index) => (
+                    <li key={item.name} className="flex min-w-0 items-center gap-3 py-3 first:pt-0 last:pb-0">
+                      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gray-100 text-xs font-semibold text-gray-700">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900" title={item.name}>{item.name}</p>
+                        <p className="text-xs text-gray-500">{item.bookings} {item.bookings === 1 ? "booking" : "bookings"}</p>
+                      </div>
+                      <span className="shrink-0 text-sm font-semibold text-gray-900">{formatCurrency(item.revenue)}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </Card>
+          ))}
+        </div>
+      </section>
 
     </div>
   );

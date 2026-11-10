@@ -2,10 +2,9 @@ import { activityTimeLabel } from "../app/activityAvailability";
 import {
   assignedRoomIds,
   normalizeInventory,
-  collectedBookingAmount,
 } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
-import { getLiveBookingSnapshot as getBookingSnapshot } from "../app/bookingStore";
+import { getLiveBookingSnapshot as getBookingSnapshot, watchRecords } from "../app/bookingStore";
 import { AsyncButton } from "../app/components/ui/async-action";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -18,6 +17,9 @@ import {
   ArrowRight,
   LogIn,
   LogOut,
+  MessageSquare,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { format, isSameDay, startOfDay } from "date-fns";
 import { collection, getDocs, Timestamp } from "firebase/firestore";
@@ -172,7 +174,7 @@ const getActivityName = (booking: Booking) =>
   getActivityKind(booking);
 
 const getBookingStatus = (booking: Booking) => {
-  return booking.status?.toLowerCase() || "pending";
+  return booking.status?.trim().toLowerCase().replace(/[\s_]+/g, "-") || "pending";
 };
 
 export default function ReceptionistsDashboard() {
@@ -184,12 +186,28 @@ export default function ReceptionistsDashboard() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingInquiries, setPendingInquiries] = useState<number | null>(null);
 
   const today = startOfDay(new Date());
 
   useEffect(() => {
     loadDashboard();
   }, [recordRevision]);
+
+  useEffect(() => watchRecords(
+    "customer:Inquiries",
+    (snapshot) => {
+      setPendingInquiries(snapshot.docs.filter((inquiry) => {
+        const status = String(inquiry.data().status ?? "new")
+          .trim().toLowerCase().replace(/\s+/g, "-");
+        return status !== "resolved" && status !== "cancelled";
+      }).length);
+    },
+    (error) => {
+      console.error("Error loading pending inquiries:", error);
+      setPendingInquiries(null);
+    },
+  ), []);
 
   const loadDashboard = async () => {
     try {
@@ -297,51 +315,14 @@ export default function ReceptionistsDashboard() {
     });
   }, [bookings, today]);
 
-  const revenueToday = useMemo(() => {
-    return bookings.reduce((total, booking) => {
-      const collected = collectedBookingAmount(booking);
-      if (!collected) return total;
-
-      const checkIn = convertToDate(booking.checkIn);
-
-      if (!checkIn || !isSameDay(checkIn, today)) {
-        return total;
-      }
-
-      return total + collected;
-    }, 0);
-  }, [bookings, today]);
-
-  const monthlyRevenue = useMemo(() => {
-    const currentMonth = today.getMonth();
-    const currentYear = today.getFullYear();
-
-    return bookings.reduce((total, booking) => {
-      const collected = collectedBookingAmount(booking);
-      if (!collected) return total;
-
-      const date =
-        convertToDate(booking.createdAt) || convertToDate(booking.checkIn);
-
-      if (!date) return total;
-
-      if (
-        date.getMonth() === currentMonth &&
-        date.getFullYear() === currentYear
-      ) {
-        return total + collected;
-      }
-
-      return total;
-    }, 0);
-  }, [bookings, today]);
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-PH", {
-      style: "currency",
-      currency: "PHP",
-    }).format(amount);
-  };
+  const reservationCounts = useMemo(() => bookings.reduce((counts, booking) => {
+    const status = getBookingStatus(booking);
+    counts.total += 1;
+    if (status === "confirmed") counts.confirmed += 1;
+    if (status === "pending" || status === "pending-payment-verification") counts.pending += 1;
+    if (status === "cancelled" || status === "canceled") counts.cancelled += 1;
+    return counts;
+  }, { total: 0, confirmed: 0, pending: 0, cancelled: 0 }), [bookings]);
 
   const formatTime = (value: any) => {
     const date = convertToDate(value);
@@ -364,7 +345,7 @@ export default function ReceptionistsDashboard() {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
           <div className="rounded-xl bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
@@ -381,53 +362,43 @@ export default function ReceptionistsDashboard() {
             </div>
           </div>
 
-          <div className="rounded-xl bg-white p-5 shadow-sm">
+          <AsyncButton
+            type="button"
+            onClick={() => navigate("/receptionist/inquiries")}
+            className="rounded-xl bg-white p-5 text-left shadow-sm transition hover:shadow-md"
+            aria-label="Open pending inquiries"
+          >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">Today's Check-ins</p>
-
+                <p className="text-sm text-gray-500">Pending Inquiries</p>
                 <p className="mt-2 text-2xl font-bold text-gray-900">
-                  {loading ? "—" : todaysCheckIns.length}
+                  {pendingInquiries ?? "—"}
                 </p>
               </div>
-
-              <div className="rounded-lg bg-green-100 p-3">
-                <LogIn className="h-6 w-6 text-green-600" />
+              <div className="rounded-lg bg-teal-100 p-3">
+                <MessageSquare className="h-6 w-6 text-teal-700" />
               </div>
             </div>
-          </div>
+          </AsyncButton>
 
-          <div className="rounded-xl bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Revenue Today</p>
-
-                <p className="mt-2 text-2xl font-bold text-gray-900">
-                  {loading ? "—" : formatCurrency(revenueToday)}
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-purple-100 p-3">
-                <PhilippinePeso className="h-6 w-6 text-purple-600" />
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-500">Monthly Revenue</p>
-
-                <p className="mt-2 text-2xl font-bold text-gray-900">
-                  {loading ? "—" : formatCurrency(monthlyRevenue)}
-                </p>
-              </div>
-
-              <div className="rounded-lg bg-orange-100 p-3">
-                <PhilippinePeso className="h-6 w-6 text-orange-600" />
+          {[
+            { label: "Total Reservations", count: reservationCounts.total, Icon: CalendarDays, iconBackground: "bg-blue-100", iconColor: "text-blue-600" },
+            { label: "Confirmed", count: reservationCounts.confirmed, Icon: CheckCircle2, iconBackground: "bg-green-100", iconColor: "text-green-600" },
+            { label: "Pending", count: reservationCounts.pending, Icon: Clock, iconBackground: "bg-amber-100", iconColor: "text-amber-600" },
+            { label: "Cancelled", count: reservationCounts.cancelled, Icon: XCircle, iconBackground: "bg-red-100", iconColor: "text-red-600" },
+          ].map(({ label, count, Icon, iconBackground, iconColor }) => (
+            <div key={label} className="rounded-xl bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm text-gray-600">{label}</p>
+                  <p className="mt-2 text-2xl font-bold text-gray-900">{loading ? "—" : count}</p>
+                </div>
+                <div className={`rounded-lg p-3 ${iconBackground}`}>
+                  <Icon className={`h-6 w-6 ${iconColor}`} />
+                </div>
               </div>
             </div>
-          </div>
+          ))}
         </div>
 
         <div>
@@ -601,7 +572,7 @@ export default function ReceptionistsDashboard() {
             </div>
           </div>
 
-          <div className="rounded-xl bg-white p-6 shadow-sm">
+          <div className="rounded-xl bg-white p-6 shadow-sm flex flex-col">
             <div className="mb-5 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-gray-900">
@@ -614,16 +585,8 @@ export default function ReceptionistsDashboard() {
               <Users className="h-5 w-5 text-gray-400" />
             </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
-                <span className="text-sm text-gray-600">Total Bookings</span>
-
-                <span className="font-semibold text-gray-900">
-                  {bookings.length}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
+            <div className="flex-1 flex flex-col gap-4">
+              <div className="flex-1 flex items-center justify-between rounded-lg bg-gray-50 p-6">
                 <span className="text-sm text-gray-600">Today's Check-ins</span>
 
                 <span className="font-semibold text-gray-900">
@@ -631,7 +594,7 @@ export default function ReceptionistsDashboard() {
                 </span>
               </div>
 
-              <div className="flex items-center justify-between rounded-lg bg-gray-50 p-6">
+              <div className="flex-1 flex items-center justify-between rounded-lg bg-gray-50 p-6">
                 <span className="text-sm text-gray-600">
                   Currently Checked In
                 </span>

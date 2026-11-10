@@ -3,7 +3,7 @@ import { watchRecords } from "../bookingStore";
 import { mergeBookingDocuments } from "../bookingStore";
 import { useEffect, useMemo, useState } from "react";
 import { type QueryDocumentSnapshot } from "firebase/firestore";
-import { CalendarDays, Download, Loader2, RefreshCw, X } from "lucide-react";
+import { Download, Loader2, RefreshCw, X } from "lucide-react";
 import {
   BarChart,
   Bar,
@@ -179,10 +179,10 @@ export default function CommissionReport() {
       </div>
     );
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="min-w-0 space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-gray-900">
             Commission Report
           </h1>
           <p className="mt-1 text-gray-600">
@@ -196,7 +196,7 @@ export default function CommissionReport() {
         <AsyncButton
           onClick={exportExcel}
           disabled={Boolean(error) || !rows.length}
-          className="flex items-center gap-2 rounded-lg bg-cyan-600 px-4 py-2 text-white disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Download className="size-4" />
           Export Excel
@@ -226,8 +226,7 @@ export default function CommissionReport() {
           Correct those records before using this report.
         </p>
       )}
-      <div className="flex flex-wrap items-end gap-4 rounded-xl border bg-white p-4">
-        <CalendarDays className="mb-2 size-5 text-cyan-600" />
+      <div className="flex flex-wrap items-end gap-4 rounded-xl border border-gray-200 bg-white p-4 sm:p-5">
         <label className="text-sm text-gray-600">
           Month
           <select
@@ -236,7 +235,7 @@ export default function CommissionReport() {
               setMonth(Number(event.target.value));
               setDetailKey(null);
             }}
-            className="mt-1 block rounded-lg border px-3 py-2"
+            className="mt-1 block rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-blue-500 focus:outline-none"
           >
             {months.map((name, index) => (
               <option key={name} value={index}>
@@ -253,7 +252,7 @@ export default function CommissionReport() {
               setYear(Number(event.target.value));
               setDetailKey(null);
             }}
-            className="mt-1 block rounded-lg border px-3 py-2"
+            className="mt-1 block rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-blue-500 focus:outline-none"
           >
             {years.map((value) => (
               <option key={value} value={value}>
@@ -262,42 +261,48 @@ export default function CommissionReport() {
             ))}
           </select>
         </label>
-        <p className="mb-2 text-sm text-gray-500">
+        <p className="text-sm text-gray-500 sm:pb-2">
           {period} · Updates automatically when bookings change
         </p>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           { label: "Recorded Commission", value: peso(total) },
           { label: "Commissioned Bookings", value: rows.length },
           { label: "Commissioners", value: groups.length },
           { label: "Related Booking Value", value: peso(bookingValue) },
         ].map((item) => (
-          <div key={item.label} className="rounded-xl border bg-white p-5">
+          <div key={item.label} className="min-w-0 rounded-xl border border-gray-200 bg-white p-5">
             <p className="text-sm text-gray-500">{item.label}</p>
-            <p className="mt-2 text-2xl font-bold text-gray-900">
+            <p className="mt-2 break-words text-2xl font-bold text-gray-900">
               {error ? "—" : item.value}
             </p>
           </div>
         ))}
       </div>
-      <div className="rounded-xl border bg-white p-5">
-        <h2 className="mb-4 text-lg font-semibold">Commission by Month</h2>
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={trend}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="month" />
-            <YAxis
-              tickFormatter={(value) => `₱${Number(value).toLocaleString()}`}
-            />
-            <Tooltip formatter={(value) => peso(Number(value))} />
-            <Bar
-              dataKey="commission"
-              name="Recorded Commission"
-              fill="#0891b2"
-            />
-          </BarChart>
-        </ResponsiveContainer>
+      <div className="min-w-0 rounded-xl border border-gray-200 bg-white p-5">
+        <h2 className="mb-4 text-lg font-semibold text-gray-900">Commission by Month</h2>
+        {trend.some((point) => point.commission > 0) ? (
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={trend}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis
+                tickFormatter={(value) => `₱${Number(value).toLocaleString()}`}
+              />
+              <Tooltip formatter={(value) => peso(Number(value))} />
+              <Bar
+                dataKey="commission"
+                name="Recorded Commission"
+                fill="#2563eb"
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="rounded-lg bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
+            {error ? "Commission trend unavailable." : "No commissions recorded in the last six months."}
+          </p>
+        )}
       </div>
       <div className="overflow-hidden rounded-xl border bg-white">
         <div className="border-b p-5">
@@ -331,13 +336,13 @@ export default function CommissionReport() {
                     <td className="px-5 py-4 font-medium">{group.name}</td>
                     <td className="px-5 py-4">{group.bookings}</td>
                     <td className="px-5 py-4">{peso(group.bookingValue)}</td>
-                    <td className="px-5 py-4 font-semibold text-cyan-700">
+                    <td className="px-5 py-4 font-semibold text-blue-700">
                       {peso(group.commission)}
                     </td>
                     <td className="px-5 py-4">
                       <AsyncButton
                         onClick={() => setDetailKey(group.key)}
-                        className="text-cyan-700"
+                        className="text-blue-700 hover:underline"
                       >
                         View bookings
                       </AsyncButton>
@@ -451,7 +456,7 @@ export default function CommissionReport() {
                       {row.reference} · {row.checkIn} · {row.source}
                     </p>
                   </div>
-                  <span className="font-medium text-cyan-700">
+                  <span className="font-medium text-blue-700">
                     {peso(row.commission)}
                   </span>
                 </li>

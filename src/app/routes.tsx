@@ -7,10 +7,8 @@ import Dashboard from "./components/Dashboard";
 import ManagerDashboard from "./components/ManagerDashboard";
 import ReceptionistDashboard from "./components/ReceptionistDashboard";
 import UserRoleManagement from "./components/UserRoleManagement";
-import StaffProfiles from "./components/StaffProfiles";
 import PaymentConfiguration from "./components/PaymentConfiguration";
 import CommissionReport from "./components/CommissionReport";
-import SalesReports from "./components/SalesReports";
 import SystemSettings from "./components/SystemSettings";
 
 import ManagerLayout from "../manager/ManagerLayout";
@@ -52,11 +50,11 @@ export const router = createHashRouter([
       { path: "manager", Component: ManagerDashboard },
       { path: "receptionist", Component: ReceptionistDashboard },
       { path: "users", Component: UserRoleManagement },
-      { path: "staff", Component: StaffProfiles },
+      { path: "staff", element: <Navigate to="/admin" replace /> },
       { path: "audit-logs", element: <Navigate to="/manager/activity-logs" replace /> },
       { path: "backups", Component: BackupManagement },
-      { path: "commission", Component: CommissionReport },
-      { path: "sales", Component: SalesReports },
+      { path: "commission", element: <Navigate to="/manager/commission" replace /> },
+      { path: "sales", element: <Navigate to="/manager/sales-analytics" replace /> },
       {
         path: "/admin/payment-configuration",
         element: <PaymentConfiguration />,
@@ -82,6 +80,7 @@ export const router = createHashRouter([
       { path: "bookings", element: <Navigate to="/manager/receptionist-dashboard" replace /> },
       { path: "guests", Component: GuestRecords },
       { path: "reports", Component: Reports },
+      { path: "commission", Component: CommissionReport },
       { path: "staff", element: <Navigate to="/manager" replace /> },
       { path: "activity-logs", Component: ActivityLogs },
       { path: "maintenance", element: <Navigate to="/manager/rooms" replace /> },

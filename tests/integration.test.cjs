@@ -54,7 +54,23 @@ test("confirmation requires verified money at the configured percentage", () => 
 });
 
 const { aggregateGuests } = load("src/app/bookingStore.ts");
-const { toCsv, servicePackageRevenue, excelWorkbookSheets } = load("src/app/reportData.ts");
+const { toCsv, servicePackageRevenue, collectedRoomRevenue, excelWorkbookSheets } = load("src/app/reportData.ts");
+
+test("room ranking attributes only the room share of an accepted partial payment", () => {
+  assert.equal(collectedRoomRevenue({
+    totalPrice: 1200,
+    roomSubtotal: 1000,
+    reservationFee: 100,
+    addOns: [{ name: "Snorkeling", price: 100 }],
+    amountPaid: 600,
+  }), 500);
+  assert.equal(collectedRoomRevenue({
+    totalPrice: 1200,
+    roomSubtotal: 1000,
+    amountPaid: 600,
+    status: "cancelled",
+  }), 0);
+});
 
 test("Excel reports contain separate, formatted worksheets with numeric amounts", () => {
   const workbook = excelWorkbookSheets("Financial Report", [

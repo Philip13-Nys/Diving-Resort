@@ -1,4 +1,3 @@
-import { collectedBookingAmount } from "../bookingAvailability";
 import { displayRecordId } from "../bookingAvailability";
 import { useRecordRevision } from "../useBookingInventory";
 import { getLiveBookingSnapshot as getBookingSnapshot } from "../bookingStore";
@@ -9,19 +8,13 @@ import { collection, getDocs, Timestamp } from "firebase/firestore";
 import {
   BedDouble,
   CalendarDays,
-  CheckCircle2,
   Clock,
-  CreditCard,
-  DoorOpen,
-  FileBarChart,
   Loader2,
   LogIn,
   LogOut,
   RefreshCw,
   Users,
-  Wallet,
   ArrowRight,
-  ClipboardList,
   AlertCircle,
 } from "lucide-react";
 import { customerDb } from "../firebase";
@@ -31,7 +24,9 @@ type Booking = {
   bookingRef: string;
   guest: string;
   email: string;
-  room: string;
+  subjectKind: "Room" | "Service" | "Package";
+  subjectName: string;
+  createdAtMillis: number;
   checkIn: string;
   checkOut: string;
   guests: number;
@@ -46,7 +41,30 @@ const normalizeStatus = (value: unknown) =>
   String(value ?? "")
     .trim()
     .toLowerCase()
-    .replace(/_/g, "-");
+    .replace(/[_\s]+/g, "-");
+
+const bookingSubject = (data: Record<string, unknown>): Pick<Booking, "subjectKind" | "subjectName"> => {
+  const kind = String(data.itemType ?? data.bookingType ?? data.type ?? "").trim().toLowerCase();
+  const hasRoomType = Boolean(data.roomTypeName || data.roomType);
+  if (kind === "package" || (!hasRoomType && data.packageName)) {
+    return { subjectKind: "Package", subjectName: String(data.packageName ?? data.itemName ?? "Package booking") };
+  }
+  if (["service", "activity"].includes(kind) || (!hasRoomType && (data.serviceName || data.activityName))) {
+    return { subjectKind: "Service", subjectName: String(data.serviceName ?? data.activityName ?? data.itemName ?? "Service booking") };
+  }
+  const roomType = String(data.roomTypeName ?? data.roomType ?? data.roomName ?? "").trim();
+  return {
+    subjectKind: "Room",
+    subjectName: roomType && !/^(?:room\s*)?\d+$/i.test(roomType) ? roomType : "Room booking",
+  };
+};
+
+const createdAtMillis = (value: unknown): number => {
+  if (value instanceof Timestamp) return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  const date = new Date(String(value ?? ""));
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+};
 
 const toDateString = (value: unknown): string => {
   if (!value) return "";
@@ -283,12 +301,8 @@ export default function ManagerDashboard() {
               "Unknown Guest",
           ),
           email: String(data.customerEmail ?? data.email ?? ""),
-          room: String(
-            data.roomName ??
-              data.roomTypeName ??
-              data.roomType ??
-              "Unknown Room",
-          ),
+          ...bookingSubject(data),
+          createdAtMillis: createdAtMillis(data.createdAt ?? data.bookingDate ?? data.checkIn),
           checkIn,
           checkOut,
           guests: Number(data.guests ?? data.numberOfGuests ?? 0),
@@ -318,7 +332,6 @@ export default function ManagerDashboard() {
 
   const today = getLocalDateString();
 
-  const currentMonth = today.slice(0, 7);
 
   const occupiedBookings = useMemo(
     () => bookings.filter((booking) => isCheckedIn(booking.status)),
@@ -336,64 +349,11 @@ export default function ManagerDashboard() {
     [bookings, today],
   );
 
-  const todaysCheckOuts = useMemo(
-    () =>
-      bookings.filter(
-        (booking) => booking.checkOut === today && isCheckedIn(booking.status),
-      ),
-    [bookings, today],
-  );
-
-  const todaysCompletedCheckOuts = useMemo(
-    () =>
-      bookings.filter(
-        (booking) =>
-          booking.checkOut === today &&
-          normalizeStatus(booking.status) === "checked-out",
-      ),
-    [bookings, today],
-  );
-
-  const activeBookings = useMemo(
-    () => bookings.filter((booking) => isActiveBooking(booking.status)),
-    [bookings],
-  );
-
-  const revenueToday = useMemo(
-    () =>
-      bookings
-        .filter(
-          (booking) =>
-            booking.checkIn === today && !isCancelled(booking.status),
-        )
-        .reduce((sum, booking) => sum + collectedBookingAmount(booking), 0),
-    [bookings, today],
-  );
-
-  const revenueMonth = useMemo(
-    () =>
-      bookings
-        .filter(
-          (booking) =>
-            booking.checkIn.startsWith(currentMonth) &&
-            !isCancelled(booking.status),
-        )
-        .reduce((sum, booking) => sum + collectedBookingAmount(booking), 0),
-    [bookings, currentMonth],
-  );
-
   const recentBookings = useMemo(
     () =>
       [...bookings]
         .filter((booking) => !isCancelled(booking.status))
-        .sort((a, b) => {
-          const dateA = a.checkIn || "";
-          const dateB = b.checkIn || "";
-
-          if (dateA !== dateB) return dateB.localeCompare(dateA);
-
-          return b.id.localeCompare(a.id);
-        })
+        .sort((a, b) => b.createdAtMillis - a.createdAtMillis || b.id.localeCompare(a.id))
         .slice(0, 5),
     [bookings],
   );
@@ -434,8 +394,8 @@ export default function ManagerDashboard() {
   }
 
   return (
-    <main className="min-h-full w-full min-w-0 overflow-x-hidden bg-gray-50 p-4 sm:p-6">
-      <div className="mx-auto w-full max-w-7xl space-y-6">
+    <div className="min-h-full w-full min-w-0">
+      <div className="w-full min-w-0 space-y-6">
         {/* Header */}
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
           <div className="min-w-0">
@@ -468,28 +428,28 @@ export default function ManagerDashboard() {
         {/* Statistics */}
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
-            title="Occupied Rooms"
-            value={occupiedBookings.length}
-            icon={BedDouble}
-            iconClass="bg-blue-100 text-blue-700"
-          />
-          <StatCard
-            title="Today's Check-ins"
+            title="Check-ins Due Today"
             value={todaysCheckIns.length}
             icon={LogIn}
             iconClass="bg-green-100 text-green-700"
           />
           <StatCard
-            title="Revenue Today"
-            value={formatCurrency(revenueToday)}
-            icon={Wallet}
-            iconClass="bg-purple-100 text-purple-700"
+            title="Pending Bookings"
+            value={bookings.filter((booking) => booking.status === "pending").length}
+            icon={Clock}
+            iconClass="bg-amber-100 text-amber-700"
           />
           <StatCard
-            title="Monthly Revenue"
-            value={formatCurrency(revenueMonth)}
-            icon={CreditCard}
+            title="Payment Verification"
+            value={bookings.filter((booking) => booking.status === "pending-payment-verification").length}
+            icon={AlertCircle}
             iconClass="bg-orange-100 text-orange-700"
+          />
+          <StatCard
+            title="Checked-in Bookings"
+            value={occupiedBookings.length}
+            icon={BedDouble}
+            iconClass="bg-blue-100 text-blue-700"
           />
         </section>
 
@@ -505,7 +465,7 @@ export default function ManagerDashboard() {
             <div className="space-y-3 p-4">
               {schedule.length > 0 ? (
                 schedule.map((booking) => {
-                  const isCheckout = booking.checkOut === today;
+                  const isCheckout = booking.checkOut === today && isCheckedIn(booking.status);
 
                   return (
                     <div
@@ -537,7 +497,7 @@ export default function ManagerDashboard() {
                             : formatDate(booking.checkIn)}
                         </p>
                         <p className="mt-0.5 truncate text-xs text-gray-400">
-                          Room: {booking.room}
+                          {booking.subjectKind}: {booking.subjectName}
                         </p>
                       </div>
 
@@ -564,8 +524,8 @@ export default function ManagerDashboard() {
 
           <div className="min-w-0 rounded-2xl border border-gray-200 bg-white shadow-sm">
             <PanelHeader
-              title="Guest Overview"
-              subtitle="Current guest activity"
+              title="Booking Overview"
+              subtitle="Current reservation status"
               icon={Users}
             />
 
@@ -577,15 +537,15 @@ export default function ManagerDashboard() {
                   color: "text-gray-900",
                 },
                 {
-                  label: "Today's Check-ins",
-                  value: todaysCheckIns.length,
-                  color: "text-green-700",
+                  label: "Confirmed Bookings",
+                  value: bookings.filter((booking) => ["confirmed", "reserved"].includes(booking.status)).length,
+                  color: "text-blue-700",
                 },
 
                 {
-                  label: "Currently Checked In",
-                  value: occupiedBookings.length,
-                  color: "text-emerald-700",
+                  label: "Checked-out Bookings",
+                  value: bookings.filter((booking) => ["checked-out", "completed"].includes(booking.status)).length,
+                  color: "text-gray-900",
                 },
               ].map((item) => (
                 <div
@@ -614,12 +574,12 @@ export default function ManagerDashboard() {
                 Recent Bookings
               </h2>
               <p className="mt-1 text-sm text-gray-500">
-                Latest resort reservations
+                Newest reservations first
               </p>
             </div>
 
             <Link
-              to="/reservations"
+              to="/receptionist/reservations"
               className="inline-flex shrink-0 items-center gap-1 self-start text-sm font-medium text-blue-600 hover:text-blue-700 sm:self-center"
             >
               View All <ArrowRight size={15} />
@@ -634,7 +594,7 @@ export default function ManagerDashboard() {
                     {[
                       "Booking ID",
                       "Guest",
-                      "Room",
+                      "Booking",
                       "Check-in",
                       "Check-out",
                       "Amount",
@@ -670,7 +630,10 @@ export default function ManagerDashboard() {
                       </td>
 
                       <td className="max-w-[160px] truncate px-4 py-4 text-xs text-gray-600">
-                        {booking.room}
+                        <span className="mr-1.5 inline-flex rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">
+                          {booking.subjectKind}
+                        </span>
+                        {booking.subjectName}
                       </td>
 
                       <td className="whitespace-nowrap px-4 py-4 text-xs text-gray-600">
@@ -707,6 +670,6 @@ export default function ManagerDashboard() {
           )}
         </section>
       </div>
-    </main>
+    </div>
   );
 }

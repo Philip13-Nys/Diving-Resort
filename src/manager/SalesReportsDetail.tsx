@@ -1,5 +1,5 @@
-import { exportWorkbook, servicePackageRevenue } from "../app/reportData";
-import { collectedBookingAmount } from "../app/bookingAvailability";
+import { collectedRoomRevenue, exportWorkbook, servicePackageRevenue } from "../app/reportData";
+import { collectedBookingAmount, displayRecordId } from "../app/bookingAvailability";
 import { completedPayment } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
 import {
@@ -25,7 +25,7 @@ import { Download, Loader2 } from "lucide-react";
 import { collection, getDocs } from "firebase/firestore";
 import { customerDb } from "../app/firebase";
 
-type ReportPeriod = "daily" | "weekly" | "monthly" | "yearly";
+type ReportPeriod = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
 
 type Booking = {
   id: string;
@@ -358,6 +358,15 @@ export default function Reports() {
       });
     }
 
+    if (period === "quarterly") {
+      const quarterStart = new Date(selectedYear, Math.floor(selectedMonth / 3) * 3, 1);
+      const nextQuarter = new Date(selectedYear, Math.floor(selectedMonth / 3) * 3 + 3, 1);
+      return validBookings.filter((booking) => {
+        const date = parseDate(booking.checkIn);
+        return date ? date >= quarterStart && date < nextQuarter : false;
+      });
+    }
+
     const monthStart = getMonthStart(today);
     const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
 
@@ -368,23 +377,10 @@ export default function Reports() {
 
       return date >= monthStart && date < nextMonth;
     });
-  }, [period, validBookings, today]);
+  }, [period, validBookings, today, selectedMonth, selectedYear]);
 
   const collected = (booking: Booking) => collectedBookingAmount(booking);
-  const roomCollected = (booking: Booking) => {
-    const addOns = booking.addOns.reduce(
-      (sum, item) => sum + Number(item.price || 0),
-      0,
-    );
-    const recorded = Number.isFinite(booking.roomSubtotal)
-      ? booking.roomSubtotal
-      : booking.total - addOns - booking.reservationFee;
-    return booking.total > 0
-      ? Math.round(
-          (Math.max(0, recorded) / booking.total) * collected(booking) * 100,
-        ) / 100
-      : 0;
-  };
+  const roomCollected = (booking: Booking) => collectedRoomRevenue(booking);
 
   const totalRevenue = useMemo(
     () => periodBookings.reduce((sum, booking) => sum + collected(booking), 0),
@@ -450,6 +446,12 @@ export default function Reports() {
           date.getMonth() !== today.getMonth())
       )
         return;
+      if (
+        period === "quarterly" &&
+        (date.getFullYear() !== selectedYear ||
+          Math.floor(date.getMonth() / 3) !== Math.floor(selectedMonth / 3))
+      )
+        return;
       if (period === "yearly" && date.getFullYear() !== today.getFullYear())
         return;
       const method = payment.method?.toLowerCase() || "unknown";
@@ -475,7 +477,7 @@ export default function Reports() {
         count: data.count,
       }))
       .sort((a, b) => b.amount - a.amount);
-  }, [payments, period, today]);
+  }, [payments, period, today, selectedMonth, selectedYear]);
 
   const topGuests = useMemo(() => {
     const map = new Map<
@@ -548,7 +550,9 @@ export default function Reports() {
   );
 
   const exportReport = () => {
-    const label = `${period} ${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}`;
+    const label = period === "quarterly"
+      ? `quarterly Q${Math.floor(selectedMonth / 3) + 1} ${selectedYear}`
+      : `${period} ${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}`;
     exportWorkbook(`Resort Report ${label}`, [
       { name: "Summary", rows: [["Collected revenue", "Bookings"], [totalRevenue, totalBookings]] },
       {
@@ -565,13 +569,14 @@ export default function Reports() {
       },
       {
         name: "Bookings",
-        rows: [["Guest", "Room / Item", "Arrival", "Departure", "Booking value", "Paid", "Status"], ...periodBookings.map((item) => [
+        rows: [["Booking ID", "Guest", "Room / Item", "Arrival", "Departure", "Booking value", "Collected", "Status"], ...periodBookings.map((item) => [
+          displayRecordId(item.id),
           item.guest,
           item.room || item.packageName || item.serviceName || item.activityName || item.itemName,
           item.checkIn,
           item.checkOut,
           item.total,
-          item.amountPaid,
+          collected(item),
           item.status,
         ])],
       },
@@ -604,7 +609,7 @@ export default function Reports() {
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-4">
         <div className="flex gap-2">
-          {(["daily", "weekly", "monthly", "yearly"] as ReportPeriod[]).map(
+          {(["daily", "weekly", "monthly", "quarterly", "yearly"] as ReportPeriod[]).map(
             (p) => (
               <AsyncButton
                 key={p}
@@ -624,7 +629,15 @@ export default function Reports() {
         </div>
 
         <div className="flex gap-2">
-          <select
+          {period === "quarterly" ? <select
+            aria-label="Report quarter"
+            value={Math.floor(selectedMonth / 3)}
+            onChange={(event) => setSelectedMonth(Number(event.target.value) * 3)}
+            className="px-3 py-2 rounded-lg border text-sm"
+            style={{ borderColor: "rgba(37,99,235,0.2)" }}
+          >
+            {[0, 1, 2, 3].map((quarter) => <option key={quarter} value={quarter}>Q{quarter + 1}</option>)}
+          </select> : period !== "yearly" && <select
             aria-label="Report month"
             value={selectedMonth}
             onChange={(event) => setSelectedMonth(Number(event.target.value))}
@@ -638,7 +651,7 @@ export default function Reports() {
                 })}
               </option>
             ))}
-          </select>
+          </select>}
           <select
             aria-label="Report year"
             value={selectedYear}
@@ -928,59 +941,42 @@ export default function Reports() {
               fontFamily: "Georgia, serif",
             }}
           >
-            Payment Methods
+            Payment Method Distribution
           </h3>
 
           {paymentMethodData.length === 0 ? (
             <p className="text-sm text-gray-500">No payment records found.</p>
           ) : (
-            <div className="space-y-4">
-              {paymentMethodData.map((payment) => {
-                const total = paymentMethodData.reduce(
-                  (sum, item) => sum + item.amount,
-                  0,
-                );
-
-                const percentage =
-                  total > 0 ? Math.round((payment.amount / total) * 100) : 0;
-
-                return (
-                  <div key={payment.method}>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span
-                        style={{
-                          color: "#0f172a",
-                        }}
-                      >
-                        {payment.method}
-                      </span>
-
-                      <span
-                        style={{
-                          color: "#64748b",
-                        }}
-                      >
-                        {formatPeso(payment.amount)} ({payment.count} txns)
-                      </span>
-                    </div>
-
-                    <div
-                      className="h-2 rounded-full"
-                      style={{
-                        background: "#dbeafe",
-                      }}
-                    >
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${percentage}%`,
-                          background: "#1d4ed8",
-                        }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[480px] text-sm text-left">
+                <thead className="border-b text-gray-500">
+                  <tr>
+                    <th className="py-2 pr-3 font-medium">Payment method</th>
+                    <th className="py-2 pr-3 font-medium">Total amount</th>
+                    <th className="py-2 pr-3 font-medium">Percentage</th>
+                    <th className="py-2 font-medium">Transactions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paymentMethodData.map((payment) => {
+                    const total = paymentMethodData.reduce((sum, item) => sum + item.amount, 0);
+                    const percentage = total > 0 ? (payment.amount / total) * 100 : 0;
+                    return <tr key={payment.method} className="border-b last:border-0" style={{ borderColor: "rgba(37,99,235,0.1)" }}>
+                      <td className="py-3 pr-3 font-medium">{payment.method}</td>
+                      <td className="py-3 pr-3">{formatPeso(payment.amount)}</td>
+                      <td className="py-3 pr-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-20 rounded-full bg-blue-100">
+                            <div className="h-full rounded-full bg-blue-700" style={{ width: `${percentage}%` }} />
+                          </div>
+                          <span>{percentage.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className="py-3">{payment.count}</td>
+                    </tr>;
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

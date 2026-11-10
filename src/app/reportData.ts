@@ -84,6 +84,22 @@ export function servicePackageRevenue(records: Record<string, any>[]) {
     (a, b) => b.collected - a.collected || a.name.localeCompare(b.name),
   );
 }
+
+export function collectedRoomRevenue(record: Record<string, any>): number {
+  const collected = collectedBookingAmount(record);
+  const total = Number(String(
+    record.totalPrice ?? record.totalAmount ?? record.total ?? record.grandTotal ?? record.finalAmount ?? record.bookingTotal ?? record.amount ?? record.price ?? 0,
+  ).replace(/[₱,\s]/g, "").replace(/^PHP/i, ""));
+  if (!(collected > 0 && total > 0)) return 0;
+  const addOns = Array.isArray(record.addOns)
+    ? record.addOns.reduce((sum: number, item: { price?: unknown }) => sum + Number(item.price || 0), 0)
+    : 0;
+  const subtotal = Number(record.roomSubtotal);
+  const roomSubtotal = Number.isFinite(subtotal)
+    ? subtotal
+    : total - addOns - Number(record.reservationFee || 0);
+  return Math.round(Math.min(total, Math.max(0, roomSubtotal)) / total * collected * 100) / 100;
+}
 import {
   bookingRoomLabel,
   dateOnly,

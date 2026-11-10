@@ -24,6 +24,7 @@ import {
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { addDays, format, parseISO, subDays } from "date-fns";
 
 type BookingStatus =
   | "confirmed"
@@ -72,6 +73,8 @@ export default function Dashboard() {
   const [pendingPayments, setPendingPayments] = useState<PaymentAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [rangeStart, setRangeStart] = useState(() => format(subDays(new Date(), 6), "yyyy-MM-dd"));
+  const [rangeEnd, setRangeEnd] = useState(() => format(new Date(), "yyyy-MM-dd"));
 
   useEffect(() => {
     const loadDashboardData = async () => {
@@ -196,12 +199,6 @@ export default function Dashboard() {
     loadDashboardData();
   }, [recordRevision]);
 
-  const today = useMemo(() => {
-    const date = new Date();
-    date.setHours(0, 0, 0, 0);
-    return date;
-  }, []);
-
   const paidBookings = useMemo(
     () =>
       bookings.filter(
@@ -235,27 +232,27 @@ export default function Dashboard() {
     [bookings],
   );
 
+  const bookingsInRange = useMemo(
+    () => bookings.filter((booking) => booking.checkIn >= rangeStart && booking.checkIn <= rangeEnd),
+    [bookings, rangeStart, rangeEnd],
+  );
+
   const revenueData = useMemo(() => {
     const data: { date: string; revenue: number; bookings: number }[] = [];
+    const paidByDate = new Map<string, Booking[]>();
+    for (const booking of paidBookings) {
+      if (booking.checkIn < rangeStart || booking.checkIn > rangeEnd) continue;
+      const dayBookings = paidByDate.get(booking.checkIn) ?? [];
+      dayBookings.push(booking);
+      paidByDate.set(booking.checkIn, dayBookings);
+    }
 
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const day = String(date.getDate()).padStart(2, "0");
-      const dateKey = `${year}-${month}-${day}`;
-
-      const dayBookings = paidBookings.filter(
-        (booking) => booking.checkIn === dateKey,
-      );
+    for (let date = parseISO(rangeStart); date <= parseISO(rangeEnd); date = addDays(date, 1)) {
+      const dateKey = format(date, "yyyy-MM-dd");
+      const dayBookings = paidByDate.get(dateKey) ?? [];
 
       data.push({
-        date: date.toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-        }),
+        date: dateKey,
         revenue: dayBookings.reduce(
           (sum, booking) => sum + getRecognizedRevenue(booking),
           0,
@@ -265,36 +262,36 @@ export default function Dashboard() {
     }
 
     return data;
-  }, [paidBookings, today]);
+  }, [paidBookings, rangeStart, rangeEnd]);
 
   const bookingStatusData = useMemo(
     () => [
       {
         status: "Pending",
-        count: bookings.filter((b) => b.status === "pending").length,
+        count: bookingsInRange.filter((b) => b.status === "pending").length,
       },
       {
         status: "Payment Review",
-        count: bookings.filter((b) => b.status === "pending-payment-verification").length,
+        count: bookingsInRange.filter((b) => b.status === "pending-payment-verification").length,
       },
       {
         status: "Confirmed",
-        count: bookings.filter((b) => b.status === "confirmed").length,
+        count: bookingsInRange.filter((b) => b.status === "confirmed").length,
       },
       {
         status: "Checked In",
-        count: bookings.filter((b) => b.status === "checked-in").length,
+        count: bookingsInRange.filter((b) => b.status === "checked-in").length,
       },
       {
         status: "Checked Out",
-        count: bookings.filter((b) => b.status === "checked-out").length,
+        count: bookingsInRange.filter((b) => b.status === "checked-out").length,
       },
       {
         status: "Cancelled",
-        count: bookings.filter((b) => b.status === "cancelled").length,
+        count: bookingsInRange.filter((b) => b.status === "cancelled").length,
       },
     ],
-    [bookings],
+    [bookingsInRange],
   );
 
   const cardClass =
@@ -428,13 +425,50 @@ export default function Dashboard() {
         )}
       </section>
 
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className={headingClass}>Booking charts</h2>
+          <p className={mutedClass}>Choose check-in dates for both charts.</p>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1 text-sm text-foreground">
+            From
+            <input
+              type="date"
+              value={rangeStart}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (!next) return;
+                setRangeStart(next);
+                if (next > rangeEnd) setRangeEnd(next);
+              }}
+              className="h-10 rounded-lg border border-border bg-card px-3 text-foreground"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm text-foreground">
+            To
+            <input
+              type="date"
+              value={rangeEnd}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (!next) return;
+                setRangeEnd(next);
+                if (next < rangeStart) setRangeStart(next);
+              }}
+              className="h-10 rounded-lg border border-border bg-card px-3 text-foreground"
+            />
+          </label>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <section className={cardClass}>
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className={headingClass}>Revenue Trend</h2>
               <p className={`${mutedClass} mt-1`}>
-                Bookings with accepted payments by check-in date · Last 7 days
+                Accepted payments for bookings checking in during the selected dates
               </p>
             </div>
             <TrendingUp className="size-5 text-primary" />
@@ -460,6 +494,8 @@ export default function Dashboard() {
                 />
                 <XAxis
                   dataKey="date"
+                  tickFormatter={(value) => format(parseISO(String(value)), "MMM d")}
+                  interval="preserveStartEnd"
                   tick={{ fill: "currentColor", fontSize: 12 }}
                   tickLine={false}
                   axisLine={false}
@@ -474,6 +510,7 @@ export default function Dashboard() {
                   width={75}
                 />
                 <Tooltip
+                  labelFormatter={(value) => format(parseISO(String(value)), "MMM d, yyyy")}
                   formatter={(value, name) => [
                     name === "revenue"
                       ? formatPeso(Number(value))
@@ -502,7 +539,10 @@ export default function Dashboard() {
         </section>
 
         <section className={cardClass}>
-          <h2 className={`${headingClass} mb-5`}>Booking Status</h2>
+          <div className="mb-5">
+            <h2 className={headingClass}>Booking Status</h2>
+            <p className={`${mutedClass} mt-1`}>Bookings checking in during the selected dates</p>
+          </div>
 
           <div className="h-[300px] w-full">
             <ResponsiveContainer width="100%" height="100%">

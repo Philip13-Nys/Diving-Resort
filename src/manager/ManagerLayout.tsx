@@ -57,6 +57,7 @@ const navigation = [
   },
   { name: "Guest Records", href: "/manager/guests", icon: UserCircle },
   { name: "Reports", href: "/manager/reports", icon: FileText },
+  { name: "Commission Report", href: "/manager/commission", icon: DollarSign },
 ];
 
 export default function ManagerLayout() {

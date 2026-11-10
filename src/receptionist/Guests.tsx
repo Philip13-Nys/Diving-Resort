@@ -68,9 +68,8 @@ function GuestModal({
             { label: "Full Name", key: "name" as const },
             { label: "Email", key: "email" as const },
             { label: "Phone", key: "phone" as const },
-            { label: "Nationality", key: "nationality" as const },
           ].map((f) => (
-            <div key={f.key}>
+            <div key={f.key} className={f.key === "phone" ? "col-span-2" : ""}>
               <label
                 className="block text-xs mb-1"
                 style={{ color: "#4a7a7a" }}
@@ -338,7 +337,7 @@ export default function Guests() {
                     {selected.name}
                   </h3>
                   <p className="text-teal-300 text-sm">
-                    {selected.nationality} · {selected.visits} visit
+                    {selected.visits} visit
                     {selected.visits !== 1 ? "s" : ""}
                   </p>
                   <div className="flex gap-2 mt-2 flex-wrap">
