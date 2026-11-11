@@ -13,6 +13,16 @@ import {
   type ActivityRecord,
 } from "./activityAvailability";
 
+export function packageDiscountPercent(originalPrice: number, packagePrice: number): number {
+  if (!Number.isFinite(originalPrice) || originalPrice <= 0 || !Number.isFinite(packagePrice)) return 0;
+  return Math.max(0, Math.min(100, Math.round((1 - packagePrice / originalPrice) * 10000) / 100));
+}
+
+export function packagePriceFromDiscount(originalPrice: number, discount: number): number {
+  if (!Number.isFinite(originalPrice) || !Number.isFinite(discount)) return 0;
+  return Math.round(originalPrice * (1 - discount / 100) * 100) / 100;
+}
+
 export async function saveServiceConfiguration(
   kind: "services" | "packages",
   id: string | undefined,

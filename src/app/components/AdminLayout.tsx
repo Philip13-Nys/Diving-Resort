@@ -279,11 +279,7 @@ export default function AdminLayout() {
             )}
           </AsyncButton>
 
-          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-800 sm:text-base md:text-lg xl:text-xl">
-            Resort Management System
-          </h2>
-
-          <div className="hidden shrink-0 text-right text-sm text-gray-500 lg:block">
+          <div className="ml-auto hidden shrink-0 text-right text-sm text-gray-500 lg:block">
             {new Date().toLocaleDateString("en-PH", {
               weekday: "short",
               year: "numeric",

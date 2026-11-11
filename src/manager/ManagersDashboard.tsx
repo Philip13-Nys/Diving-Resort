@@ -309,7 +309,7 @@ const formatCurrency = (amount: number): string =>
     maximumFractionDigits: 2,
   })}`;
 
-export default function Dashboard() {
+export default function Dashboard({ embedded = false }: { embedded?: boolean }) {
   const recordRevision = useRecordRevision(
     "customer:Bookings,admin:reservations,admin:rooms",
   );
@@ -507,12 +507,12 @@ export default function Dashboard() {
   const hasRevenueActivity = revenueData.some((day) => day.bookings > 0 || day.revenue > 0);
 
   return (
-    <div className="min-w-0 space-y-6 p-4 sm:space-y-8 sm:p-6 lg:p-8">
+    <div className={`min-w-0 space-y-6 sm:space-y-8 ${embedded ? "" : "p-4 sm:p-6 lg:p-8"}`}>
       {/* Page heading */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900 sm:text-3xl">
-            Dashboard
+            {embedded ? "Manager Dashboard" : "Dashboard"}
           </h1>
           <p className="mt-2 text-sm text-gray-500 sm:text-base">
             Business operations overview
@@ -619,8 +619,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Quick actions */}
-      <section>
+      {!embedded && <section>
         <h2 className="mb-4 text-lg font-semibold text-gray-900 sm:text-xl">
           Quick Actions
         </h2>
@@ -649,7 +648,7 @@ export default function Dashboard() {
             );
           })}
         </div>
-      </section>
+      </section>}
 
       <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
         <Card className="min-w-0 overflow-hidden p-4 sm:p-6">

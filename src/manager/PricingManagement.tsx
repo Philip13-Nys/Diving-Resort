@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../app/firebase";
 import { createActivityLog } from "../app/activitylogss";
+import { packageDiscountPercent, packagePriceFromDiscount } from "../app/serviceConfiguration";
 
 type RoomType = {
   id: string;
@@ -52,6 +53,8 @@ export default function PricingManagement() {
   const [itemError, setItemError] = useState("");
   const [editingItem, setEditingItem] = useState<string | null>(null);
   const [itemPrice, setItemPrice] = useState("");
+  const [itemOriginalPrice, setItemOriginalPrice] = useState("");
+  const [itemDiscount, setItemDiscount] = useState("");
   const [savingItemPrice, setSavingItemPrice] = useState(false);
 
   const [reservationFee, setReservationFee] = useState("5");
@@ -268,32 +271,39 @@ export default function PricingManagement() {
   };
 
   const saveItemPrice = async (item: PricedItem) => {
-    const newPrice = Number(itemPrice);
-    if (itemPrice.trim() === "" || !Number.isFinite(newPrice) || newPrice < 0) {
-      alert("Please enter a valid nonnegative price.");
+    const originalPrice = Number(itemOriginalPrice);
+    const discount = Number(itemDiscount);
+    const newPrice = item.kind === "package"
+      ? packagePriceFromDiscount(originalPrice, discount)
+      : Number(itemPrice);
+    if ((item.kind === "service" && (itemPrice.trim() === "" || !Number.isFinite(newPrice) || newPrice < 0)) ||
+      (item.kind === "package" && (itemOriginalPrice.trim() === "" || !Number.isFinite(originalPrice) || originalPrice < 0 ||
+        itemDiscount.trim() === "" || !Number.isFinite(discount) || discount < 0 || discount > 100))) {
+      alert("Enter a valid price and a package discount from 0 to 100%.");
       return;
     }
 
     setSavingItemPrice(true);
     try {
-      const discount = item.kind === "package" && item.originalPrice
-        ? Math.max(0, Math.min(100, Math.round((1 - newPrice / item.originalPrice) * 100)))
-        : item.discount ?? 0;
       await updateDoc(doc(db, item.kind === "service" ? "services" : "packages", item.id),
         item.kind === "service"
           ? { price: newPrice }
-          : { packagePrice: newPrice, discount },
+          : { originalPrice, packagePrice: newPrice, discount },
       );
       setPricedItems((current) => current.map((entry) =>
         entry.id === item.id && entry.kind === item.kind
-          ? { ...entry, price: newPrice, discount }
+          ? { ...entry, price: newPrice, originalPrice: item.kind === "package" ? originalPrice : entry.originalPrice, discount: item.kind === "package" ? discount : entry.discount }
           : entry,
       ));
       setEditingItem(null);
       setItemPrice("");
+      setItemOriginalPrice("");
+      setItemDiscount("");
       void createActivityLog({
         action: item.kind === "service" ? "Updated Service Price" : "Updated Package Price",
-        details: `Updated ${item.kind} "${item.name}" from ₱${item.price.toLocaleString()} to ₱${newPrice.toLocaleString()}.`,
+        details: item.kind === "package"
+          ? `Updated package "${item.name}": original ₱${originalPrice.toLocaleString()}, package ₱${newPrice.toLocaleString()}, ${discount}% off.`
+          : `Updated service "${item.name}" from ₱${item.price.toLocaleString()} to ₱${newPrice.toLocaleString()}.`,
         status: "success",
       }).catch((error) => console.error("Failed to record price change:", error));
     } catch (error) {
@@ -546,7 +556,7 @@ export default function PricingManagement() {
                               <span className="text-blue-600 font-semibold">₱{item.price.toLocaleString()}</span>
                               {kind === "package" && item.originalPrice ? (
                                 <span className="ml-2 text-xs text-gray-500">
-                                  Original ₱{item.originalPrice.toLocaleString()} · {item.discount ?? 0}% off
+                                  Original ₱{item.originalPrice.toLocaleString()} · {packageDiscountPercent(item.originalPrice, item.price)}% off
                                 </span>
                               ) : null}
                             </td>
@@ -560,9 +570,13 @@ export default function PricingManagement() {
                                   if (editingItem === editKey) {
                                     setEditingItem(null);
                                     setItemPrice("");
+                                    setItemOriginalPrice("");
+                                    setItemDiscount("");
                                   } else {
                                     setEditingItem(editKey);
                                     setItemPrice(String(item.price));
+                                    setItemOriginalPrice(String(item.originalPrice ?? 0));
+                                    setItemDiscount(String(packageDiscountPercent(item.originalPrice ?? 0, item.price)));
                                   }
                                 }}
                               >
@@ -573,6 +587,33 @@ export default function PricingManagement() {
                           {editingItem === editKey && (
                             <tr className="bg-blue-50 border-b border-blue-100">
                               <td colSpan={4} className="px-4 py-4">
+                                {kind === "package" && (
+                                  <div className="max-w-md mb-3">
+                                    <label className="text-xs font-medium text-gray-600 block mb-1">Original Price (₱)</label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={itemOriginalPrice}
+                                      onChange={(event) => setItemOriginalPrice(event.target.value)}
+                                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                  </div>
+                                )}
+                                {kind === "package" && (
+                                  <div className="max-w-md mb-3">
+                                    <label className="text-xs font-medium text-gray-600 block mb-1">Discount (%)</label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      max="100"
+                                      step="0.01"
+                                      value={itemDiscount}
+                                      onChange={(event) => setItemDiscount(event.target.value)}
+                                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                  </div>
+                                )}
                                 <div className="max-w-md">
                                   <label className="text-xs font-medium text-gray-600 block mb-1">
                                     {kind === "service" ? "Service Price (₱)" : "Package Price (₱)"}
@@ -581,11 +622,16 @@ export default function PricingManagement() {
                                     type="number"
                                     min="0"
                                     step="0.01"
-                                    value={itemPrice}
-                                    onChange={(event) => setItemPrice(event.target.value)}
+                                    value={kind === "package"
+                                      ? itemOriginalPrice !== "" && itemDiscount !== ""
+                                        ? packagePriceFromDiscount(Number(itemOriginalPrice), Number(itemDiscount)) : ""
+                                      : itemPrice}
+                                    onChange={kind === "service" ? (event) => setItemPrice(event.target.value) : undefined}
+                                    readOnly={kind === "package"}
                                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                   />
                                 </div>
+                                {kind === "package" && <p className="mt-2 text-xs text-gray-600">Package price is calculated from the original price and discount.</p>}
                                 <div className="flex gap-2 mt-4">
                                   <Button
                                     size="sm"
@@ -600,7 +646,7 @@ export default function PricingManagement() {
                                     size="sm"
                                     variant="outline"
                                     disabled={savingItemPrice}
-                                    onClick={() => { setEditingItem(null); setItemPrice(""); }}
+                                    onClick={() => { setEditingItem(null); setItemPrice(""); setItemOriginalPrice(""); setItemDiscount(""); }}
                                   >
                                     Cancel
                                   </Button>

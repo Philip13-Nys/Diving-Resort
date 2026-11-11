@@ -1,4 +1,4 @@
-import { saveServiceConfiguration } from "../app/serviceConfiguration";
+import { packageDiscountPercent, packagePriceFromDiscount, saveServiceConfiguration } from "../app/serviceConfiguration";
 import { useActivityAvailability } from "../app/useActivityAvailability";
 import ActivityAvailabilityFields, {
   ActivityAvailabilitySummary,
@@ -107,6 +107,7 @@ export default function ServicesManagement() {
   const [packages, setPackages] = useState<Package[]>([]);
   const [editingService, setEditingService] = useState<Service | null>(null);
   const [editingPackage, setEditingPackage] = useState<Package | null>(null);
+  const [packagePricing, setPackagePricing] = useState({ originalPrice: "", discount: "" });
 
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState("");
@@ -162,7 +163,7 @@ export default function ServicesManagement() {
           serviceIds: data.serviceIds,
           originalPrice: Number(data.originalPrice || 0),
           packagePrice: Number(data.packagePrice || 0),
-          discount: Number(data.discount || 0),
+          discount: packageDiscountPercent(Number(data.originalPrice || 0), Number(data.packagePrice || 0)),
           status: data.status || "active",
         };
       });
@@ -405,18 +406,20 @@ export default function ServicesManagement() {
       await requireAccess("manager");
 
       const packageName = (data.get("name") as string).trim();
-      const packagePrice = Number(data.get("packagePrice"));
-      const discount = Number(data.get("discount"));
+      const originalPrice = Number(packagePricing.originalPrice);
+      const discount = Number(packagePricing.discount);
+      const packagePrice = packagePriceFromDiscount(originalPrice, discount);
       if (
         !packageName ||
-        !Number.isFinite(packagePrice) ||
-        packagePrice < 0 ||
+        packagePricing.originalPrice.trim() === "" ||
+        !Number.isFinite(originalPrice) ||
+        originalPrice < 0 ||
+        packagePricing.discount.trim() === "" ||
         !Number.isFinite(discount) ||
-        discount < 0 ||
-        discount > 100
+        discount < 0 || discount > 100
       )
         throw new Error(
-          "Enter a package name, nonnegative price, and discount from 0 to 100.",
+          "Enter a package name, original price, and discount from 0 to 100%.",
         );
 
       await saveServiceConfiguration("packages", editingPackage.id, {
@@ -426,7 +429,7 @@ export default function ServicesManagement() {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        originalPrice: Number(data.get("originalPrice")),
+        originalPrice,
         packagePrice,
         discount,
       });
@@ -455,18 +458,20 @@ export default function ServicesManagement() {
       await requireAccess("manager");
 
       const packageName = (data.get("name") as string).trim();
-      const packagePrice = Number(data.get("packagePrice"));
-      const discount = Number(data.get("discount"));
+      const originalPrice = Number(packagePricing.originalPrice);
+      const discount = Number(packagePricing.discount);
+      const packagePrice = packagePriceFromDiscount(originalPrice, discount);
       if (
         !packageName ||
-        !Number.isFinite(packagePrice) ||
-        packagePrice < 0 ||
+        packagePricing.originalPrice.trim() === "" ||
+        !Number.isFinite(originalPrice) ||
+        originalPrice < 0 ||
+        packagePricing.discount.trim() === "" ||
         !Number.isFinite(discount) ||
-        discount < 0 ||
-        discount > 100
+        discount < 0 || discount > 100
       )
         throw new Error(
-          "Enter a package name, nonnegative price, and discount from 0 to 100.",
+          "Enter a package name, original price, and discount from 0 to 100%.",
         );
 
       await saveServiceConfiguration("packages", undefined, {
@@ -476,7 +481,7 @@ export default function ServicesManagement() {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
-        originalPrice: Number(data.get("originalPrice")),
+        originalPrice,
         packagePrice,
         discount,
         status: "active",
@@ -501,6 +506,7 @@ export default function ServicesManagement() {
 
   const closeAddModal = () => {
     setShowForm(false);
+    setPackagePricing({ originalPrice: "", discount: "" });
     resetImageSelection();
     if (searchParams.has("action")) {
       const nextParams = new URLSearchParams(searchParams);
@@ -732,6 +738,9 @@ export default function ServicesManagement() {
                       name="originalPrice"
                       type="number"
                       min="0"
+                      step="0.01"
+                      value={packagePricing.originalPrice}
+                      onChange={(event) => setPackagePricing((current) => ({ ...current, originalPrice: event.target.value }))}
                       required
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
@@ -746,7 +755,10 @@ export default function ServicesManagement() {
                       name="packagePrice"
                       type="number"
                       min="0"
-                      required
+                      step="0.01"
+                      value={packagePricing.originalPrice !== "" && packagePricing.discount !== ""
+                        ? packagePriceFromDiscount(Number(packagePricing.originalPrice), Number(packagePricing.discount)) : ""}
+                      readOnly
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       placeholder="0"
                     />
@@ -762,8 +774,10 @@ export default function ServicesManagement() {
                     type="number"
                     min="0"
                     max="100"
+                    step="0.01"
+                    value={packagePricing.discount}
+                    onChange={(event) => setPackagePricing((current) => ({ ...current, discount: event.target.value }))}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="0"
                   />
                 </div>
 
@@ -1010,7 +1024,9 @@ export default function ServicesManagement() {
                     name="originalPrice"
                     type="number"
                     min="0"
-                    defaultValue={editingPackage.originalPrice}
+                    step="0.01"
+                    value={packagePricing.originalPrice}
+                    onChange={(event) => setPackagePricing((current) => ({ ...current, originalPrice: event.target.value }))}
                     required
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
@@ -1024,8 +1040,10 @@ export default function ServicesManagement() {
                     name="packagePrice"
                     type="number"
                     min="0"
-                    defaultValue={editingPackage.packagePrice}
-                    required
+                    step="0.01"
+                    value={packagePricing.originalPrice !== "" && packagePricing.discount !== ""
+                      ? packagePriceFromDiscount(Number(packagePricing.originalPrice), Number(packagePricing.discount)) : ""}
+                    readOnly
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -1040,7 +1058,9 @@ export default function ServicesManagement() {
                   type="number"
                   min="0"
                   max="100"
-                  defaultValue={editingPackage.discount}
+                  step="0.01"
+                  value={packagePricing.discount}
+                  onChange={(event) => setPackagePricing((current) => ({ ...current, discount: event.target.value }))}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -1262,7 +1282,10 @@ export default function ServicesManagement() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setEditingPackage(pkg)}
+                    onClick={() => {
+                      setPackagePricing({ originalPrice: String(pkg.originalPrice), discount: String(packageDiscountPercent(pkg.originalPrice, pkg.packagePrice)) });
+                      setEditingPackage(pkg);
+                    }}
                   >
                     <Edit className="w-4 h-4" />
                   </Button>

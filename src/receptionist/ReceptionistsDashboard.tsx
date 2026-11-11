@@ -1,6 +1,8 @@
 import { activityTimeLabel } from "../app/activityAvailability";
 import {
   assignedRoomIds,
+  dateOnly,
+  displayRecordId,
   normalizeInventory,
 } from "../app/bookingAvailability";
 import { useRecordRevision } from "../app/useBookingInventory";
@@ -22,7 +24,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { format, isSameDay, startOfDay } from "date-fns";
-import { collection, getDocs, Timestamp } from "firebase/firestore";
+import { collection, doc, getDocs, onSnapshot, Timestamp } from "firebase/firestore";
 import { useNavigate } from "react-router";
 import { customerDb, db } from "../app/firebase";
 
@@ -33,6 +35,8 @@ interface Booking {
 
   customerName?: string;
   customerEmail?: string;
+  email?: string;
+  fullName?: string;
   customerPhone?: string;
 
   guestName?: string;
@@ -41,6 +45,7 @@ interface Booking {
   roomId?: string;
   roomName?: string;
   roomType?: string;
+  roomTypeName?: string;
   room?: string;
 
   packageName?: string;
@@ -50,6 +55,7 @@ interface Booking {
   bookingType?: string;
   itemType?: string;
   bookingDate?: string;
+  reservationDate?: string;
   bookingTime?: string;
   name?: string;
 
@@ -153,15 +159,19 @@ const getActualCheckOut = (booking: Booking) => {
 };
 
 const getCustomerName = (booking: Booking) => {
-  return booking.guestName || booking.guest || booking.customerName || "Guest";
+  return booking.customerName || booking.guestName || booking.fullName || booking.guest || "Guest";
 };
 
 const getActivityKind = (booking: Booking) => {
-  const kinds = [booking.itemType, booking.bookingType].map((value) =>
+  const kinds = [booking.itemType, booking.bookingType, booking.type].map((value) =>
     String(value || "").trim().toLowerCase(),
   );
   if (kinds.includes("package")) return "Package";
   if (kinds.includes("service") || kinds.includes("activity")) return "Service";
+  if (!booking.roomTypeName && !booking.roomType) {
+    if (booking.packageName) return "Package";
+    if (booking.serviceName || booking.activityName) return "Service";
+  }
   return null;
 };
 
@@ -177,7 +187,15 @@ const getBookingStatus = (booking: Booking) => {
   return booking.status?.trim().toLowerCase().replace(/[\s_]+/g, "-") || "pending";
 };
 
-export default function ReceptionistsDashboard() {
+const validStayTime = (value: unknown): value is string =>
+  typeof value === "string" && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value);
+
+const formatStayTime = (value: string) => {
+  const [hour, minute] = value.split(":").map(Number);
+  return format(new Date(2000, 0, 1, hour, minute), "h:mm a");
+};
+
+export default function ReceptionistsDashboard({ embedded = false }: { embedded?: boolean }) {
   const recordRevision = useRecordRevision(
     "customer:Bookings,admin:reservations,admin:rooms",
   );
@@ -187,6 +205,8 @@ export default function ReceptionistsDashboard() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [pendingInquiries, setPendingInquiries] = useState<number | null>(null);
+  const [recentCheckInDate, setRecentCheckInDate] = useState("");
+  const [stayTimes, setStayTimes] = useState({ checkInTime: "14:00", checkOutTime: "11:00" });
 
   const today = startOfDay(new Date());
 
@@ -208,6 +228,29 @@ export default function ReceptionistsDashboard() {
       setPendingInquiries(null);
     },
   ), []);
+
+  useEffect(() => {
+    const values: Record<string, Record<string, unknown>> = {};
+    const ready = new Set<string>();
+    const unsubscribes = ["publicSettings", "systemSettings"].map((name) =>
+      onSnapshot(doc(db, name, "general"), (snapshot) => {
+        values[name] = snapshot.exists() ? snapshot.data() : {};
+        ready.add(name);
+        if (ready.size !== 2) return;
+        const published = values.publicSettings;
+        const internal = values.systemSettings;
+        setStayTimes({
+          checkInTime: validStayTime(published.checkInTime)
+            ? published.checkInTime
+            : validStayTime(internal.checkInTime) ? internal.checkInTime : "14:00",
+          checkOutTime: validStayTime(published.checkOutTime)
+            ? published.checkOutTime
+            : validStayTime(internal.checkOutTime) ? internal.checkOutTime : "11:00",
+        });
+      }, (error) => console.error("Unable to load stay times for schedule:", error)),
+    );
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+  }, []);
 
   const loadDashboard = async () => {
     try {
@@ -324,6 +367,29 @@ export default function ReceptionistsDashboard() {
     return counts;
   }, { total: 0, confirmed: 0, pending: 0, cancelled: 0 }), [bookings]);
 
+  const recentBookings = useMemo(() => {
+    const matchingBookings = [...bookings]
+      .filter((booking) => !["cancelled", "canceled", "rejected"].includes(getBookingStatus(booking)))
+      .filter((booking) => !recentCheckInDate || dateOnly(booking.checkIn || booking.bookingDate) === recentCheckInDate)
+      .sort((a, b) => {
+        const aDate = convertToDate(a.createdAt || a.bookingDate || a.reservationDate || a.checkIn)?.getTime() ?? 0;
+        const bDate = convertToDate(b.createdAt || b.bookingDate || b.reservationDate || b.checkIn)?.getTime() ?? 0;
+        return bDate - aDate || b.id.localeCompare(a.id);
+      });
+    return recentCheckInDate ? matchingBookings : matchingBookings.slice(0, 5);
+  }, [bookings, recentCheckInDate]);
+
+  const formatBookingDate = (value: unknown) => {
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return format(new Date(`${value}T12:00:00`), "MMM d, yyyy");
+    }
+    const date = convertToDate(value);
+    return date ? format(date, "MMM d, yyyy") : "—";
+  };
+
+  const formatCurrency = (value: number) =>
+    `₱${value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
   const formatTime = (value: any) => {
     const date = convertToDate(value);
 
@@ -333,7 +399,7 @@ export default function ReceptionistsDashboard() {
   };
 
   return (
-    <div className="min-h-full bg-gray-50 p-3 sm:p-4">
+    <div className={embedded ? "w-full min-w-0" : "min-h-full bg-gray-50 p-3 sm:p-4"}>
       <div className="w-full space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
@@ -401,7 +467,7 @@ export default function ReceptionistsDashboard() {
           ))}
         </div>
 
-        <div>
+        {!embedded && <div>
           <h2 className="mb-4 text-lg font-semibold text-gray-900">
             Quick Actions
           </h2>
@@ -435,7 +501,7 @@ export default function ReceptionistsDashboard() {
               );
             })}
           </div>
-        </div>
+        </div>}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="rounded-xl bg-white p-5 sm:p-6 shadow-sm min-h-[360px] max-h-[480px] flex flex-col">
@@ -467,14 +533,18 @@ export default function ReceptionistsDashboard() {
               ) : (
                 <>
                   {/* Check-ins */}
-                  {todaysCheckIns.map((booking) => (
+                  {todaysCheckIns.map((booking) => {
+                    const checkedIn = getBookingStatus(booking) === "checked-in";
+                    return (
                     <div
                       key={`checkin-${booking.id}`}
                       className="flex items-center gap-3 rounded-lg border border-gray-100 bg-white px-3 py-3 transition hover:bg-gray-50"
                     >
                       {/* Icon */}
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-100">
-                        <LogIn className="h-5 w-5 text-green-600" />
+                        {checkedIn
+                          ? <CheckCircle2 className="h-5 w-5 text-green-600" />
+                          : <LogIn className="h-5 w-5 text-green-600" />}
                       </div>
 
                       {/* Information */}
@@ -484,8 +554,10 @@ export default function ReceptionistsDashboard() {
                         </p>
 
                         <p className="mt-0.5 text-xs text-gray-500">
-                          Check-in ·{" "}
-                          {formatTime(booking.checkedInAt || booking.checkIn)}
+                          {checkedIn ? "Checked in" : "Check-in"}
+                          {checkedIn
+                            ? booking.checkedInAt ? ` · ${formatTime(booking.checkedInAt)}` : ""
+                            : ` · ${formatStayTime(stayTimes.checkInTime)}`}
                         </p>
 
                         <p className="mt-0.5 truncate text-xs text-gray-400">
@@ -499,10 +571,11 @@ export default function ReceptionistsDashboard() {
 
                       {/* Status */}
                       <span className="hidden shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-[11px] font-medium text-green-600 sm:inline-block">
-                        Check-in
+                        {checkedIn ? "Checked in" : "Check-in"}
                       </span>
                     </div>
-                  ))}
+                    );
+                  })}
 
                   {/* Check-outs */}
                   {todaysCheckOuts.map((booking) => (
@@ -523,7 +596,9 @@ export default function ReceptionistsDashboard() {
 
                         <p className="mt-0.5 text-xs text-gray-500">
                           Check-out ·{" "}
-                          {formatTime(booking.checkedOutAt || booking.checkOut)}
+                          {booking.checkedOutAt
+                            ? formatTime(booking.checkedOutAt)
+                            : formatStayTime(stayTimes.checkOutTime)}
                         </p>
 
                         <p className="mt-0.5 truncate text-xs text-gray-400">
@@ -610,6 +685,100 @@ export default function ReceptionistsDashboard() {
             </div>
           </div>
         </div>
+
+        {embedded && (
+          <section className="min-w-0 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+            <div className="flex flex-col justify-between gap-3 border-b border-gray-100 px-4 py-5 sm:flex-row sm:items-center sm:px-5">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold text-gray-900 sm:text-lg">Recent Bookings</h2>
+                <p className="mt-1 text-sm text-gray-500">{recentCheckInDate ? "Bookings checking in on the selected date" : "Newest reservations first"}</p>
+              </div>
+              <div className="flex flex-wrap items-end gap-2 self-start sm:self-center">
+                <label className="text-xs font-medium text-gray-600">
+                  Check-in date
+                  <input
+                    type="date"
+                    value={recentCheckInDate}
+                    onChange={(event) => setRecentCheckInDate(event.target.value)}
+                    className="mt-1 block h-9 rounded-lg border border-gray-300 bg-white px-3 text-sm text-gray-900"
+                  />
+                </label>
+                {recentCheckInDate && (
+                  <button
+                    type="button"
+                    onClick={() => setRecentCheckInDate("")}
+                    className="h-9 rounded-lg border border-gray-300 px-3 text-sm text-gray-600 hover:bg-gray-50"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {recentBookings.length > 0 ? (
+              <div className="w-full overflow-x-auto">
+                <table className="w-full min-w-[850px] border-collapse text-left">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      {["Booking ID", "Guest", "Booking", "Check-in", "Check-out", "Amount", "Status"].map((heading) => (
+                        <th key={heading} className="whitespace-nowrap px-4 py-3 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                          {heading}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentBookings.map((booking) => {
+                      const kind = getActivityKind(booking) || "Room";
+                      const subject = kind === "Room"
+                        ? (() => {
+                          const roomType = String(booking.roomTypeName || booking.roomType || booking.roomName || booking.room || "").trim();
+                          return roomType && !/^(?:room\s*)?\d+$/i.test(roomType) ? roomType : "Room booking";
+                        })()
+                        : getActivityName(booking) || `${kind} details pending`;
+                      const status = getBookingStatus(booking);
+                      const statusStyle = status === "checked-out"
+                        ? "bg-purple-100 text-purple-700"
+                        : status === "checked-in"
+                          ? "bg-green-100 text-green-700"
+                          : status === "confirmed"
+                            ? "bg-blue-100 text-blue-700"
+                            : "bg-amber-100 text-amber-700";
+                      const total = Number(booking.totalPrice ?? booking.totalAmount ?? booking.total ?? booking.amount ?? booking.price ?? 0);
+                      return (
+                        <tr key={booking.id} className="border-b border-gray-100 transition last:border-b-0 hover:bg-gray-50">
+                          <td className="whitespace-nowrap px-4 py-4 text-xs font-semibold text-gray-700">
+                            {displayRecordId(booking.bookingRef || booking.bookingId || booking.id)}
+                          </td>
+                          <td className="max-w-[190px] px-4 py-4">
+                            <p className="truncate text-xs font-semibold text-gray-900">{getCustomerName(booking)}</p>
+                            <p className="mt-1 truncate text-[10px] text-gray-500">{booking.customerEmail || booking.email || "No email provided"}</p>
+                          </td>
+                          <td className="max-w-[160px] px-4 py-4 text-xs text-gray-600">
+                            <span className="mr-1.5 inline-flex rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">{kind}</span>
+                            {subject}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-4 text-xs text-gray-600">{formatBookingDate(booking.checkIn || booking.bookingDate)}</td>
+                          <td className="whitespace-nowrap px-4 py-4 text-xs text-gray-600">{formatBookingDate(booking.checkOut || booking.bookingDate)}</td>
+                          <td className="whitespace-nowrap px-4 py-4 text-xs font-semibold text-gray-900">{formatCurrency(Number.isFinite(total) ? total : 0)}</td>
+                          <td className="whitespace-nowrap px-4 py-4">
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold capitalize ${statusStyle}`}>
+                              {status.replace(/-/g, " ")}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="px-5 py-8 text-center text-sm text-gray-500">
+                {loading ? "Loading recent bookings..." : recentCheckInDate ? "No bookings check in on this date" : "No bookings found"}
+              </p>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );

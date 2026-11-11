@@ -5,7 +5,6 @@ import { createHashRouter, Navigate } from "react-router-dom";
 import AdminLayout from "./components/AdminLayout";
 import Dashboard from "./components/Dashboard";
 import ManagerDashboard from "./components/ManagerDashboard";
-import ReceptionistDashboard from "./components/ReceptionistDashboard";
 import UserRoleManagement from "./components/UserRoleManagement";
 import PaymentConfiguration from "./components/PaymentConfiguration";
 import CommissionReport from "./components/CommissionReport";
@@ -48,7 +47,7 @@ export const router = createHashRouter([
     children: [
       { index: true, Component: Dashboard },
       { path: "manager", Component: ManagerDashboard },
-      { path: "receptionist", Component: ReceptionistDashboard },
+      { path: "receptionist", element: <ReceptionistsDashboard embedded /> },
       { path: "users", Component: UserRoleManagement },
       { path: "staff", element: <Navigate to="/admin" replace /> },
       { path: "audit-logs", element: <Navigate to="/manager/activity-logs" replace /> },

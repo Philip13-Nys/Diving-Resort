@@ -6,6 +6,20 @@ const access = load("src/app/auth.ts");
 const { validateTransition, checkInDateError } = load(
   "src/app/bookingOperations.ts",
 );
+const { packageDiscountPercent, packagePriceFromDiscount } = load("src/app/serviceConfiguration.ts");
+
+test("package discount follows original and package prices", () => {
+  assert.equal(packageDiscountPercent(2222, 1099), 50.54);
+  assert.equal(packageDiscountPercent(1000, 1000), 0);
+  assert.equal(packageDiscountPercent(1000, 0), 100);
+  assert.equal(packageDiscountPercent(0, 0), 0);
+});
+
+test("package price follows the entered discount and rounds to cents", () => {
+  assert.equal(packagePriceFromDiscount(2222, 50), 1111);
+  assert.equal(packagePriceFromDiscount(2222, 50.54), 1099);
+  assert.equal(packagePriceFromDiscount(999, 100), 0);
+});
 
 test("services allow same-day check-in without an overnight stay or room-date restriction", () => {
   const service = {

@@ -17,6 +17,7 @@ import { AsyncButton } from "./ui/async-action";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../firebase";
+import ManagersDashboard from "../../manager/ManagersDashboard";
 import {
   BedDouble,
   DoorOpen,
@@ -44,7 +45,7 @@ const tomorrowString = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 };
 
-export default function ManagerDashboard() {
+function ResortAvailability() {
   const recordRevision = useRecordRevision(
     "admin:services,admin:packages",
   );
@@ -438,6 +439,34 @@ export default function ManagerDashboard() {
         )}
       </section>
 
+    </div>
+  );
+}
+
+export default function ManagerDashboard() {
+  const [view, setView] = useState<"overview" | "availability">("overview");
+
+  return (
+    <div className="min-w-0 space-y-6">
+      <div className="flex flex-wrap gap-2" aria-label="Manager dashboard views">
+        <button
+          type="button"
+          aria-pressed={view === "overview"}
+          onClick={() => setView("overview")}
+          className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${view === "overview" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}
+        >
+          Dashboard
+        </button>
+        <button
+          type="button"
+          aria-pressed={view === "availability"}
+          onClick={() => setView("availability")}
+          className={`rounded-lg border px-4 py-2 text-sm font-medium transition-colors ${view === "availability" ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"}`}
+        >
+          Resort Availability
+        </button>
+      </div>
+      {view === "overview" ? <ManagersDashboard embedded /> : <ResortAvailability />}
     </div>
   );
 }
